@@ -1727,6 +1727,11 @@ img, video, canvas, svg { max-width: 100%; }
   // ============================================================
   const LS_KEY = 'po_coach_v1';
 
+  // Bump this whenever CONFIG.days / splitRotation / defaultExercises change
+  // so returning visitors' saved state picks up the new program instead of
+  // silently keeping whatever was seeded on their first visit.
+  const CONFIG_VERSION = 2;
+
   function buildDefaultExercises() {
     return CONFIG.defaultExercises.map((e, i) => Object.assign({
       id: 'seed_' + i + '_' + Date.now()
@@ -1743,6 +1748,15 @@ img, video, canvas, svg { max-width: 100%; }
     s = s || {};
     s.units = s.units || CONFIG.units || 'kg';
     s.gyms  = (Array.isArray(s.gyms)  && s.gyms.length)  ? s.gyms  : CONFIG.gyms.slice();
+
+    if (s.configVersion !== CONFIG_VERSION) {
+      s.days = CONFIG.days.slice();
+      s.exercises = buildDefaultExercises();
+      s.splitRotation = null;
+      s.splitAnchor = null;
+      s.configVersion = CONFIG_VERSION;
+    }
+
     s.days  = (Array.isArray(s.days)  && s.days.length)  ? s.days  : CONFIG.days.slice();
     s.exercises = Array.isArray(s.exercises) ? s.exercises : buildDefaultExercises();
     s.logs = (s.logs && typeof s.logs === 'object') ? s.logs : {};
