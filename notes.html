@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Notes · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+
+<style>
+:root {
+  --text-primary: #FAFAFA;
+  --text-secondary: #B8B6B0;
+  --text-tertiary: #76746E;
+  --success: #6BE3A4;
+  --warning: #F2C063;
+  --danger:  #FF6B6B;
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: #050506;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(circle at 82% 14%, rgba(224, 118, 88, 0.16), transparent 45%),
+    radial-gradient(circle at 18% 90%, rgba(180, 180, 200, 0.06), transparent 50%);
+  filter: blur(40px);
+  pointer-events: none;
+  z-index: -2;
+  animation: drift 36s ease-in-out infinite alternate;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
+  background-size: 3px 3px;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes drift {
+  0%   { transform: translate3d(0,0,0); }
+  100% { transform: translate3d(-22px, 14px, 0); }
+}
+
+.page { max-width: 1100px; margin: 0 auto; }
+
+.dash-title {
+  margin: 0 0 14px;
+  font-size: 28px; font-weight: 700;
+  letter-spacing: -0.025em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+@media (max-width: 480px) { .dash-title { font-size: 22px; } }
+
+.section { margin-top: 8px; }
+.section-title {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-tertiary);
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 12px;
+}
+.section-title::before {
+  content: ''; width: 18px; height: 1px;
+  background: var(--text-tertiary); opacity: 0.6;
+}
+.section-title::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent);
+}
+
+.gm-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+
+.empty-state {
+  text-align: center; font-size: 12px; font-style: italic;
+  color: var(--text-tertiary); padding: 14px 0;
+}
+
+.gm-input-wrap {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.gm-input {
+  flex: 1; min-width: 0;
+  padding: 11px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 14px; outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.gm-input::placeholder { color: var(--text-tertiary); }
+.gm-input:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+
+.gm-add {
+  padding: 11px 20px; border: 0; border-radius: 12px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #E8E5DD 100%);
+  color: #0A0A0B; font-family: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    0 2px 8px rgba(0,0,0,0.35),
+    0 8px 22px rgba(0,0,0,0.25);
+  transition: transform 0.1s, filter 0.15s;
+}
+.gm-add:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.gm-add:active { transform: translateY(0); }
+
+.gm-ghost {
+  padding: 11px 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px; background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gm-ghost:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); }
+
+/* ---- Notes-specific ---- */
+.notes-search-row { margin-bottom: 14px; }
+
+.notes-list { list-style: none; margin: 0; padding: 0; }
+.note-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px; margin-bottom: 8px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.note-row:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+.note-row-body { flex: 1; min-width: 0; }
+.note-row-title {
+  font-size: 14px; font-weight: 700; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.note-row-preview {
+  font-size: 12.5px; color: var(--text-tertiary); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.note-row-time {
+  font-size: 10.5px; color: var(--text-tertiary);
+  white-space: nowrap; margin-top: 4px;
+}
+.note-delete {
+  border: 0; background: transparent; color: var(--text-tertiary);
+  font-size: 18px; cursor: pointer; padding: 0 4px; flex-shrink: 0;
+  opacity: 0.5; transition: opacity 0.2s, color 0.2s;
+}
+.note-row:hover .note-delete { opacity: 1; }
+.note-delete:hover { color: var(--danger); }
+
+.editor-title {
+  width: 100%;
+  padding: 11px 14px; margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 16px; font-weight: 700; outline: none;
+}
+.editor-title:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.editor-body {
+  width: 100%; min-height: 260px; resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-secondary);
+  font-family: inherit; font-size: 14px; line-height: 1.6; outline: none;
+}
+.editor-body:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.editor-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 14px; gap: 8px; flex-wrap: wrap;
+}
+.editor-meta { font-size: 11px; color: var(--text-tertiary); }
+
+@media (max-width: 480px) {
+  body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
+  .gm-card { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1 class="dash-title">Notes</h1>
+
+  <!-- List view -->
+  <div class="section" id="listView">
+    <div class="section-title">All Notes</div>
+    <div class="gm-card">
+      <div class="notes-search-row gm-input-wrap">
+        <input class="gm-input" id="notesSearch" type="text" placeholder="Search notes…" autocomplete="off">
+        <button class="gm-add" id="notesNewBtn" type="button">+ New Note</button>
+      </div>
+      <ul class="notes-list" id="notesList"></ul>
+      <div class="empty-state" id="notesEmpty" style="display:none">No notes yet — start one above.</div>
+    </div>
+  </div>
+
+  <!-- Editor view -->
+  <div class="section" id="editorView" style="display:none">
+    <div class="section-title">Edit Note</div>
+    <div class="gm-card">
+      <input class="editor-title" id="editorTitle" type="text" placeholder="Title" autocomplete="off">
+      <textarea class="editor-body" id="editorBody" placeholder="Write something…"></textarea>
+      <div class="editor-actions">
+        <span class="editor-meta" id="editorMeta"></span>
+        <div style="display:flex;gap:8px">
+          <button class="gm-ghost" id="editorDeleteBtn" type="button">Delete</button>
+          <button class="gm-add" id="editorBackBtn" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+(function () {
+  'use strict';
+
+  const STORE_KEY = 'notes:items';
+
+  const listView   = document.getElementById('listView');
+  const editorView = document.getElementById('editorView');
+  const listEl      = document.getElementById('notesList');
+  const emptyEl     = document.getElementById('notesEmpty');
+  const searchEl    = document.getElementById('notesSearch');
+  const newBtn      = document.getElementById('notesNewBtn');
+  const titleEl     = document.getElementById('editorTitle');
+  const bodyEl      = document.getElementById('editorBody');
+  const metaEl      = document.getElementById('editorMeta');
+  const deleteBtn   = document.getElementById('editorDeleteBtn');
+  const backBtn     = document.getElementById('editorBackBtn');
+
+  let openId = null;
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function save(notes) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(notes));
+  }
+
+  function fmtTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (sameDay) return 'Today · ' + time;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ' + time;
+  }
+
+  function render() {
+    const q = searchEl.value.trim().toLowerCase();
+    let notes = load().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+    if (q) {
+      notes = notes.filter(n =>
+        (n.title || '').toLowerCase().includes(q) ||
+        (n.body || '').toLowerCase().includes(q)
+      );
+    }
+
+    listEl.innerHTML = '';
+    emptyEl.style.display = notes.length ? 'none' : 'block';
+
+    notes.forEach(note => {
+      const li = document.createElement('li');
+      li.className = 'note-row';
+
+      const body = document.createElement('div');
+      body.className = 'note-row-body';
+
+      const title = document.createElement('div');
+      title.className = 'note-row-title';
+      title.textContent = note.title || 'Untitled';
+
+      const preview = document.createElement('div');
+      preview.className = 'note-row-preview';
+      preview.textContent = (note.body || '').replace(/\s+/g, ' ').trim() || 'No content';
+
+      const time = document.createElement('div');
+      time.className = 'note-row-time';
+      time.textContent = fmtTime(note.updatedAt);
+
+      body.append(title, preview, time);
+
+      const del = document.createElement('button');
+      del.className = 'note-delete';
+      del.type = 'button';
+      del.textContent = '×';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete "' + (note.title || 'Untitled') + '"?')) return;
+        save(load().filter(n => n.id !== note.id));
+        render();
+      });
+
+      li.addEventListener('click', () => openEditor(note.id));
+      li.append(body, del);
+      listEl.appendChild(li);
+    });
+  }
+
+  function openEditor(id) {
+    openId = id;
+    const note = load().find(n => n.id === id);
+    if (!note) return;
+    titleEl.value = note.title || '';
+    bodyEl.value = note.body || '';
+    metaEl.textContent = 'Last edited ' + fmtTime(note.updatedAt);
+    listView.style.display = 'none';
+    editorView.style.display = 'block';
+    titleEl.focus();
+  }
+
+  function persistOpen() {
+    if (openId == null) return;
+    const notes = load();
+    const idx = notes.findIndex(n => n.id === openId);
+    if (idx === -1) return;
+    notes[idx].title = titleEl.value.trim();
+    notes[idx].body = bodyEl.value;
+    notes[idx].updatedAt = Date.now();
+    save(notes);
+  }
+
+  function closeEditor() {
+    persistOpen();
+    openId = null;
+    editorView.style.display = 'none';
+    listView.style.display = 'block';
+    render();
+  }
+
+  newBtn.addEventListener('click', () => {
+    const notes = load();
+    const note = { id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), title: '', body: '', updatedAt: Date.now() };
+    notes.push(note);
+    save(notes);
+    openEditor(note.id);
+  });
+
+  titleEl.addEventListener('blur', persistOpen);
+  bodyEl.addEventListener('blur', persistOpen);
+  backBtn.addEventListener('click', closeEditor);
+
+  deleteBtn.addEventListener('click', () => {
+    if (openId == null) return;
+    const note = load().find(n => n.id === openId);
+    if (!confirm('Delete "' + (note && note.title ? note.title : 'Untitled') + '"?')) return;
+    save(load().filter(n => n.id !== openId));
+    openId = null;
+    editorView.style.display = 'none';
+    listView.style.display = 'block';
+    render();
+  });
+
+  searchEl.addEventListener('input', render);
+
+  render();
+
+  if (window.initCloudSync) {
+    window.initCloudSync({
+      appKey: 'notes',
+      syncedKeys: [STORE_KEY],
+      onApplied: () => { if (openId == null) render(); }
+    });
+  }
+})();
+</script>
+</body>
+</html>
