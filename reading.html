@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Reading & Learning · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+
+<style>
+:root {
+  --text-primary: #FAFAFA;
+  --text-secondary: #B8B6B0;
+  --text-tertiary: #76746E;
+  --success: #6BE3A4;
+  --warning: #F2C063;
+  --danger:  #FF6B6B;
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: #050506;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(circle at 82% 14%, rgba(224, 118, 88, 0.16), transparent 45%),
+    radial-gradient(circle at 18% 90%, rgba(180, 180, 200, 0.06), transparent 50%);
+  filter: blur(40px);
+  pointer-events: none;
+  z-index: -2;
+  animation: drift 36s ease-in-out infinite alternate;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
+  background-size: 3px 3px;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes drift {
+  0%   { transform: translate3d(0,0,0); }
+  100% { transform: translate3d(-22px, 14px, 0); }
+}
+
+.page { max-width: 1100px; margin: 0 auto; }
+
+.dash-title {
+  margin: 0 0 14px;
+  font-size: 28px; font-weight: 700;
+  letter-spacing: -0.025em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+@media (max-width: 480px) { .dash-title { font-size: 22px; } }
+
+.section { margin-top: 8px; }
+.section-title {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-tertiary);
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 12px;
+}
+.section-title::before {
+  content: ''; width: 18px; height: 1px;
+  background: var(--text-tertiary); opacity: 0.6;
+}
+.section-title::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent);
+}
+
+.gm-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+
+.empty-state {
+  text-align: center; font-size: 12px; font-style: italic;
+  color: var(--text-tertiary); padding: 14px 0;
+}
+
+.gm-input-wrap {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.gm-input, .gm-select {
+  flex: 1; min-width: 0;
+  padding: 11px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 14px; outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.gm-input::placeholder { color: var(--text-tertiary); }
+.gm-input:focus, .gm-select:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.gm-select { flex: none; width: auto; cursor: pointer; }
+
+.gm-add {
+  padding: 11px 20px; border: 0; border-radius: 12px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #E8E5DD 100%);
+  color: #0A0A0B; font-family: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    0 2px 8px rgba(0,0,0,0.35),
+    0 8px 22px rgba(0,0,0,0.25);
+  transition: transform 0.1s, filter 0.15s;
+}
+.gm-add:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.gm-add:active { transform: translateY(0); }
+
+.gm-ghost {
+  padding: 11px 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px; background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gm-ghost:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); }
+
+/* ---- Reading-list specific ---- */
+.filter-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-pill {
+  padding: 7px 14px; border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-tertiary);
+  font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.filter-pill:hover { color: var(--text-secondary); }
+.filter-pill.active {
+  background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.24);
+  color: var(--text-primary);
+}
+
+.item-list { list-style: none; margin: 0; padding: 0; }
+.item-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px; margin-bottom: 8px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.item-row:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+.item-emoji { font-size: 20px; line-height: 1.3; flex-shrink: 0; }
+.item-row-body { flex: 1; min-width: 0; }
+.item-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.item-row-title {
+  font-size: 14px; font-weight: 700; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.status-pill {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.status-pill.want    { background: rgba(255,255,255,0.08); color: var(--text-tertiary); }
+.status-pill.progress{ background: rgba(242,192,99,0.15); color: var(--warning); }
+.status-pill.done     { background: rgba(107,227,164,0.15); color: var(--success); }
+.item-row-meta {
+  font-size: 12px; color: var(--text-tertiary); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-progress-track {
+  height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08);
+  margin-top: 8px; overflow: hidden; max-width: 220px;
+}
+.item-progress-fill { height: 100%; background: var(--warning); border-radius: 3px; }
+.item-stars { margin-top: 6px; font-size: 13px; letter-spacing: 2px; color: var(--warning); }
+.item-delete {
+  border: 0; background: transparent; color: var(--text-tertiary);
+  font-size: 18px; cursor: pointer; padding: 0 4px; flex-shrink: 0;
+  opacity: 0.5; transition: opacity 0.2s, color 0.2s;
+}
+.item-row:hover .item-delete { opacity: 1; }
+.item-delete:hover { color: var(--danger); }
+
+.editor-title {
+  width: 100%;
+  padding: 11px 14px; margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 16px; font-weight: 700; outline: none;
+}
+.editor-title:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.editor-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.editor-row .gm-input, .editor-row .gm-select { margin: 0; }
+.editor-field-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-tertiary); margin-bottom: 6px;
+}
+.editor-progress-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.editor-progress-row input[type="range"] { flex: 1; accent-color: var(--warning); }
+.editor-progress-num { font-size: 13px; font-weight: 700; color: var(--text-primary); min-width: 40px; text-align: right; }
+.editor-stars { display: flex; gap: 4px; margin-bottom: 14px; }
+.editor-star {
+  font-size: 24px; cursor: pointer; color: rgba(255,255,255,0.15);
+  transition: color 0.15s; background: none; border: 0; padding: 0; line-height: 1;
+}
+.editor-star.filled { color: var(--warning); }
+.editor-body {
+  width: 100%; min-height: 140px; resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-secondary);
+  font-family: inherit; font-size: 14px; line-height: 1.6; outline: none;
+}
+.editor-body:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.editor-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 14px; gap: 8px; flex-wrap: wrap;
+}
+.editor-meta { font-size: 11px; color: var(--text-tertiary); }
+
+@media (max-width: 480px) {
+  body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
+  .gm-card { padding: 16px; }
+  .editor-row { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1 class="dash-title">Reading & Learning</h1>
+
+  <!-- List view -->
+  <div class="section" id="listView">
+    <div class="section-title">All Items</div>
+    <div class="gm-card">
+      <div class="gm-input-wrap" style="margin-bottom:14px">
+        <input class="gm-input" id="itemSearch" type="text" placeholder="Search title or author…" autocomplete="off">
+        <select class="gm-select" id="itemNewType">
+          <option value="book">📖 Book</option>
+          <option value="course">🎓 Course</option>
+          <option value="article">📰 Article</option>
+          <option value="video">🎥 Video</option>
+        </select>
+        <button class="gm-add" id="itemNewBtn" type="button">+ Add</button>
+      </div>
+
+      <div class="filter-pills" id="filterPills">
+        <button class="filter-pill active" data-filter="all">All</button>
+        <button class="filter-pill" data-filter="want">Want to Read</button>
+        <button class="filter-pill" data-filter="progress">In Progress</button>
+        <button class="filter-pill" data-filter="done">Finished</button>
+      </div>
+
+      <ul class="item-list" id="itemsList"></ul>
+      <div class="empty-state" id="itemsEmpty" style="display:none">Nothing here yet — add your first book, course, article, or video above.</div>
+    </div>
+  </div>
+
+  <!-- Editor view -->
+  <div class="section" id="editorView" style="display:none">
+    <div class="section-title">Edit Item</div>
+    <div class="gm-card">
+      <input class="editor-title" id="editorTitle" type="text" placeholder="Title" autocomplete="off">
+
+      <div class="editor-row">
+        <div style="flex:1;min-width:140px">
+          <div class="editor-field-label">Type</div>
+          <select class="gm-select" id="editorType" style="width:100%">
+            <option value="book">📖 Book</option>
+            <option value="course">🎓 Course</option>
+            <option value="article">📰 Article</option>
+            <option value="video">🎥 Video</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:140px">
+          <div class="editor-field-label">Status</div>
+          <select class="gm-select" id="editorStatus" style="width:100%">
+            <option value="want">Want to Read</option>
+            <option value="progress">In Progress</option>
+            <option value="done">Finished</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="editor-row">
+        <div style="flex:1;min-width:140px">
+          <div class="editor-field-label">Author / Creator</div>
+          <input class="gm-input" id="editorAuthor" type="text" placeholder="Optional" style="width:100%">
+        </div>
+        <div style="flex:1;min-width:140px">
+          <div class="editor-field-label">Link</div>
+          <input class="gm-input" id="editorLink" type="url" placeholder="https://…" style="width:100%">
+        </div>
+      </div>
+
+      <div class="editor-field-label">Progress</div>
+      <div class="editor-progress-row">
+        <input type="range" id="editorProgress" min="0" max="100" step="5" value="0">
+        <span class="editor-progress-num" id="editorProgressNum">0%</span>
+      </div>
+
+      <div class="editor-field-label">Rating</div>
+      <div class="editor-stars" id="editorStars">
+        <button class="editor-star" data-val="1" type="button">★</button>
+        <button class="editor-star" data-val="2" type="button">★</button>
+        <button class="editor-star" data-val="3" type="button">★</button>
+        <button class="editor-star" data-val="4" type="button">★</button>
+        <button class="editor-star" data-val="5" type="button">★</button>
+      </div>
+
+      <div class="editor-field-label">Notes</div>
+      <textarea class="editor-body" id="editorNotes" placeholder="Thoughts, quotes, takeaways…"></textarea>
+
+      <div class="editor-actions">
+        <span class="editor-meta" id="editorMeta"></span>
+        <div style="display:flex;gap:8px">
+          <button class="gm-ghost" id="editorDeleteBtn" type="button">Delete</button>
+          <button class="gm-add" id="editorBackBtn" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+(function () {
+  'use strict';
+
+  const STORE_KEY = 'reading:items';
+
+  const TYPE_EMOJI = { book: '📖', course: '🎓', article: '📰', video: '🎥' };
+  const STATUS_LABEL = { want: 'Want to Read', progress: 'In Progress', done: 'Finished' };
+
+  const listView   = document.getElementById('listView');
+  const editorView = document.getElementById('editorView');
+  const listEl      = document.getElementById('itemsList');
+  const emptyEl     = document.getElementById('itemsEmpty');
+  const searchEl    = document.getElementById('itemSearch');
+  const newTypeEl   = document.getElementById('itemNewType');
+  const newBtn      = document.getElementById('itemNewBtn');
+  const pillsEl     = document.getElementById('filterPills');
+
+  const titleEl    = document.getElementById('editorTitle');
+  const typeEl     = document.getElementById('editorType');
+  const statusEl   = document.getElementById('editorStatus');
+  const authorEl   = document.getElementById('editorAuthor');
+  const linkEl     = document.getElementById('editorLink');
+  const progressEl = document.getElementById('editorProgress');
+  const progressNumEl = document.getElementById('editorProgressNum');
+  const starsEl    = document.getElementById('editorStars');
+  const notesEl    = document.getElementById('editorNotes');
+  const metaEl     = document.getElementById('editorMeta');
+  const deleteBtn  = document.getElementById('editorDeleteBtn');
+  const backBtn    = document.getElementById('editorBackBtn');
+
+  let openId = null;
+  let activeFilter = 'all';
+  let editRating = 0;
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function save(items) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(items));
+  }
+
+  function fmtTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (sameDay) return 'Today · ' + time;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ' + time;
+  }
+
+  function render() {
+    const q = searchEl.value.trim().toLowerCase();
+    let items = load().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+
+    if (activeFilter !== 'all') {
+      items = items.filter(it => it.status === activeFilter);
+    }
+    if (q) {
+      items = items.filter(it =>
+        (it.title || '').toLowerCase().includes(q) ||
+        (it.author || '').toLowerCase().includes(q)
+      );
+    }
+
+    listEl.innerHTML = '';
+    emptyEl.style.display = items.length ? 'none' : 'block';
+
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.className = 'item-row';
+
+      const emoji = document.createElement('div');
+      emoji.className = 'item-emoji';
+      emoji.textContent = TYPE_EMOJI[item.type] || '📖';
+
+      const body = document.createElement('div');
+      body.className = 'item-row-body';
+
+      const top = document.createElement('div');
+      top.className = 'item-row-top';
+
+      const title = document.createElement('div');
+      title.className = 'item-row-title';
+      title.textContent = item.title || 'Untitled';
+
+      const pill = document.createElement('span');
+      pill.className = 'status-pill ' + item.status;
+      pill.textContent = STATUS_LABEL[item.status] || 'Want to Read';
+
+      top.append(title, pill);
+
+      const meta = document.createElement('div');
+      meta.className = 'item-row-meta';
+      meta.textContent = item.author || '';
+
+      body.append(top);
+      if (item.author) body.append(meta);
+
+      if (item.status === 'progress' && item.progress > 0) {
+        const track = document.createElement('div');
+        track.className = 'item-progress-track';
+        const fill = document.createElement('div');
+        fill.className = 'item-progress-fill';
+        fill.style.width = item.progress + '%';
+        track.appendChild(fill);
+        body.appendChild(track);
+      } else if (item.status === 'done' && item.rating > 0) {
+        const stars = document.createElement('div');
+        stars.className = 'item-stars';
+        stars.textContent = '★'.repeat(item.rating) + '☆'.repeat(5 - item.rating);
+        body.appendChild(stars);
+      }
+
+      const del = document.createElement('button');
+      del.className = 'item-delete';
+      del.type = 'button';
+      del.textContent = '×';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete "' + (item.title || 'Untitled') + '"?')) return;
+        save(load().filter(it => it.id !== item.id));
+        render();
+      });
+
+      li.addEventListener('click', () => openEditor(item.id));
+      li.append(emoji, body, del);
+      listEl.appendChild(li);
+    });
+  }
+
+  function setStars(n) {
+    editRating = n;
+    Array.from(starsEl.children).forEach(btn => {
+      btn.classList.toggle('filled', Number(btn.dataset.val) <= n);
+    });
+  }
+
+  function openEditor(id) {
+    openId = id;
+    const item = load().find(it => it.id === id);
+    if (!item) return;
+    titleEl.value = item.title || '';
+    typeEl.value = item.type || 'book';
+    statusEl.value = item.status || 'want';
+    authorEl.value = item.author || '';
+    linkEl.value = item.link || '';
+    progressEl.value = item.progress || 0;
+    progressNumEl.textContent = (item.progress || 0) + '%';
+    setStars(item.rating || 0);
+    notesEl.value = item.notes || '';
+    metaEl.textContent = 'Last edited ' + fmtTime(item.updatedAt);
+    listView.style.display = 'none';
+    editorView.style.display = 'block';
+    titleEl.focus();
+  }
+
+  function persistOpen() {
+    if (openId == null) return;
+    const items = load();
+    const idx = items.findIndex(it => it.id === openId);
+    if (idx === -1) return;
+    items[idx].title = titleEl.value.trim();
+    items[idx].type = typeEl.value;
+    items[idx].status = statusEl.value;
+    items[idx].author = authorEl.value.trim();
+    items[idx].link = linkEl.value.trim();
+    items[idx].progress = Number(progressEl.value) || 0;
+    items[idx].rating = editRating;
+    items[idx].notes = notesEl.value;
+    items[idx].updatedAt = Date.now();
+    save(items);
+  }
+
+  function closeEditor() {
+    persistOpen();
+    openId = null;
+    editorView.style.display = 'none';
+    listView.style.display = 'block';
+    render();
+  }
+
+  newBtn.addEventListener('click', () => {
+    const items = load();
+    const item = {
+      id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title: '', type: newTypeEl.value, status: 'want',
+      author: '', link: '', progress: 0, rating: 0, notes: '',
+      updatedAt: Date.now()
+    };
+    items.push(item);
+    save(items);
+    openEditor(item.id);
+  });
+
+  [titleEl, typeEl, statusEl, authorEl, linkEl].forEach(el => {
+    el.addEventListener('blur', persistOpen);
+  });
+  typeEl.addEventListener('change', persistOpen);
+  statusEl.addEventListener('change', persistOpen);
+
+  progressEl.addEventListener('input', () => {
+    progressNumEl.textContent = progressEl.value + '%';
+  });
+  progressEl.addEventListener('change', persistOpen);
+
+  starsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.editor-star');
+    if (!btn) return;
+    const val = Number(btn.dataset.val);
+    setStars(val === editRating ? 0 : val);
+    persistOpen();
+  });
+
+  notesEl.addEventListener('blur', persistOpen);
+  backBtn.addEventListener('click', closeEditor);
+
+  deleteBtn.addEventListener('click', () => {
+    if (openId == null) return;
+    const item = load().find(it => it.id === openId);
+    if (!confirm('Delete "' + (item && item.title ? item.title : 'Untitled') + '"?')) return;
+    save(load().filter(it => it.id !== openId));
+    openId = null;
+    editorView.style.display = 'none';
+    listView.style.display = 'block';
+    render();
+  });
+
+  searchEl.addEventListener('input', render);
+
+  pillsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    activeFilter = btn.dataset.filter;
+    Array.from(pillsEl.children).forEach(p => p.classList.toggle('active', p === btn));
+    render();
+  });
+
+  render();
+
+  if (window.initCloudSync) {
+    window.initCloudSync({
+      appKey: 'reading',
+      syncedKeys: [STORE_KEY],
+      onApplied: () => { if (openId == null) render(); }
+    });
+  }
+})();
+</script>
+</body>
+</html>
