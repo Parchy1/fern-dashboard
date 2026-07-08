@@ -1690,6 +1690,53 @@ main { position: relative; }
   const TARGETS_KEY = 'cal:targets';
   const ENTRIES_KEY = 'cal:entries';
 
+  // ---------- Photo storage offload ----------
+  // Meal photos start as a local base64 dataUrl for instant preview, then get
+  // uploaded to Supabase Storage in the background — same pattern as the
+  // gym tracker's progress photos. Once uploaded, only the small public URL
+  // is kept in cal:entries (the base64 blob is dropped) so the synced
+  // payload stays tiny instead of every meal photo bloating the shared
+  // 'health' row and risking the whole push (macros included) failing.
+  const CAL_SUPABASE_URL = window.DASH_SUPABASE_URL || 'https://srajryooffirbroltjmg.supabase.co';
+  const CAL_SUPABASE_KEY = window.DASH_SUPABASE_KEY || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  let calSupa = null;
+  function getCalSupa() {
+    if (calSupa) return calSupa;
+    if (!window.supabase) return null;
+    try { calSupa = window.supabase.createClient(CAL_SUPABASE_URL, CAL_SUPABASE_KEY); } catch (e) { return null; }
+    return calSupa;
+  }
+  async function uploadMealPhotoToStorage(dataUrl) {
+    const supa = getCalSupa();
+    if (!supa) return null;
+    try {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const filename = 'meal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10) + '.jpg';
+      const { error } = await supa.storage.from('meal-photos').upload(filename, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) return null;
+      const { data } = supa.storage.from('meal-photos').getPublicUrl(filename);
+      return data ? data.publicUrl : null;
+    } catch (e) { return null; }
+  }
+  function migrateEntryPhoto(id, url) {
+    const arr = getEntries();
+    const idx = arr.findIndex(x => x.id === id);
+    if (idx === -1) return;
+    arr[idx].photoUrl = url;
+    delete arr[idx].photo;
+    setEntries(arr);
+    renderAll();
+  }
+  // One-time catch-up: any entry logged before this offload existed (or
+  // whose background upload never finished, e.g. the tab closed too soon)
+  // still carries its base64 photo — migrate those in the background too.
+  function migrateLegacyPhotos() {
+    getEntries().filter(e => e.photo && !e.photoUrl).forEach(e => {
+      uploadMealPhotoToStorage(e.photo).then((url) => { if (url) migrateEntryPhoto(e.id, url); });
+    });
+  }
+
   function calDateKey(d) {
     d = d || new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -1736,7 +1783,7 @@ main { position: relative; }
       row.className = 'cal-today-row';
       const thumb = document.createElement('img');
       thumb.className = 'cal-today-thumb';
-      if (e.photo) thumb.src = e.photo; else thumb.style.visibility = 'hidden';
+      if (e.photoUrl || e.photo) thumb.src = e.photoUrl || e.photo; else thumb.style.visibility = 'hidden';
       const bodyEl = document.createElement('div');
       bodyEl.className = 'cal-today-body';
       const items = Array.isArray(e.items) ? e.items : [];
@@ -1967,6 +2014,9 @@ main { position: relative; }
     const arr = getEntries(); arr.push(entry); setEntries(arr);
     resetLogForm();
     renderAll();
+    if (entry.photo) {
+      uploadMealPhotoToStorage(entry.photo).then((url) => { if (url) migrateEntryPhoto(entry.id, url); });
+    }
   });
 
   // ---------- Manual entry ----------
@@ -1995,6 +2045,7 @@ main { position: relative; }
 
   renderAll();
   window.__calRenderAll = renderAll;
+  migrateLegacyPhotos();
 })();
 </script>
 
