@@ -3651,6 +3651,11 @@ img, video, canvas, svg { max-width: 100%; }
   const $ = (id) => document.getElementById(id);
   const fab = $('nvFab'), panel = $('nvPanel'), body = $('nvBody'), input = $('nvInput');
   let busy = false, greeted = false;
+  // Running conversation history — without this, every message was sent as
+  // a brand-new single-turn request with no memory of anything said earlier
+  // in the same chat, which is why Nova seemed to "forget" things. Capped
+  // to the last 20 turns so very long sessions don't balloon the request.
+  let history = [];
 
   // Move the avatar + panel inside .po-shell so they anchor to the
   // top-right of the page content (not the far viewport corner).
@@ -3707,18 +3712,21 @@ img, video, canvas, svg { max-width: 100%; }
     addMsg('user', md(text));
     if (!key){ addMsg('coach', md("Paste your **Anthropic API key** on the Nova page first (the 🧠 tile on the home screen) — it's saved in this browser and I'll use it here too.")); return; }
     busy = true;
+    history.push({ role: 'user', content: text });
+    if (history.length > 20) history = history.slice(-20);
     const loading = addMsg('coach', '<span class="nv-dots"><i></i><i></i><i></i></span>');
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-        body: JSON.stringify({ model:'claude-opus-4-8', max_tokens:1024, system: SYS + gymContext(), messages:[{role:'user', content:text}] }),
+        body: JSON.stringify({ model:'claude-opus-4-8', max_tokens:1024, system: SYS + gymContext(), messages: history }),
       });
       const json = await res.json();
-      if (json.error){ loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy=false; return; }
+      if (json.error){ loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy=false; history.pop(); return; }
       const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
+      history.push({ role: 'assistant', content: reply });
       loading.innerHTML = md(reply);
-    } catch(e){ loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); }
+    } catch(e){ loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); history.pop(); }
     body.scrollTop = body.scrollHeight; busy = false;
   }
 
