@@ -1088,6 +1088,7 @@ main { position: relative; }
       <input type="file" id="calFileCamera" accept="image/*" capture="environment" style="display:none">
       <input type="file" id="calFileLibrary" accept="image/*" style="display:none">
       <img id="calPhotoPreview" class="cal-photo-preview" alt="">
+      <input class="stack-input" id="calPhotoContext" type="text" placeholder="Add context for the AI (optional) — e.g. 2 scoops protein powder, half portion, olive oil" style="width:100%;margin-bottom:12px;box-sizing:border-box;display:none">
       <button class="stack-add-btn cal-analyze-btn" id="calAnalyzeBtn" type="button" style="display:none">🔍 Analyze with AI</button>
       <div id="calAnalyzeStatus" class="cal-note" style="display:none"></div>
     </div>
@@ -1873,6 +1874,7 @@ main { position: relative; }
     pendingPhotoDataUrl = await compressPhoto(raw);
     $('calPhotoPreview').src = pendingPhotoDataUrl;
     $('calPhotoPreview').style.display = 'block';
+    $('calPhotoContext').style.display = 'block';
     $('calAnalyzeBtn').style.display = 'block';
     $('calAnalyzeStatus').style.display = 'none';
     $('calEditWrap').style.display = 'none';
@@ -1889,6 +1891,9 @@ main { position: relative; }
   const ANALYZE_SYS = "You are a nutrition-estimation assistant. Look at the food photo and identify each distinct food item, "
     + "estimate a realistic portion size from visual cues (plate size, comparison to utensils/hands if visible), and estimate calories, "
     + "protein (g), carbs (g), and fat (g) for EACH item, using plausible whole numbers like a careful home-cook/restaurant-portion estimator. "
+    + "The user may give you extra context alongside the photo (ingredients, brand names, portion size, how something was cooked). "
+    + "Treat anything they tell you as ground truth and prioritize it over your own visual guess for those specific details — only "
+    + "estimate visually for whatever they didn't mention. "
     + 'Respond with ONLY valid JSON (no markdown, no code fences, no extra text) matching exactly this schema: '
     + '{"items":[{"name":string,"calories":number,"protein":number,"carbs":number,"fat":number}],"note":string}. '
     + '"note" is one short sentence flagging this is a rough visual estimate the user should adjust if it looks off.';
@@ -1915,15 +1920,15 @@ main { position: relative; }
       const comma = pendingPhotoDataUrl.indexOf(',');
       const mediaType = pendingPhotoDataUrl.slice(5, comma).split(';')[0] || 'image/jpeg';
       const b64 = pendingPhotoDataUrl.slice(comma + 1);
+      const userContext = $('calPhotoContext').value.trim();
+      const content = [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } }];
+      content.push({ type: 'text', text: userContext ? ('Analyze this meal. Extra context from the user: ' + userContext) : 'Analyze this meal.' });
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({
           model: 'claude-opus-4-8', max_tokens: 900, system: ANALYZE_SYS,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-            { type: 'text', text: 'Analyze this meal.' }
-          ] }]
+          messages: [{ role: 'user', content: content }]
         }),
       });
       const json = await res.json();
@@ -1984,6 +1989,8 @@ main { position: relative; }
     pendingPhotoDataUrl = null;
     $('calPhotoPreview').style.display = 'none';
     $('calPhotoPreview').removeAttribute('src');
+    $('calPhotoContext').style.display = 'none';
+    $('calPhotoContext').value = '';
     $('calAnalyzeBtn').style.display = 'none';
     $('calAnalyzeStatus').style.display = 'none';
     $('calFileCamera').value = '';
