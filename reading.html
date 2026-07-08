@@ -535,6 +535,12 @@ body::after {
     openId = null;
     editorView.style.display = 'none';
     listView.style.display = 'block';
+    // Reset the filter/search so whatever was just saved is guaranteed to
+    // be visible — otherwise a leftover "In Progress" filter or search term
+    // can hide the item you just added, making it look like it never saved.
+    activeFilter = 'all';
+    Array.from(pillsEl.children).forEach(p => p.classList.toggle('active', p.dataset.filter === 'all'));
+    searchEl.value = '';
     render();
   }
 
