@@ -2009,6 +2009,12 @@ main { position: relative; }
   const $ = (id) => document.getElementById(id);
   const fab = $('nvFab'), panel = $('nvPanel'), body = $('nvBody'), input = $('nvInput');
   let busy = false, greeted = false;
+  // Running conversation history — without this, every message was sent as
+  // a brand-new single-turn request with no memory of anything said earlier
+  // in the same chat (e.g. "I want to cut, moderately active" then "175lbs,
+  // 1lb/week" would arrive with zero memory of the first message, so Nova
+  // couldn't confidently commit to targets). Capped to the last 20 turns.
+  let history = [];
 
   function savedKey() { try { return localStorage.getItem(KEY_LS) || ''; } catch (e) { return ''; } }
   function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
@@ -2066,21 +2072,27 @@ main { position: relative; }
     addMsg('user', md(text));
     if (!key) { addMsg('coach', md("Paste your **Anthropic API key** on the Nova page first (the 🧠 tile on the home screen) — it's saved in this browser and I'll use it here too.")); return; }
     busy = true;
+    history.push({ role: 'user', content: text });
+    if (history.length > 20) history = history.slice(-20);
     const loading = addMsg('coach', '<span class="nv-dots"><i></i><i></i><i></i></span>');
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, system: SYS + nutritionContext(), messages: [{ role: 'user', content: text }] }),
+        body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, system: SYS + nutritionContext(), messages: history }),
       });
       const json = await res.json();
-      if (json.error) { loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy = false; return; }
+      if (json.error) { loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy = false; history.pop(); return; }
       const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
+      // Store the raw reply (including the ```json fence) in history so
+      // follow-up turns stay consistent with what Nova actually said — only
+      // the on-screen bubble shows the stripped/pretty version.
+      history.push({ role: 'assistant', content: reply });
       const { display, applied } = applySetTargetsIfPresent(reply);
       let html = md(display || reply);
       if (applied) html += '<div style="margin-top:8px;padding:8px 10px;background:rgba(107,227,164,0.12);border-radius:8px;font-size:12px;color:#6BE3A4">✅ Goals updated: ' + applied.calories + ' cal · ' + applied.protein + 'p / ' + applied.carbs + 'c / ' + applied.fat + 'f</div>';
       loading.innerHTML = html;
-    } catch (e) { loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); }
+    } catch (e) { loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); history.pop(); }
     body.scrollTop = body.scrollHeight; busy = false;
   }
 

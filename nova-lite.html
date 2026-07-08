@@ -176,11 +176,18 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
     "Dashboard data as JSON:\n";
 
   let busy = false;
+  // Running conversation history — without this, every message was sent as
+  // a brand-new single-turn request with no memory of anything said earlier
+  // in the same chat, which is why Nova seemed to "forget" things. Capped
+  // to the last 20 turns so very long sessions don't balloon the request.
+  let history = [];
   async function ask(text){
     text = (text||'').trim(); if (!text || busy) return;
     const key = savedKey();
     if (!key){ addCoach('- Paste your **Anthropic API key** above first, then ask me again.'); return; }
     busy = true; addUser(text); input.value = '';
+    history.push({ role: 'user', content: text });
+    if (history.length > 20) history = history.slice(-20);
     setOrb('think');
     const loading = addCoach('<span class="dots"><i></i><i></i><i></i></span>');
     try {
@@ -196,17 +203,19 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
           model: 'claude-opus-4-8',
           max_tokens: 1024,
           system: SYS + JSON.stringify(dashboardData()),
-          messages: [{ role: 'user', content: text }],
+          messages: history,
         }),
       });
       const json = await res.json();
-      if (json.error){ loading.querySelector('div:last-child').innerHTML = render('- ' + (json.error.message || 'Something went wrong — check your API key.')); setOrb(''); busy = false; return; }
+      if (json.error){ loading.querySelector('div:last-child').innerHTML = render('- ' + (json.error.message || 'Something went wrong — check your API key.')); setOrb(''); busy = false; history.pop(); return; }
       const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
+      history.push({ role: 'assistant', content: reply });
       loading.querySelector('div:last-child').innerHTML = render(reply);
       setOrb('happy'); setTimeout(() => setOrb(''), 2500);
     } catch(e){
       loading.querySelector('div:last-child').innerHTML = render('- Could not reach Anthropic — check your connection and key.');
       setOrb('');
+      history.pop();
     }
     busy = false;
   }
