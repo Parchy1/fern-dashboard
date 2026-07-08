@@ -800,13 +800,18 @@ body::after {
 
   render();
 
-  if (window.initCloudSync) {
+  // Deferred until DOMContentLoaded: sync.js is loaded with `defer`, so it
+  // hasn't run yet at the point this inline script executes during parsing
+  // — checking window.initCloudSync synchronously here would always find
+  // it undefined and silently skip sync setup entirely.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.initCloudSync) return;
     window.initCloudSync({
       appKey: 'reading',
       syncedKeys: [STORE_KEY],
       onApplied: () => { if (openId == null) render(); }
     });
-  }
+  });
 })();
 </script>
 

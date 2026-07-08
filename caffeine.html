@@ -631,10 +631,15 @@ body::after {
   setInterval(()=>{ if(scrubT==null) renderAll(); }, 60000);
 
   /* ============ Cloud sync ============ */
-  if(window.initCloudSync){
+  // Deferred until DOMContentLoaded: sync.js is loaded with `defer`, so it
+  // hasn't run yet at the point this inline script executes during parsing
+  // — checking window.initCloudSync synchronously here would always find
+  // it undefined and silently skip sync setup entirely.
+  document.addEventListener('DOMContentLoaded', function(){
+    if(!window.initCloudSync) return;
     window.initCloudSync({ appKey:'caffeine', syncedKeys:[LOGS_KEY,CUSTOM_KEY],
       onApplied:function(){ logs=loadJSON(LOGS_KEY,[]); custom=loadJSON(CUSTOM_KEY,[]); renderResults($('search').value); renderAll(); } });
-  }
+  });
 })();
 </script>
 </body>

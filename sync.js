@@ -162,6 +162,16 @@
 
     window.addEventListener('beforeunload', flushOnUnload);
     window.addEventListener('pagehide', flushOnUnload);
+    // Mobile Safari (and most mobile browsers) frequently do NOT fire
+    // beforeunload/pagehide when a tab is merely backgrounded — e.g.
+    // switching apps or locking the phone right after making an edit.
+    // visibilitychange reliably fires in that case, so use it as a backup
+    // flush trigger — otherwise a pending debounced push can get frozen
+    // mid-timer and never reach the server, making the edit look "stuck"
+    // on that device until the page happens to be reopened and edited again.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushOnUnload();
+    });
     window.addEventListener('storage', (e) => {
       if (e.key && matches(e.key)) schedulePush();
     });
