@@ -3637,6 +3637,7 @@ img, video, canvas, svg { max-width: 100%; }
     <button class="nv-chip" data-q="Give me an overview of how everything is going — bodyweight trend, training consistency, and what to focus on next.">📊 Overview</button>
     <button class="nv-chip" data-q="How is my bodyweight trending and am I on track?">⚖️ Weight</button>
     <button class="nv-chip" data-q="Look at my recent workouts — am I progressing and what should I push next?">💪 Lifts</button>
+    <button class="nv-chip" id="nvBodyFatChip" type="button">🩻 Est. body fat</button>
   </div>
   <div class="nv-foot">
     <input class="nv-input" id="nvInput" type="text" placeholder="Ask Nova…" autocomplete="off">
@@ -3721,6 +3722,91 @@ img, video, canvas, svg { max-width: 100%; }
     body.scrollTop = body.scrollHeight; busy = false;
   }
 
+  // ============================================================
+  // BODY FAT ESTIMATE — a separate, image-carrying request (the normal
+  // ask() above never sends photo bytes, only metadata). Sends the most
+  // recent progress photos as vision content blocks, with a system prompt
+  // that anchors the estimate to concrete visual landmarks per sex and
+  // forces a reasoned range instead of a single fake-precise number.
+  // ============================================================
+  function fmtPhotoDate(key) {
+    try {
+      const [y, m, d] = String(key).split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      const mons = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return mons[dt.getMonth()] + ' ' + dt.getDate();
+    } catch (e) { return key || 'unknown date'; }
+  }
+  async function photoToImageBlock(p) {
+    const src = p.dataUrl || p.url;
+    if (!src) return null;
+    try {
+      if (src.indexOf('data:') === 0) {
+        const comma = src.indexOf(',');
+        const mediaType = src.slice(5, comma).split(';')[0] || 'image/jpeg';
+        return { type: 'image', source: { type: 'base64', media_type: mediaType, data: src.slice(comma + 1) } };
+      }
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const mediaType = blob.type || 'image/jpeg';
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } };
+    } catch (e) { return null; }
+  }
+  function bodyFatSys(sex) {
+    const landmarks = (String(sex || '').toLowerCase() === 'female')
+      ? "The user is female. Visual landmarks to weigh: ~14-17% shows visible ab separation and limb vascularity; ~18-22% shows some ab definition, a flatter stomach, visible waist taper; ~23-28% is athletic/toned but soft, little ab visibility, hourglass silhouette intact; ~29-35% shows a fuller midsection, less muscle definition, rounder limbs; 36%+ shows notable fat storage in midsection/hips/thighs with minimal visible muscle separation."
+      : "The user is male (or sex unknown — use male landmarks as the default reference). Visual landmarks to weigh: ~6-9% shows striated abs, visible vascularity, lean face; ~10-14% shows visible abs without heavy striation, defined obliques; ~15-19% shows an ab outline but a thicker waist, less separation; ~20-24% shows no visible abs, a soft midsection, rounder face; ~25-30% shows visible belly overhang, less jaw/neck definition; 31%+ shows significant midsection fat, minimal visible muscle separation.";
+    return "You are Nova, an AI fitness coach giving a VISUAL body-fat-percentage estimate from progress photos. "
+      + "This is inherently imprecise — even experienced coaches' single-photo visual estimates are typically off by 4-5 percentage points, and lighting, pose, and camera angle change how lean someone looks. Be upfront about that; never present the number as a measurement. "
+      + landmarks + " "
+      + "Look at ALL the provided photos together — they may be different dates/angles of the same person — and reason step by step through concrete visible markers BEFORE concluding: waist/midsection shape, visible ab outline, vascularity, muscle separation, face and neck fullness, any love-handle or lower-back fat. If the photos are inconsistent (different lighting, pose, distance) say so and how it affects your confidence. "
+      + "Then give exactly: (1) a body-fat RANGE, not a single number (e.g. '19-23%'), (2) 2-3 short bullets citing the specific visual markers that drove the estimate, (3) one line noting this is a rough visual read, not a measurement. Keep the whole reply under ~160 words.";
+  }
+  async function askBodyFat() {
+    if (busy) return;
+    const key = savedKey();
+    addMsg('user', md('🩻 Estimate my body fat % from my progress photos'));
+    if (!key) { addMsg('coach', md("Paste your **Anthropic API key** on the Nova page first (the 🧠 tile on the home screen) — it's saved in this browser and I'll use it here too.")); return; }
+    const photosRaw = readLS('po_coach_photos', []) || [];
+    const photos = Array.isArray(photosRaw) ? photosRaw : [];
+    if (!photos.length) { addMsg('coach', md("You don't have any progress photos yet — add one from **Progress Photos** and I'll take a look.")); return; }
+    busy = true;
+    const loading = addMsg('coach', '<span class="nv-dots"><i></i><i></i><i></i></span>');
+    try {
+      const recent = photos.slice(0, 4); // newest-first
+      const blocks = [];
+      for (const p of recent) {
+        const img = await photoToImageBlock(p);
+        if (img) {
+          blocks.push({ type: 'text', text: 'Photo from ' + fmtPhotoDate(p.dateKey) + ':' });
+          blocks.push(img);
+        }
+      }
+      if (!blocks.length) {
+        loading.innerHTML = md('- Could not load your photos for analysis — try again in a moment.');
+        busy = false; return;
+      }
+      blocks.push({ type: 'text', text: 'Give me your best visual body-fat estimate based on these photos.' });
+      const prof = (readLS('po_water_v1', {}) || {}).profile || {};
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+        body: JSON.stringify({ model:'claude-opus-4-8', max_tokens:700, system: bodyFatSys(prof.sex), messages:[{role:'user', content: blocks}] }),
+      });
+      const json = await res.json();
+      if (json.error){ loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy=false; return; }
+      const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
+      loading.innerHTML = md(reply);
+    } catch(e){ loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); }
+    body.scrollTop = body.scrollHeight; busy = false;
+  }
+
   function openPanel(){
     panel.classList.add('open');
     if (!greeted){ greeted = true; addMsg('coach', md("Hey — I'm Nova, your coach. I can see your weight log, workouts and progress photos. Tap **Overview** or ask me anything.")); }
@@ -3732,7 +3818,8 @@ img, video, canvas, svg { max-width: 100%; }
   $('nvClose').addEventListener('click', closePanel);
   $('nvSend').addEventListener('click', ()=>{ const t=input.value; input.value=''; ask(t); });
   input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ const t=input.value; input.value=''; ask(t); } });
-  document.querySelectorAll('.nv-chip').forEach(c=> c.addEventListener('click', ()=> ask(c.getAttribute('data-q'))));
+  document.querySelectorAll('.nv-chip[data-q]').forEach(c=> c.addEventListener('click', ()=> ask(c.getAttribute('data-q'))));
+  $('nvBodyFatChip').addEventListener('click', askBodyFat);
 })();
 </script>
 
