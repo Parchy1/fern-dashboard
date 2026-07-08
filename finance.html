@@ -3214,6 +3214,44 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const rate = exchangeRates[ccy] || 1;
       const amountCHF = aRaw / rate;
       const parsed = parseFromValue(fEl ? fEl.value : '');
+
+      // Auto-deduct from the chosen account immediately, same as the
+      // manual "Deduct from net worth" flow, so placing an order affects
+      // net worth right away instead of requiring a second click.
+      let deductedAt = null, pctAtDeduction = null, deductedFrom = null;
+      const items = parsed.name ? (storeGet('nw:' + parsed.cat) || []) : [];
+      const itemIdx = parsed.name ? items.findIndex(it => String(it.name) === String(parsed.name)) : -1;
+      if (itemIdx >= 0) {
+        const current = Number(items[itemIdx].amount) || 0;
+        if (current < amountCHF - 0.005) {
+          if (!confirm('"' + items[itemIdx].name + '" doesn\'t have enough — deduct anyway? (it will go negative)')) {
+            // User declined the overdraw — add the order without deducting,
+            // same as before, so they can deduct manually once funded.
+            const arr = storeGet('incoming_orders') || [];
+            arr.push({
+              id: 'o_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
+              name: n, amount: amountCHF, entered_amount: aRaw, entered_currency: ccy,
+              fromCat: parsed.cat || 'bank', fromAccount: parsed.name || null,
+              date: dEl && dEl.value ? dEl.value : null, ts: Date.now(),
+              deductedAt: null, pctAtDeduction: null, deductedFrom: null
+            });
+            storeSet('incoming_orders', arr);
+            nEl.value = ''; aEl.value = '';
+            if (dEl) dEl.value = '';
+            updateOrdPreview();
+            renderOrders();
+            return;
+          }
+        }
+        const grandBefore = nwGrandCHF();
+        pctAtDeduction = grandBefore > 0 ? (amountCHF / grandBefore) * 100 : 0;
+        items[itemIdx].amount = current - amountCHF;
+        storeSet('nw:' + parsed.cat, items);
+        logActivity(parsed.cat, items[itemIdx].name, -amountCHF, 'edit');
+        deductedAt = Date.now();
+        deductedFrom = { cat: parsed.cat, name: items[itemIdx].name };
+      }
+
       const arr = storeGet('incoming_orders') || [];
       arr.push({
         id: 'o_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
@@ -3225,15 +3263,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         fromAccount: parsed.name || null,    // the actual NW item the user picked
         date: dEl && dEl.value ? dEl.value : null,
         ts: Date.now(),
-        deductedAt: null,
-        pctAtDeduction: null,
-        deductedFrom: null
+        deductedAt: deductedAt,
+        pctAtDeduction: pctAtDeduction,
+        deductedFrom: deductedFrom
       });
       storeSet('incoming_orders', arr);
       nEl.value = ''; aEl.value = '';
       if (dEl) dEl.value = '';
       updateOrdPreview();
-      renderOrders();
+      if (deductedAt) { renderAllNetWorth(); } else { renderOrders(); }
     } catch (e) { console.error('ordAdd failed', e); }
   }
   window.__addOrder = doOrdAdd;
