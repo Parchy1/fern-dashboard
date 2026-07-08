@@ -18,6 +18,23 @@
   const SUPABASE_URL = (typeof window !== 'undefined' && window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SUPABASE_KEY = (typeof window !== 'undefined' && window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
 
+  // Tiny self-contained toast so a persistent sync failure is actually
+  // visible instead of failing silently forever — every previous "why
+  // didn't it sync" report turned out to have no way to tell push/pull
+  // even ran, let alone failed. No dependency on any page's own CSS.
+  function toast(msg) {
+    try {
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);' +
+        'max-width:90vw;padding:10px 16px;border-radius:10px;font:13px -apple-system,sans-serif;' +
+        'background:rgba(20,20,22,0.95);color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.4);' +
+        'z-index:999999;pointer-events:none;';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 5000);
+    } catch (e) {}
+  }
+
   window.initCloudSync = function (config) {
     const appKey = config && config.appKey;
     const syncedKeys = (config && config.syncedKeys) || [];
@@ -114,7 +131,9 @@
         if (!error) { lastSyncedJson = json; return; }
         throw error;
       } catch (e) {
-        if (attempt < 3) setTimeout(() => pushNow(attempt + 1), 2000 * (attempt + 1));
+        if (attempt < 3) { setTimeout(() => pushNow(attempt + 1), 2000 * (attempt + 1)); return; }
+        console.warn('[sync:' + appKey + '] push failed after 3 attempts:', e && e.message ? e.message : e);
+        toast('⚠️ Couldn\'t sync your last change (' + appKey + ') — check your connection.');
       }
     }
     function schedulePush() {
@@ -135,14 +154,15 @@
       try {
         const { data, error } = await supa
           .from('app_state').select('data').eq('key', appKey).maybeSingle();
-        if (!error && data && data.data) {
+        if (error) { console.warn('[sync:' + appKey + '] pull failed:', error.message || error); return; }
+        if (data && data.data) {
           const incoming = JSON.stringify(data.data);
           if (incoming !== lastSyncedJson) {
             lastSyncedJson = incoming;
             applyRemote(data.data);
           }
         }
-      } catch (e) {}
+      } catch (e) { console.warn('[sync:' + appKey + '] pull threw:', e && e.message ? e.message : e); }
     }
     function flushOnUnload() {
       const state = collect();
@@ -205,6 +225,13 @@
       if (document.visibilityState === 'hidden') flushOnUnload();
       else pullLatest();
     });
+    // pageshow (not just visibilitychange) is the reliable signal for a
+    // page restored from the back/forward cache — extremely common on
+    // mobile Safari when you switch apps and come back via the app
+    // switcher rather than a real reload. A bfcache restore resumes the
+    // exact in-memory page from before, so without this it would keep
+    // showing whatever was on screen when you left, indefinitely.
+    window.addEventListener('pageshow', () => { pullLatest(); });
     window.addEventListener('storage', (e) => {
       if (e.key && matches(e.key)) schedulePush();
     });
