@@ -308,7 +308,9 @@ body::after {
              conic-gradient(from 0deg, #6D4AE0, #C9B8FF, #7C5CFF, #B98AFF, #6D4AE0); }
 .nv-head .nv-name { font-size: 14px; font-weight: 700; color: #FAFAFA; }
 .nv-head .nv-sub { font-size: 10.5px; color: #76746E; }
-.nv-head .nv-x { margin-left: auto; border: 0; background: transparent; color: #76746E; font-size: 20px; cursor: pointer; line-height: 1; }
+.nv-head .nv-new { margin-left: auto; border: 0; background: transparent; color: #76746E; font-size: 15px; cursor: pointer; line-height: 1; padding: 4px; }
+.nv-head .nv-new:hover { color: #CBBDFF; }
+.nv-head .nv-x { border: 0; background: transparent; color: #76746E; font-size: 20px; cursor: pointer; line-height: 1; }
 .nv-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .nv-msg { font-size: 13px; line-height: 1.5; max-width: 90%; padding: 9px 12px; border-radius: 13px; }
 .nv-msg.coach { background: rgba(255,255,255,0.05); color: #E9E7E2; align-self: flex-start; border-bottom-left-radius: 4px; }
@@ -453,6 +455,7 @@ body::after {
     <div class="nv-head">
       <div class="nv-av"></div>
       <div><div class="nv-name">Nova</div><div class="nv-sub">your reading companion</div></div>
+      <button class="nv-new" id="nvNew" type="button" aria-label="New conversation" title="New conversation">↻</button>
       <button class="nv-x" id="nvClose" type="button" aria-label="Close">×</button>
     </div>
     <div class="nv-body" id="nvBody"></div>
@@ -808,7 +811,7 @@ body::after {
     if (!window.initCloudSync) return;
     window.initCloudSync({
       appKey: 'reading',
-      syncedKeys: [STORE_KEY],
+      syncedKeys: [STORE_KEY, 'nova:reading:history'],
       onApplied: () => { if (openId == null) render(); }
     });
   });
@@ -819,14 +822,17 @@ body::after {
 (function () {
   'use strict';
   const KEY_LS = 'nova_lite_api_key';
+  const HIST_KEY = 'nova:reading:history';
   const $ = (id) => document.getElementById(id);
   const fab = $('nvFab'), panel = $('nvPanel'), body = $('nvBody'), input = $('nvInput');
   let busy = false, greeted = false;
-  // Running conversation history — without this, every message was sent as
-  // a brand-new single-turn request with no memory of anything said earlier
-  // in the same chat, which is why Nova seemed to "forget" things. Capped
-  // to the last 20 turns so very long sessions don't balloon the request.
-  let history = [];
+  // Running conversation history, persisted so Nova actually remembers past
+  // chats across reloads/devices instead of forgetting everything the
+  // moment you leave the page. Capped to the last 20 turns so it can't
+  // grow unbounded (both for storage size and per-message token cost).
+  function loadHistory() { try { const h = JSON.parse(localStorage.getItem(HIST_KEY)); return Array.isArray(h) ? h : []; } catch (e) { return []; } }
+  function saveHistory() { try { localStorage.setItem(HIST_KEY, JSON.stringify(history)); } catch (e) {} }
+  let history = loadHistory();
 
   function savedKey() { try { return localStorage.getItem(KEY_LS) || ''; } catch (e) { return ''; } }
 
@@ -873,6 +879,7 @@ body::after {
     busy = true;
     history.push({ role: 'user', content: text });
     if (history.length > 20) history = history.slice(-20);
+    saveHistory();
     const loading = addMsg('coach', '<span class="nv-dots"><i></i><i></i><i></i></span>');
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -881,23 +888,35 @@ body::after {
         body: JSON.stringify({ model:'claude-opus-4-8', max_tokens:1024, system: SYS + readingContext(), messages: history }),
       });
       const json = await res.json();
-      if (json.error){ loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy=false; history.pop(); return; }
+      if (json.error){ loading.innerHTML = md('- ' + (json.error.message || 'Something went wrong — check your API key.')); busy=false; history.pop(); saveHistory(); return; }
       const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
       history.push({ role: 'assistant', content: reply });
+      saveHistory();
       loading.innerHTML = md(reply);
-    } catch(e){ loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); history.pop(); }
+    } catch(e){ loading.innerHTML = md('- Could not reach Anthropic — check your connection and key.'); history.pop(); saveHistory(); }
     body.scrollTop = body.scrollHeight; busy = false;
   }
 
   function openPanel(){
     panel.classList.add('open');
-    if (!greeted){ greeted = true; addMsg('coach', md("Hey — I'm Nova. I can see your reading list. Ask me for a recommendation, or tap a suggestion below.")); }
+    if (!greeted){
+      greeted = true;
+      if (history.length) {
+        history.forEach(m => addMsg(m.role === 'user' ? 'user' : 'coach', md(m.content)));
+      } else {
+        addMsg('coach', md("Hey — I'm Nova. I can see your reading list. Ask me for a recommendation, or tap a suggestion below."));
+      }
+    }
     setTimeout(()=>input.focus(), 50);
   }
   function closePanel(){ panel.classList.remove('open'); }
+  function newConversation(){
+    history = []; saveHistory(); body.innerHTML = ''; greeted = false; openPanel();
+  }
 
   fab.addEventListener('click', ()=> panel.classList.contains('open') ? closePanel() : openPanel());
   $('nvClose').addEventListener('click', closePanel);
+  $('nvNew').addEventListener('click', newConversation);
   $('nvSend').addEventListener('click', ()=>{ const t=input.value; input.value=''; ask(t); });
   input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ const t=input.value; input.value=''; ask(t); } });
   document.querySelectorAll('.nv-chip').forEach(c=> c.addEventListener('click', ()=> ask(c.getAttribute('data-q'))));

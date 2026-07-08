@@ -1131,7 +1131,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // out of that row the next time this page pushes.
   initCloudSync({
     appKey: 'health',
-    syncedKeys: ['po_water_v1', 'stack:items', 'stack:version', 'stack:low', 'cal:targets', 'cal:entries'],
+    syncedKeys: ['po_water_v1', 'stack:items', 'stack:version', 'stack:low', 'cal:targets', 'cal:entries', 'nova:health:history'],
     syncedPrefixes: ['stack:taken:'],
     onApplied: function () {
       window.dispatchEvent(new Event('storage'));
