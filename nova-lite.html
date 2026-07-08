@@ -27,9 +27,11 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
 
 .wrap { max-width: 560px; margin: 0 auto; padding: 28px 18px 60px; }
 .top { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-.key-toggle { margin-left: auto; border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 10px; padding: 7px 10px; cursor: pointer; font-size: 15px; line-height: 1; opacity: .55; transition: opacity .15s; }
+.key-toggle { border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 10px; padding: 7px 10px; cursor: pointer; font-size: 15px; line-height: 1; opacity: .55; transition: opacity .15s; }
 .key-toggle:hover { opacity: 1; }
 .key-toggle.has-key { opacity: 1; border-color: var(--accent); }
+.new-chat-btn { margin-left: auto; border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 10px; padding: 7px 10px; cursor: pointer; font-size: 14px; line-height: 1; opacity: .55; transition: opacity .15s; }
+.new-chat-btn:hover { opacity: 1; }
 .keypanel { display: none; }
 .keypanel.open { display: block; }
 
@@ -88,6 +90,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
     <div class="top">
       <div class="orb" id="orb"></div>
       <div class="title"><h1>Nova Lite</h1><div class="role">your mentor</div></div>
+      <button id="newChatBtn" class="new-chat-btn" aria-label="New conversation" title="New conversation">↻</button>
       <button id="keyToggle" class="key-toggle" aria-label="API key settings" title="API key">🔑</button>
     </div>
 
@@ -113,6 +116,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
 <script>
 (function(){
   const KEY_LS = 'nova_lite_api_key';
+  const HIST_KEY = 'nova:lite:history';
   const feed = document.getElementById('feed');
   const input = document.getElementById('chatInput');
   const orb = document.getElementById('orb');
@@ -120,7 +124,15 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
   const hint = document.getElementById('hint');
   const keypanel = document.getElementById('keypanel');
   const keyToggle = document.getElementById('keyToggle');
+  const newChatBtn = document.getElementById('newChatBtn');
   keyToggle.addEventListener('click', () => keypanel.classList.toggle('open'));
+
+  // Running conversation history, persisted locally so Nova remembers past
+  // chats across reloads instead of forgetting everything on refresh.
+  // Capped to the last 20 turns so it can't grow unbounded.
+  function loadHistory() { try { const h = JSON.parse(localStorage.getItem(HIST_KEY)); return Array.isArray(h) ? h : []; } catch (e) { return []; } }
+  function saveHistory() { try { localStorage.setItem(HIST_KEY, JSON.stringify(history)); } catch (e) {} }
+  let history = loadHistory();
 
   function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function setOrb(s){ orb.className = 'orb' + (s ? ' ' + s : ''); }
@@ -176,11 +188,6 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
     "Dashboard data as JSON:\n";
 
   let busy = false;
-  // Running conversation history — without this, every message was sent as
-  // a brand-new single-turn request with no memory of anything said earlier
-  // in the same chat, which is why Nova seemed to "forget" things. Capped
-  // to the last 20 turns so very long sessions don't balloon the request.
-  let history = [];
   async function ask(text){
     text = (text||'').trim(); if (!text || busy) return;
     const key = savedKey();
@@ -188,6 +195,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
     busy = true; addUser(text); input.value = '';
     history.push({ role: 'user', content: text });
     if (history.length > 20) history = history.slice(-20);
+    saveHistory();
     setOrb('think');
     const loading = addCoach('<span class="dots"><i></i><i></i><i></i></span>');
     try {
@@ -207,23 +215,32 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
         }),
       });
       const json = await res.json();
-      if (json.error){ loading.querySelector('div:last-child').innerHTML = render('- ' + (json.error.message || 'Something went wrong — check your API key.')); setOrb(''); busy = false; history.pop(); return; }
+      if (json.error){ loading.querySelector('div:last-child').innerHTML = render('- ' + (json.error.message || 'Something went wrong — check your API key.')); setOrb(''); busy = false; history.pop(); saveHistory(); return; }
       const reply = (json.content && json.content[0] && json.content[0].text) || 'Hmm, no reply.';
       history.push({ role: 'assistant', content: reply });
+      saveHistory();
       loading.querySelector('div:last-child').innerHTML = render(reply);
       setOrb('happy'); setTimeout(() => setOrb(''), 2500);
     } catch(e){
       loading.querySelector('div:last-child').innerHTML = render('- Could not reach Anthropic — check your connection and key.');
       setOrb('');
-      history.pop();
+      history.pop(); saveHistory();
     }
     busy = false;
   }
 
   document.getElementById('send').addEventListener('click', () => ask(input.value));
   input.addEventListener('keydown', e => { if (e.key === 'Enter') ask(input.value); });
+  newChatBtn.addEventListener('click', () => {
+    history = []; saveHistory(); feed.innerHTML = '';
+    addCoach('Hey — I am <b>Nova</b>. Paste your key above, then ask me about food, training, sleep, or where to start. I keep it short and give you <b>one thing to act on</b>.');
+  });
 
-  addCoach('Hey — I am <b>Nova</b>. Paste your key above, then ask me about food, training, sleep, or where to start. I keep it short and give you <b>one thing to act on</b>.');
+  if (history.length) {
+    history.forEach(m => m.role === 'user' ? addUser(m.content) : addCoach(render(m.content)));
+  } else {
+    addCoach('Hey — I am <b>Nova</b>. Paste your key above, then ask me about food, training, sleep, or where to start. I keep it short and give you <b>one thing to act on</b>.');
+  }
 })();
 </script>
 </body>
