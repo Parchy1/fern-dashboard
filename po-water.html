@@ -1123,9 +1123,16 @@ document.addEventListener('DOMContentLoaded', function () {
   // row — running our own sync here would race and wipe sibling keys.
   try { if (window.self !== window.top) return; } catch (e) { return; }
   if (typeof initCloudSync !== 'function') return;
+  // IMPORTANT: this must declare the exact same scope as health.html's own
+  // initCloudSync call. Each push does a full replace of the shared
+  // 'health' row (not a field-level merge), so if this page's scope were
+  // narrower than health.html's, opening the Water tile on its own would
+  // silently wipe the supplement stack (items/version/low/taken-history)
+  // out of that row the next time this page pushes.
   initCloudSync({
     appKey: 'health',
-    syncedKeys: ['po_water_v1'],
+    syncedKeys: ['po_water_v1', 'stack:items', 'stack:version', 'stack:low'],
+    syncedPrefixes: ['stack:taken:'],
     onApplied: function () {
       window.dispatchEvent(new Event('storage'));
     }

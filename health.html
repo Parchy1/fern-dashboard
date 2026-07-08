@@ -1459,6 +1459,11 @@ main {
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
+  // IMPORTANT: po-water.html's standalone initCloudSync call (used when it's
+  // opened directly rather than embedded here) must declare this exact same
+  // scope. Each push fully replaces the shared 'health' row, so a narrower
+  // scope on either side silently drops the other side's fields on its next
+  // push — keep both lists in sync if you change one.
   initCloudSync({
     appKey: 'health',
     syncedKeys: ['stack:items', 'stack:version', 'stack:low', 'po_water_v1'],
