@@ -95,7 +95,13 @@
       return changed;
     }
 
-    async function pushNow() {
+    // Retries on failure (transient network blip, brief connectivity loss)
+    // instead of silently giving up — previously a failed push just sat
+    // there until some unrelated key happened to be written again, which
+    // could leave a real edit stuck unsynced indefinitely on a flaky
+    // connection (e.g. spotty mobile signal right after making a change).
+    async function pushNow(attempt) {
+      attempt = attempt || 0;
       if (!supa) return;
       const state = collect();
       const json = JSON.stringify(state);
@@ -105,12 +111,38 @@
           { key: appKey, data: state, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         );
-        if (!error) lastSyncedJson = json;
-      } catch (e) {}
+        if (!error) { lastSyncedJson = json; return; }
+        throw error;
+      } catch (e) {
+        if (attempt < 3) setTimeout(() => pushNow(attempt + 1), 2000 * (attempt + 1));
+      }
     }
     function schedulePush() {
       clearTimeout(pushTimer);
-      pushTimer = setTimeout(pushNow, 250);
+      pushTimer = setTimeout(() => pushNow(0), 250);
+    }
+
+    // Re-pull the latest row from the server. Used on initial load AND
+    // whenever the tab becomes visible again — mobile browsers routinely
+    // suspend the realtime WebSocket when a tab is backgrounded (locking
+    // the phone, switching apps) and don't reliably reconnect it, so a
+    // tab left open in the background can silently miss a change pushed
+    // from another device and then just sit stale even after you switch
+    // back to it. Re-pulling on foreground catches it up regardless of
+    // whether the realtime socket survived.
+    async function pullLatest() {
+      if (!supa) return;
+      try {
+        const { data, error } = await supa
+          .from('app_state').select('data').eq('key', appKey).maybeSingle();
+        if (!error && data && data.data) {
+          const incoming = JSON.stringify(data.data);
+          if (incoming !== lastSyncedJson) {
+            lastSyncedJson = incoming;
+            applyRemote(data.data);
+          }
+        }
+      } catch (e) {}
     }
     function flushOnUnload() {
       const state = collect();
@@ -171,6 +203,7 @@
     // on that device until the page happens to be reopened and edited again.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flushOnUnload();
+      else pullLatest();
     });
     window.addEventListener('storage', (e) => {
       if (e.key && matches(e.key)) schedulePush();
