@@ -590,10 +590,52 @@ body::after {
 }
 .gm-status.gm-status-error { color: var(--danger); }
 
+/* ---- Daily Habits ---- */
+.habit-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  transition: background 0.2s;
+}
+.habit-row:hover { background: rgba(255,255,255,0.06); }
+.habit-row.habit-done-today { background: rgba(107,227,164,0.05); }
+.habit-body { flex: 1; min-width: 0; }
+.habit-name {
+  font-size: 14px; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 4px; padding: 2px 4px; margin: -2px -4px;
+  outline: none;
+}
+.habit-name[contenteditable="true"] { outline: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.28); }
+.habit-dots { display: flex; gap: 3px; margin-top: 6px; }
+.habit-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255,255,255,0.09); flex-shrink: 0;
+}
+.habit-dot.hit { background: var(--success); box-shadow: 0 0 5px rgba(107,227,164,0.35); }
+.habit-dot.is-today { outline: 1px solid rgba(255,255,255,0.28); outline-offset: 1px; }
+.habit-streak {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border-radius: 999px; flex-shrink: 0;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--text-tertiary);
+  font-size: 11px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.habit-streak.habit-streak-active {
+  background: rgba(242,192,99,0.10);
+  border-color: rgba(242,192,99,0.28);
+  color: var(--warning);
+}
+
 @media (max-width: 480px) {
   body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
   .gm-card { padding: 16px; }
   .gm-progress-num { font-size: 36px; }
+  .habit-dots .habit-dot:nth-child(-n+7) { display: none; } /* show last 7 days on small screens */
 }
 </style>
 </head>
@@ -689,6 +731,30 @@ body::after {
         <button type="button" id="tomorrowAddBtn"    class="gm-add">+ Add</button>
         <button type="button" id="tomorrowPolishBtn" class="gm-polish">✨ Polish</button>
         <div class="gm-status" id="tomorrowStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DAILY HABITS — recurring, unlike the to-do list these never roll
+       over or clear; each habit keeps its own independent streak. -->
+  <div class="section">
+    <div class="section-title">Daily Habits</div>
+    <div class="gm-card" id="gmCardHabits">
+      <div class="gm-header">
+        <div class="gm-header-left">
+          <div class="gm-eyebrow">Every day</div>
+          <div class="gm-progress-row">
+            <span class="gm-progress-num"   id="habitsDoneNum">0</span>
+            <span class="gm-progress-total" id="habitsTotalNum">/ 0</span>
+            <span class="gm-progress-label" id="habitsLabel">done today</span>
+          </div>
+        </div>
+      </div>
+      <ul id="habitList" class="goal-list gm-list"></ul>
+      <div id="habitsEmpty" class="empty-state">No habits yet — add one below, e.g. "🧘 Meditate" or "📖 Read 10 min".</div>
+      <div class="goal-input-wrap gm-input-wrap">
+        <input id="habitInput" class="gm-input" type="text" placeholder="Add a daily habit… (emoji optional)" autocomplete="off">
+        <button type="button" id="habitAddBtn" class="gm-add">+ Add</button>
       </div>
     </div>
   </div>
@@ -1313,13 +1379,208 @@ body::after {
 </script>
 
 <script>
+// ============================================================
+// DAILY HABITS — recurring habits with per-habit streaks.
+// Unlike the to-do list above (one-off tasks that roll over and
+// get cleared), habits are defined once and checked off every
+// day, each with its own independent streak + 14-day history.
+//   habits:defs = [{ id, name, createdAt }]
+//   habits:log  = { habitId: { 'YYYY-MM-DD': true } }
+// ============================================================
+(function () {
+  'use strict';
+
+  const DEFS_KEY = 'habits:defs';
+  const LOG_KEY  = 'habits:log';
+
+  const $ = (id) => document.getElementById(id);
+  const listEl  = $('habitList');
+  const emptyEl = $('habitsEmpty');
+  const inputEl = $('habitInput');
+  const addBtn  = $('habitAddBtn');
+
+  function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  function storeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  function getDefs() { const d = storeGet(DEFS_KEY); return Array.isArray(d) ? d : []; }
+  function setDefs(d) { storeSet(DEFS_KEY, d); }
+  function getLog() { const l = storeGet(LOG_KEY); return (l && typeof l === 'object') ? l : {}; }
+  function setLog(l) { storeSet(LOG_KEY, l); }
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dateToKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  // Same 6 AM day-boundary as the to-do list: before 6 AM still counts
+  // as "yesterday", so late nights don't reset habits at midnight.
+  function activeDate() {
+    const now = new Date();
+    const d = new Date(now);
+    if (now.getHours() < 6) d.setDate(d.getDate() - 1);
+    return d;
+  }
+  function activeDateKey() { return dateToKey(activeDate()); }
+
+  function isDone(log, habitId, dayKey) {
+    return !!(log[habitId] && log[habitId][dayKey]);
+  }
+
+  // Consecutive days ending at today — or at yesterday if today isn't
+  // done yet, so an unchecked "today" doesn't show your streak as 0
+  // before the day is over (same forgiving rule as the gym streaks).
+  function streakFor(log, habitId) {
+    let streak = 0;
+    const cursor = activeDate();
+    if (!isDone(log, habitId, dateToKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+    while (isDone(log, habitId, dateToKey(cursor))) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }
+
+  function last14Days() {
+    const out = [];
+    const cursor = activeDate();
+    cursor.setDate(cursor.getDate() - 13);
+    for (let i = 0; i < 14; i++) {
+      out.push(dateToKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return out;
+  }
+
+  function render() {
+    const defs = getDefs();
+    const log = getLog();
+    const todayK = activeDateKey();
+    const days = last14Days();
+
+    listEl.innerHTML = '';
+    emptyEl.style.display = defs.length ? 'none' : 'block';
+
+    const doneToday = defs.filter(h => isDone(log, h.id, todayK)).length;
+    $('habitsDoneNum').textContent = doneToday;
+    $('habitsTotalNum').textContent = '/ ' + defs.length;
+    $('habitsLabel').textContent = defs.length && doneToday === defs.length ? 'all done — clean sweep' : 'done today';
+
+    defs.forEach(habit => {
+      const li = document.createElement('li');
+      li.className = 'habit-row' + (isDone(log, habit.id, todayK) ? ' habit-done-today' : '');
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'gm-check';
+      cb.checked = isDone(log, habit.id, todayK);
+      cb.addEventListener('change', () => {
+        const l = getLog();
+        if (!l[habit.id]) l[habit.id] = {};
+        if (cb.checked) l[habit.id][todayK] = true;
+        else delete l[habit.id][todayK];
+        setLog(l);
+        render();
+      });
+      li.appendChild(cb);
+
+      const body = document.createElement('div');
+      body.className = 'habit-body';
+
+      const name = document.createElement('div');
+      name.className = 'habit-name';
+      name.textContent = habit.name;
+      name.title = 'Click to rename';
+      name.addEventListener('click', () => {
+        if (name.getAttribute('contenteditable') === 'true') return;
+        const original = name.textContent;
+        name.setAttribute('contenteditable', 'true');
+        name.focus();
+        const range = document.createRange();
+        range.selectNodeContents(name); range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+        name.addEventListener('blur', () => {
+          name.removeAttribute('contenteditable');
+          const next = name.textContent.trim();
+          if (next && next !== original) {
+            const d = getDefs();
+            const h = d.find(x => x.id === habit.id);
+            if (h) { h.name = next; setDefs(d); }
+          }
+          render();
+        }, { once: true });
+        name.addEventListener('keydown', function onKey(e) {
+          if (e.key === 'Enter') { e.preventDefault(); name.removeEventListener('keydown', onKey); name.blur(); }
+          else if (e.key === 'Escape') { e.preventDefault(); name.textContent = original; name.removeEventListener('keydown', onKey); name.blur(); }
+        });
+      });
+      body.appendChild(name);
+
+      const dots = document.createElement('div');
+      dots.className = 'habit-dots';
+      days.forEach(dk => {
+        const dot = document.createElement('span');
+        dot.className = 'habit-dot' + (isDone(log, habit.id, dk) ? ' hit' : '') + (dk === todayK ? ' is-today' : '');
+        dot.title = dk;
+        dots.appendChild(dot);
+      });
+      body.appendChild(dots);
+      li.appendChild(body);
+
+      const streak = streakFor(log, habit.id);
+      const pill = document.createElement('span');
+      pill.className = 'habit-streak' + (streak > 0 ? ' habit-streak-active' : '');
+      pill.textContent = '🔥 ' + streak;
+      pill.title = streak + ' day streak';
+      li.appendChild(pill);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'goal-delete';
+      del.setAttribute('aria-label', 'Delete habit');
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        if (!confirm('Delete "' + habit.name + '" and its history?')) return;
+        setDefs(getDefs().filter(h => h.id !== habit.id));
+        const l = getLog();
+        delete l[habit.id];
+        setLog(l);
+        render();
+      });
+      li.appendChild(del);
+
+      listEl.appendChild(li);
+    });
+  }
+
+  function addHabit() {
+    const name = inputEl.value.trim();
+    if (!name) return;
+    const defs = getDefs();
+    defs.push({ id: 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, createdAt: Date.now() });
+    setDefs(defs);
+    inputEl.value = '';
+    render();
+  }
+  addBtn.addEventListener('click', addHabit);
+  inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addHabit(); } });
+
+  // Re-render when sync applies remote changes, and once a minute so the
+  // 6 AM day boundary rolls the card over without a reload.
+  window.addEventListener('habits-changed', render);
+  setInterval(render, 60 * 1000);
+
+  render();
+})();
+</script>
+
+<script>
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'goals',
     syncedPrefixes: ['goals:'],
+    syncedKeys: ['habits:defs', 'habits:log'],
     onApplied: function () {
       window.dispatchEvent(new CustomEvent('goals-changed'));
+      window.dispatchEvent(new CustomEvent('habits-changed'));
       window.dispatchEvent(new Event('storage'));
     }
   });
