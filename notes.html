@@ -353,7 +353,14 @@ body::after {
     if (openId == null) return;
     const notes = load();
     const idx = notes.findIndex(n => n.id === openId);
-    if (idx === -1) return;
+    if (idx === -1) {
+      // The note vanished from storage out from under an open editor (e.g. a
+      // sync race with a delete on another device). Re-add it instead of
+      // silently discarding whatever the user has typed here.
+      notes.push({ id: openId, title: titleEl.value.trim(), body: bodyEl.value, updatedAt: Date.now() });
+      save(notes);
+      return;
+    }
     notes[idx].title = titleEl.value.trim();
     notes[idx].body = bodyEl.value;
     notes[idx].updatedAt = Date.now();
@@ -378,6 +385,26 @@ body::after {
 
   titleEl.addEventListener('blur', persistOpen);
   bodyEl.addEventListener('blur', persistOpen);
+
+  // Autosave while typing, not just on blur — otherwise typed content that
+  // never blurs (switching apps, the tab getting closed, the phone locking
+  // mid-thought) is silently lost, since nothing else ever wrote it to
+  // localStorage. Debounced so it's not literally every keystroke.
+  let autosaveTimer = null;
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(persistOpen, 400);
+  }
+  titleEl.addEventListener('input', scheduleAutosave);
+  bodyEl.addEventListener('input', scheduleAutosave);
+
+  // Belt-and-suspenders: flush immediately (no debounce wait) the moment the
+  // tab is hidden or about to unload, so a debounce timer in flight can't
+  // get cut off mid-wait.
+  function flushNow() { clearTimeout(autosaveTimer); persistOpen(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
+  window.addEventListener('pagehide', flushNow);
+  window.addEventListener('beforeunload', flushNow);
   backBtn.addEventListener('click', closeEditor);
 
   deleteBtn.addEventListener('click', () => {
