@@ -362,6 +362,20 @@ body::after {
       </div>
     </a>
 
+    <!-- Small tile -->
+    <a class="tile" href="peak.html" style="--accent:#C4B5FD">
+      <div class="tile-top">
+        <span class="tile-num">·12</span>
+        <span class="tile-emoji">⚡</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Peak</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Energy & recovery</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+
     <!-- Wide tile -->
     <a class="tile wide" href="review.html" style="--accent:#5EEAD4">
       <div class="tile-top">
@@ -773,9 +787,19 @@ body::after {
     setTileSub('business.html', done + '/' + total + ' commitments done today');
   }
 
+  function renderPeakTile() {
+    const daily = storeGet('peak:daily');
+    if (!daily) return;
+    const today = daily[plainTodayKey()];
+    if (today) { setTileSub('peak.html', today.avgScore + ' · ' + today.tier + ' today'); return; }
+    const keys = Object.keys(daily).sort();
+    if (keys.length) { const last = daily[keys[keys.length - 1]]; setTileSub('peak.html', 'Last: ' + last.avgScore + ' · ' + last.tier); }
+  }
+
   function renderTodaySnapshot() {
     renderMainTile(); renderFitnessTile(); renderHealthTile(); renderWaterTile();
     renderFinanceTile(); renderCaffeineTile(); renderReadingTile(); renderBusinessTile();
+    renderPeakTile();
   }
 
   renderTodaySnapshot();

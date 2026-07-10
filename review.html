@@ -327,6 +327,15 @@ body::after {
     if (!any) return null;
     return { pages };
   }
+  function peakStat(days) {
+    const daily = storeGet('peak:daily');
+    if (!daily) return null;
+    const keys = new Set(days.map(dateToKey));
+    const scores = Object.keys(daily).filter(k => keys.has(k)).map(k => daily[k].avgScore);
+    if (!scores.length) return null;
+    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    return { avg, loggedDays: scores.length, totalDays: days.length };
+  }
   function businessStat(days) {
     const rev = storeGet('biz:affiliate:revenue') || [];
     const pay = storeGet('biz:editing:payments') || [];
@@ -346,6 +355,8 @@ body::after {
     if (!total && !revenue && !commitments.length) return null;
     return { revenue, done, total, rate: total ? Math.round(done / total * 100) : null };
   }
+
+  function peakTier(v) { if (v>=80) return 'Peak'; if (v>=62) return 'High'; if (v>=44) return 'Steady'; if (v>=28) return 'Dip'; return 'Low'; }
 
   /* ============ Recap card rendering ============ */
   function deltaRow(diff, unit, goodDirection) {
@@ -367,6 +378,9 @@ body::after {
 
   function renderRecap(curDays, priorDays) {
     const cards = [];
+
+    const pk1 = peakStat(curDays), pk0 = peakStat(priorDays);
+    if (pk1) cards.push(card('Peak Score', pk1.avg + ' · ' + peakTier(pk1.avg), pk0 ? deltaRow(pk1.avg - pk0.avg, '', 1) : '', 'logged ' + pk1.loggedDays + '/' + pk1.totalDays + ' days'));
 
     const h1 = habitsStat(curDays), h0 = habitsStat(priorDays);
     if (h1) cards.push(card('Habits', h1.rate + '%', h0 ? deltaRow(h1.rate - h0.rate, 'pp', 1) : '', h1.done + '/' + h1.possible + ' possible check-ins'));
@@ -412,6 +426,7 @@ body::after {
   function statsSummaryText(mode, label, curDays, priorDays) {
     const lines = ['Period: ' + label + ' (' + curDays.length + ' days so far)'];
     const push = (name, cur, prior) => { if (cur != null) lines.push(name + ': ' + cur + (prior != null ? (' (prior period: ' + prior + ')') : '')); };
+    const pk1 = peakStat(curDays), pk0 = peakStat(priorDays); if (pk1) push('Peak score', pk1.avg, pk0 && pk0.avg);
     const h1 = habitsStat(curDays), h0 = habitsStat(priorDays); if (h1) push('Habit completion', h1.rate + '%', h0 && h0.rate + '%');
     const t1 = todosStat(curDays), t0 = todosStat(priorDays); if (t1) push('To-do completion', t1.rate + '%', t0 && t0.rate + '%');
     const g1 = gymStat(curDays), g0 = gymStat(priorDays); if (g1) push('Gym sessions', g1.sessions, g0 && g0.sessions);
