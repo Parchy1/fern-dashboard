@@ -671,7 +671,14 @@ body::after {
     if (!splitName) return;
     const doneDays = storeGet('po_coach_workout_done') || {};
     const logged = !!doneDays[plainTodayKey()];
-    setTileSub('gym.html', 'Today: ' + splitName + (logged ? ' · done' : ' · not logged yet'));
+    let text = 'Today: ' + splitName + (logged ? ' · done' : ' · not logged yet');
+    const cardioSessions = storeGet('cardio:sessions');
+    if (Array.isArray(cardioSessions) && cardioSessions.length) {
+      const cutoff = Date.now() - 7 * 86400000;
+      const recentCardio = cardioSessions.filter(s => s.ts >= cutoff).length;
+      if (recentCardio) text += ' · ' + recentCardio + ' cardio this wk';
+    }
+    setTileSub('gym.html', text);
   }
 
   function renderHealthTile() {
