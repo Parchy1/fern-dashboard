@@ -1464,9 +1464,12 @@ img, video, canvas, svg { max-width: 100%; }
 
   <div class="po-header">
     <h1 class="po-title" id="appTitle">Progressive Overload Coach</h1>
-    <button class="po-icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    </button>
+    <div style="display:flex;gap:8px">
+      <a class="po-icon-btn" href="#cardioSection" title="Cardio" aria-label="Jump to Cardio" style="text-decoration:none;font-size:17px">🏃</a>
+      <button class="po-icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
   </div>
 
   <div class="card">
@@ -3359,7 +3362,7 @@ img, video, canvas, svg { max-width: 100%; }
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
   // strips any base64 dataUrl entries before push so the payload stays
   // tiny and we never blow iOS Safari's ~5MB localStorage quota.
-  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history'];
+  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions'];
 
   let pcSupa = null;
   let pcPushTimer = null;
@@ -3427,6 +3430,7 @@ img, video, canvas, svg { max-width: 100%; }
     try { renderAll(); } catch {}
     try { wtRender(); } catch {}
     try { photosRender(); } catch {}
+    try { if (window.__cdRenderAll) window.__cdRenderAll(); } catch {}
   }
 
   function pcApplyRemoteState(remote) {
@@ -3564,6 +3568,467 @@ img, video, canvas, svg { max-width: 100%; }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) pcFlushPushOnUnload();
   });
+})();
+</script>
+
+<!-- ===== Cardio (treadmill / zone 2) ===== -->
+<style>
+  .cd-section { margin-top: 8px; }
+  .cd-title {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text-3); display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  }
+  .cd-title::before { content: ''; width: 18px; height: 1px; background: var(--text-3); opacity: 0.6; }
+  .cd-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
+  .cd-card {
+    position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+    margin-bottom: 14px; overflow: hidden;
+  }
+  .cd-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-1); }
+  .cd-toggle .chev { transition: transform 0.2s; color: var(--text-3); }
+  .cd-toggle.open .chev { transform: rotate(180deg); }
+  .cd-settings-body { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .cd-settings-body.open { display: block; }
+  .cd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 12px; }
+  .cd-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 6px; display: block; }
+  .cd-input {
+    width: 100%; padding: 11px 13px; border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(0,0,0,0.28); color: var(--text-1); font-family: inherit; font-size: 14px; outline: none;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .cd-input::placeholder { color: var(--text-3); }
+  .cd-input:focus { border-color: rgba(255,138,138,0.45); background: rgba(0,0,0,0.36); }
+  .cd-seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .cd-seg button { flex: 1; border: 0; background: transparent; color: var(--text-3); font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 11px 4px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .cd-seg button.on { background: rgba(255,138,138,0.15); color: var(--bad); }
+  .cd-note { font-size: 11.5px; color: var(--text-3); margin-top: 12px; line-height: 1.5; }
+  .cd-zone-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 10px; margin-top: 14px; }
+  .cd-zone-chip { border-radius: 12px; padding: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+  .cd-zone-chip .zn { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; }
+  .cd-zone-chip .zr { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--text-1); margin-top: 4px; }
+  .cd-zone-chip .zd { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+  .cd-zone-chip.target { border-color: rgba(110,231,183,0.4); box-shadow: 0 0 0 1px rgba(110,231,183,0.15) inset; }
+  .cd-add {
+    padding: 12px 20px; border: 0; border-radius: 12px; background: linear-gradient(180deg, #FFFFFF 0%, #E8E5DD 100%);
+    color: #0A0A0B; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.35), 0 8px 22px rgba(0,0,0,0.25);
+    transition: transform 0.1s, filter 0.15s; margin-top: 14px; width: 100%;
+  }
+  .cd-add:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .cd-add:active { transform: translateY(0); }
+  .cd-preview { font-size: 12px; color: var(--text-3); margin-top: 10px; min-height: 16px; }
+  .cd-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px,1fr)); gap: 12px; }
+  .cd-stat { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .cd-stat-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; color: var(--text-1); line-height: 1; }
+  .cd-stat-label { margin-top: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+  .cd-chart-wrap svg { width: 100%; height: 170px; display: block; overflow: visible; }
+  .cd-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 10.5px; color: var(--text-3); }
+  .cd-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+  .cd-legend .sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+  .cd-chart-empty { text-align: center; font-size: 12px; font-style: italic; color: var(--text-3); padding: 26px 0; }
+  .cd-list { list-style: none; margin: 0; padding: 0; }
+  .cd-empty { text-align: center; font-size: 12px; font-style: italic; color: var(--text-3); padding: 16px 0; }
+  .cd-row { display: flex; align-items: flex-start; gap: 12px; padding: 13px 14px; margin-bottom: 8px;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; }
+  .cd-row-zone { width: 8px; align-self: stretch; border-radius: 4px; flex-shrink: 0; min-height: 34px; }
+  .cd-row-main { flex: 1; min-width: 0; }
+  .cd-row-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .cd-row-dur { font-size: 15px; font-weight: 700; color: var(--text-1); }
+  .cd-row-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  .cd-row-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 4px; line-height: 1.6; }
+  .cd-row-meta .sep { opacity: 0.4; margin: 0 5px; }
+  .cd-row-notes { font-size: 12px; color: var(--text-2); margin-top: 5px; font-style: italic; }
+  .cd-row-cal { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: #FF8A8A; flex-shrink: 0; text-align: right; }
+  .cd-row-cal small { display: block; color: var(--text-3); font-weight: 600; font-size: 9.5px; margin-top: 2px; }
+  .cd-row-del { border: 0; background: transparent; color: var(--text-3); font-size: 18px; cursor: pointer; padding: 0 2px; opacity: 0.5; flex-shrink: 0; transition: opacity 0.2s, color 0.2s; }
+  .cd-row-del:hover { opacity: 1; color: var(--bad); }
+</style>
+<div class="cd-section" id="cardioSection">
+
+  <div class="cd-title">Heart Rate Zones</div>
+  <div class="cd-card">
+    <div class="cd-toggle" id="cdSettingsToggle">
+      <span>⚙️ Cardio Settings</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="cd-settings-body" id="cdSettingsBody">
+      <div class="cd-grid">
+        <div>
+          <label class="cd-label">Weight</label>
+          <input class="cd-input" id="cdWeight" type="number" min="0" inputmode="decimal" placeholder="e.g. 80">
+        </div>
+        <div>
+          <label class="cd-label">Unit</label>
+          <div class="cd-seg" id="cdWeightUnit">
+            <button type="button" data-u="kg" class="on">kg</button>
+            <button type="button" data-u="lb">lb</button>
+          </div>
+        </div>
+        <div>
+          <label class="cd-label">Age</label>
+          <input class="cd-input" id="cdAge" type="number" min="0" inputmode="numeric" placeholder="e.g. 25">
+        </div>
+        <div>
+          <label class="cd-label">Sex</label>
+          <div class="cd-seg" id="cdSex">
+            <button type="button" data-s="m" class="on">Male</button>
+            <button type="button" data-s="f">Female</button>
+          </div>
+        </div>
+        <div>
+          <label class="cd-label">Max HR (optional)</label>
+          <input class="cd-input" id="cdMaxHr" type="number" min="0" inputmode="numeric" placeholder="220 − age">
+        </div>
+      </div>
+      <div class="cd-note" id="cdSettingsNote"></div>
+    </div>
+    <div class="cd-zone-grid" id="cdZoneGrid"></div>
+  </div>
+
+  <div class="cd-title">Log a Treadmill Session</div>
+  <div class="cd-card">
+    <div class="cd-grid">
+      <div>
+        <label class="cd-label">Duration (min)</label>
+        <input class="cd-input" id="cdInDuration" type="number" min="0" inputmode="decimal" placeholder="e.g. 30">
+      </div>
+      <div>
+        <label class="cd-label">Speed (mph)</label>
+        <input class="cd-input" id="cdInSpeed" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 3.2">
+      </div>
+      <div>
+        <label class="cd-label">Incline (%)</label>
+        <input class="cd-input" id="cdInIncline" type="number" min="0" step="0.5" inputmode="decimal" placeholder="e.g. 5">
+      </div>
+      <div>
+        <label class="cd-label">Distance (mi)</label>
+        <input class="cd-input" id="cdInDistance" type="number" min="0" step="0.01" inputmode="decimal" placeholder="auto or manual">
+      </div>
+      <div>
+        <label class="cd-label">Avg HR (bpm)</label>
+        <input class="cd-input" id="cdInAvgHr" type="number" min="0" inputmode="numeric" placeholder="optional">
+      </div>
+      <div>
+        <label class="cd-label">Peak HR (bpm)</label>
+        <input class="cd-input" id="cdInPeakHr" type="number" min="0" inputmode="numeric" placeholder="optional">
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="cd-label">Notes</label>
+      <input class="cd-input" id="cdInNotes" type="text" placeholder="optional — how it felt, incline changes, etc.">
+    </div>
+    <div class="cd-preview" id="cdLogPreview"></div>
+    <button class="cd-add" id="cdLogBtn" type="button">Log Session</button>
+  </div>
+
+  <div class="cd-title">Last 30 Days</div>
+  <div class="cd-card">
+    <div class="cd-stat-grid" id="cdRecapStats"></div>
+    <div class="cd-chart-wrap" style="margin-top:16px" id="cdChartWrap">
+      <svg id="cdChart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg>
+      <div class="cd-chart-empty" id="cdChartEmpty" style="display:none">Log a session to start seeing your trend here.</div>
+    </div>
+    <div class="cd-legend" id="cdChartLegend"></div>
+  </div>
+
+  <div class="cd-title">Session History</div>
+  <div class="cd-card">
+    <ul class="cd-list" id="cdSessList"></ul>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  function storeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dateKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function fmtDate(ts) { const d = new Date(ts); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+
+  const SETTINGS_KEY = 'cardio:settings';
+  const SESSIONS_KEY = 'cardio:sessions';
+
+  const ZONES = [
+    { id: 1, lo: 0,  hi: 60,  label: 'Zone 1', desc: 'Very light', color: '#7DD3FC' },
+    { id: 2, lo: 60, hi: 70,  label: 'Zone 2', desc: 'Light aerobic — target', color: '#6ee7b7' },
+    { id: 3, lo: 70, hi: 80,  label: 'Zone 3', desc: 'Moderate', color: '#fbbf24' },
+    { id: 4, lo: 80, hi: 90,  label: 'Zone 4', desc: 'Hard', color: '#FB923C' },
+    { id: 5, lo: 90, hi: 999, label: 'Zone 5', desc: 'Max effort', color: '#ff8a8a' },
+  ];
+  const ZONE_HEX = { 1: '#7DD3FC', 2: '#6ee7b7', 3: '#fbbf24', 4: '#FB923C', 5: '#ff8a8a', 0: '#4B4A47' };
+
+  /* ============ Settings ============ */
+  function defaultsFromExistingData() {
+    // Prefer this page's own logged body weight; fall back to the water
+    // tracker's profile (a different page's data) only if nothing's logged here yet.
+    let weightKg = null, weightUnit = 'kg';
+    const wtEntries = storeGet('po_coach_weights');
+    const pcState = storeGet('po_coach_v1');
+    if (Array.isArray(wtEntries) && wtEntries.length) {
+      const last = wtEntries[wtEntries.length - 1];
+      weightUnit = (pcState && pcState.units) || 'kg';
+      weightKg = weightUnit === 'lb' ? last.weight / 2.20462 : last.weight;
+    }
+    const w = storeGet('po_water_v1');
+    const age = w && w.profile ? w.profile.age : null;
+    const sex = w && w.profile ? w.profile.sex : 'm';
+    if (!weightKg && w && w.profile && w.profile.weightKg) {
+      weightUnit = w.weightUnit || 'kg';
+      weightKg = weightUnit === 'lb' ? w.profile.weightKg / 2.20462 : w.profile.weightKg;
+    }
+    return { weightKg, weightUnit, age, sex };
+  }
+  function loadSettings() {
+    const s = storeGet(SETTINGS_KEY);
+    if (s) return s;
+    const d = defaultsFromExistingData();
+    return { weightKg: d.weightKg, weightUnit: d.weightUnit, age: d.age, sex: d.sex, maxHrOverride: null };
+  }
+  function saveSettings(s) { storeSet(SETTINGS_KEY, s); }
+  let cdSettings = loadSettings();
+
+  function maxHr() {
+    if (cdSettings.maxHrOverride) return cdSettings.maxHrOverride;
+    if (cdSettings.age) return 220 - cdSettings.age;
+    return null;
+  }
+  function displayWeight() {
+    if (!cdSettings.weightKg) return '';
+    return cdSettings.weightUnit === 'lb' ? Math.round(cdSettings.weightKg * 2.20462 * 10) / 10 : Math.round(cdSettings.weightKg * 10) / 10;
+  }
+
+  function renderSettingsForm() {
+    $('cdWeight').value = displayWeight() || '';
+    $('cdAge').value = cdSettings.age || '';
+    $('cdMaxHr').value = cdSettings.maxHrOverride || '';
+    $('cdWeightUnit').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.u === (cdSettings.weightUnit || 'kg')));
+    $('cdSex').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === (cdSettings.sex || 'm')));
+    const mh = maxHr();
+    $('cdSettingsNote').textContent = mh ? ('Using max HR of ' + mh + ' bpm ' + (cdSettings.maxHrOverride ? '(manually set).' : '(estimated as 220 − age).')) : 'Add your age (or a measured max HR) to unlock zone calculations.';
+  }
+  function readSettingsForm() {
+    const wRaw = parseFloat($('cdWeight').value);
+    cdSettings.weightKg = wRaw > 0 ? (cdSettings.weightUnit === 'lb' ? wRaw / 2.20462 : wRaw) : null;
+    cdSettings.age = parseInt($('cdAge').value, 10) || null;
+    cdSettings.maxHrOverride = parseInt($('cdMaxHr').value, 10) || null;
+    saveSettings(cdSettings);
+    renderZones();
+    renderSettingsForm();
+  }
+  $('cdWeight').addEventListener('input', readSettingsForm);
+  $('cdAge').addEventListener('input', readSettingsForm);
+  $('cdMaxHr').addEventListener('input', readSettingsForm);
+  $('cdWeightUnit').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    cdSettings.weightUnit = b.dataset.u; saveSettings(cdSettings); renderSettingsForm(); renderZones();
+  }));
+  $('cdSex').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    cdSettings.sex = b.dataset.s; saveSettings(cdSettings);
+  }));
+  $('cdSettingsToggle').addEventListener('click', () => {
+    $('cdSettingsToggle').classList.toggle('open');
+    $('cdSettingsBody').classList.toggle('open');
+  });
+
+  function renderZones() {
+    const mh = maxHr();
+    const grid = $('cdZoneGrid');
+    if (!mh) { grid.innerHTML = ''; return; }
+    grid.innerHTML = ZONES.map(z => {
+      const lo = Math.round(mh * z.lo / 100), hi = z.hi >= 999 ? mh : Math.round(mh * z.hi / 100);
+      return '<div class="cd-zone-chip' + (z.id === 2 ? ' target' : '') + '"><div class="zn" style="color:' + z.color + '">' + z.label + '</div>'
+        + '<div class="zr">' + lo + '–' + hi + ' bpm</div><div class="zd">' + z.desc + '</div></div>';
+    }).join('');
+  }
+
+  function zoneFor(avgHr) {
+    const mh = maxHr();
+    if (!avgHr || !mh) return 0;
+    const pct = avgHr / mh * 100;
+    const z = ZONES.find(z => pct >= z.lo && pct < z.hi) || ZONES[ZONES.length - 1];
+    return z.id;
+  }
+
+  /* ============ Calorie calc ============ */
+  function hrCalories(avgHr, durationMin) {
+    if (!avgHr || !cdSettings.weightKg || !cdSettings.age) return null;
+    const w = cdSettings.weightKg, a = cdSettings.age;
+    const perMin = cdSettings.sex === 'f'
+      ? (-20.4022 + 0.4472 * avgHr - 0.1263 * w + 0.074 * a) / 4.184
+      : (-55.0969 + 0.6309 * avgHr + 0.1988 * w + 0.2017 * a) / 4.184;
+    return perMin > 0 ? Math.round(perMin * durationMin) : null;
+  }
+  function metCalories(speedMph, incline, durationMin) {
+    if (!speedMph || !cdSettings.weightKg) return null;
+    const speedMPerMin = speedMph * 26.8224;
+    const grade = (incline || 0) / 100;
+    const vo2 = speedMph < 5
+      ? (0.1 * speedMPerMin + 1.8 * speedMPerMin * grade + 3.5)
+      : (0.2 * speedMPerMin + 0.9 * speedMPerMin * grade + 3.5);
+    const mets = vo2 / 3.5;
+    const perMin = mets * 3.5 * cdSettings.weightKg / 200;
+    return perMin > 0 ? Math.round(perMin * durationMin) : null;
+  }
+  function estimateCalories(avgHr, speedMph, incline, durationMin) {
+    const viaHr = hrCalories(avgHr, durationMin);
+    if (viaHr != null) return { calories: viaHr, method: 'hr' };
+    const viaMet = metCalories(speedMph, incline, durationMin);
+    if (viaMet != null) return { calories: viaMet, method: 'met' };
+    return { calories: null, method: null };
+  }
+
+  /* ============ Log form preview + submit ============ */
+  function currentInputs() {
+    return {
+      duration: parseFloat($('cdInDuration').value) || 0,
+      speed: parseFloat($('cdInSpeed').value) || 0,
+      incline: parseFloat($('cdInIncline').value) || 0,
+      distance: parseFloat($('cdInDistance').value) || 0,
+      avgHr: parseInt($('cdInAvgHr').value, 10) || 0,
+      peakHr: parseInt($('cdInPeakHr').value, 10) || 0,
+      notes: $('cdInNotes').value.trim(),
+    };
+  }
+  function renderPreview() {
+    const inp = currentInputs();
+    if (!inp.duration) { $('cdLogPreview').textContent = ''; return; }
+    const est = estimateCalories(inp.avgHr, inp.speed, inp.incline, inp.duration);
+    const z = zoneFor(inp.avgHr);
+    const bits = [];
+    if (est.calories != null) bits.push('~' + est.calories + ' kcal (' + (est.method === 'hr' ? 'from heart rate' : 'from speed/incline') + ')');
+    else bits.push('Add avg HR, or speed + your weight in Settings, for a calorie estimate.');
+    if (z) bits.push(ZONES.find(x => x.id === z).label + (z === 2 ? ' — right in your target range' : ''));
+    $('cdLogPreview').textContent = bits.join(' · ');
+  }
+  ['cdInDuration', 'cdInSpeed', 'cdInIncline', 'cdInDistance', 'cdInAvgHr', 'cdInPeakHr'].forEach(id => $(id).addEventListener('input', renderPreview));
+
+  function loadSessions() { return storeGet(SESSIONS_KEY) || []; }
+  function saveSessions(s) { storeSet(SESSIONS_KEY, s); }
+
+  $('cdLogBtn').addEventListener('click', () => {
+    const inp = currentInputs();
+    if (!inp.duration || inp.duration <= 0) { $('cdInDuration').focus(); return; }
+    const distance = inp.distance > 0 ? inp.distance : (inp.speed > 0 ? Math.round(inp.speed * inp.duration / 60 * 100) / 100 : 0);
+    const est = estimateCalories(inp.avgHr || null, inp.speed || null, inp.incline, inp.duration);
+    const sessions = loadSessions();
+    sessions.push({
+      id: 'cd' + Date.now() + Math.floor(Math.random() * 1000),
+      ts: Date.now(), dateKey: dateKey(new Date()),
+      durationMin: inp.duration, speedMph: inp.speed || null, incline: inp.incline || 0,
+      distanceMi: distance || null, avgHr: inp.avgHr || null, peakHr: inp.peakHr || null,
+      notes: inp.notes || '', calories: est.calories, calorieMethod: est.method,
+      zone: zoneFor(inp.avgHr || null),
+    });
+    saveSessions(sessions);
+    ['cdInDuration', 'cdInSpeed', 'cdInIncline', 'cdInDistance', 'cdInAvgHr', 'cdInPeakHr', 'cdInNotes'].forEach(id => $(id).value = '');
+    renderPreview();
+    renderCdAll();
+  });
+
+  /* ============ Recap + chart ============ */
+  function last30Sessions() {
+    const cutoff = Date.now() - 30 * 86400000;
+    return loadSessions().filter(s => s.ts >= cutoff).sort((a, b) => a.ts - b.ts);
+  }
+
+  function renderRecap() {
+    const sess = last30Sessions();
+    const totalMin = sess.reduce((a, s) => a + s.durationMin, 0);
+    const withHr = sess.filter(s => s.zone > 0);
+    const z2Count = withHr.filter(s => s.zone === 2).length;
+    const z2Pct = withHr.length ? Math.round(z2Count / withHr.length * 100) : null;
+    const totalCal = sess.reduce((a, s) => a + (s.calories || 0), 0);
+    $('cdRecapStats').innerHTML = [
+      ['<div class="cd-stat-num">' + sess.length + '</div>', 'Sessions'],
+      ['<div class="cd-stat-num">' + Math.round(totalMin) + '</div>', 'Total Minutes'],
+      ['<div class="cd-stat-num">' + (totalCal ? totalCal.toLocaleString() : '—') + '</div>', 'Est. Calories'],
+      ['<div class="cd-stat-num" style="color:' + (z2Pct == null ? 'var(--text-1)' : (z2Pct >= 60 ? 'var(--good)' : 'var(--warn)')) + '">' + (z2Pct == null ? '—' : z2Pct + '%') + '</div>', 'In Zone 2'],
+    ].map(([num, label]) => '<div class="cd-stat">' + num + '<div class="cd-stat-label">' + label + '</div></div>').join('');
+  }
+
+  function renderChart() {
+    const sess = last30Sessions();
+    const svg = $('cdChart');
+    if (!sess.length) {
+      svg.style.display = 'none'; svg.innerHTML = '';
+      $('cdChartEmpty').style.display = 'block';
+      $('cdChartLegend').innerHTML = '';
+      return;
+    }
+    svg.style.display = 'block'; $('cdChartEmpty').style.display = 'none';
+    const W = 600, H = 170, padB = 8, padT = 10;
+    const maxDur = Math.max(...sess.map(s => s.durationMin), 30);
+    const barW = Math.min(34, (W / sess.length) * 0.62);
+    const gap = (W - barW * sess.length) / (sess.length + 1);
+    let parts = [];
+    for (let g = 0.25; g < 1; g += 0.25) {
+      const y = padT + (H - padT - padB) * (1 - g);
+      parts.push('<line x1="0" y1="' + y.toFixed(1) + '" x2="' + W + '" y2="' + y.toFixed(1) + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>');
+    }
+    sess.forEach((s, i) => {
+      const x = gap + i * (barW + gap);
+      const h = (s.durationMin / maxDur) * (H - padT - padB);
+      const y = H - padB - h;
+      const color = ZONE_HEX[s.zone] || ZONE_HEX[0];
+      parts.push('<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + color + '" opacity="0.9"><title>' + fmtDate(s.ts) + ' · ' + s.durationMin + ' min</title></rect>');
+    });
+    svg.innerHTML = parts.join('');
+    $('cdChartLegend').innerHTML = ['1', '2', '3', '4', '5'].map(id =>
+      '<span class="lg"><span class="sw" style="background:' + ZONE_HEX[id] + '"></span>Zone ' + id + '</span>'
+    ).join('') + '<span class="lg"><span class="sw" style="background:' + ZONE_HEX[0] + '"></span>No HR data</span>';
+  }
+
+  /* ============ Session list ============ */
+  function renderList() {
+    const list = $('cdSessList');
+    const sess = loadSessions().slice().sort((a, b) => b.ts - a.ts);
+    list.innerHTML = '';
+    if (!sess.length) { const li = document.createElement('li'); li.className = 'cd-empty'; li.textContent = 'No treadmill sessions logged yet.'; list.appendChild(li); return; }
+    sess.forEach(s => {
+      const li = document.createElement('li'); li.className = 'cd-row';
+      const zoneInfo = ZONES.find(z => z.id === s.zone);
+      const metaBits = [];
+      if (s.speedMph) metaBits.push(s.speedMph + ' mph');
+      if (s.incline) metaBits.push(s.incline + '% incline');
+      if (s.distanceMi) metaBits.push(s.distanceMi + ' mi');
+      if (s.avgHr) metaBits.push('Avg ' + s.avgHr + ' bpm');
+      if (s.peakHr) metaBits.push('Peak ' + s.peakHr + ' bpm');
+      li.innerHTML =
+        '<div class="cd-row-zone" style="background:' + (ZONE_HEX[s.zone] || ZONE_HEX[0]) + '"></div>'
+        + '<div class="cd-row-main">'
+        + '<div class="cd-row-top"><span class="cd-row-dur">' + s.durationMin + ' min</span><span class="cd-row-date">' + fmtDate(s.ts) + (zoneInfo ? ' · ' + zoneInfo.label : '') + '</span></div>'
+        + (metaBits.length ? '<div class="cd-row-meta">' + metaBits.join('<span class="sep">•</span>') + '</div>' : '')
+        + (s.notes ? '<div class="cd-row-notes">' + escapeHtml(s.notes) + '</div>' : '')
+        + '</div>'
+        + '<div class="cd-row-cal">' + (s.calories ? s.calories + ' kcal' : '—') + (s.calories ? '<small>' + (s.calorieMethod === 'hr' ? 'from HR' : 'from pace') + '</small>' : '') + '</div>'
+        + '<button class="cd-row-del" type="button" aria-label="Delete">×</button>';
+      li.querySelector('.cd-row-del').addEventListener('click', () => {
+        saveSessions(loadSessions().filter(x => x.id !== s.id));
+        renderCdAll();
+      });
+      list.appendChild(li);
+    });
+  }
+
+  function renderCdAll() {
+    renderSettingsForm();
+    renderZones();
+    renderPreview();
+    renderRecap();
+    renderChart();
+    renderList();
+  }
+  renderCdAll();
+
+  // Cardio's own storage keys ('cardio:settings', 'cardio:sessions') are
+  // included in PC_SYNCED_KEYS above, so they ride along on this page's
+  // existing custom Supabase sync — no separate initCloudSync call needed.
+  // Exposed so pcRerender() (defined earlier in the page) can refresh this
+  // section too when a remote pull applies new data.
+  window.__cdRenderAll = renderCdAll;
 })();
 </script>
 
