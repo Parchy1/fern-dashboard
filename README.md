@@ -21,6 +21,7 @@ Open any `.html` file directly in your browser — no build step, no install.
 | [gym.html](gym.html) | Progressive overload gym tracker |
 | [notes.html](notes.html) | Freeform notes |
 | [reading.html](reading.html) | Reading & learning list (books, courses, articles, videos) |
+| [business.html](business.html) | Side hustles & revenue tracker (affiliate marketing, freelance editing clients) |
 | [topbar.js](topbar.js) | Shared top bar — auto-injected into pages that `<script src="topbar.js">` |
 
 Each app stores its own state in browser `localStorage`. No accounts, no server.
