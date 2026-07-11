@@ -1077,6 +1077,7 @@ main { position: relative; }
     <div class="sf-eyebrow">Log a meal</div>
     <div class="cal-mode-tabs">
       <button class="cal-mode-tab active" data-mode="photo" type="button">📷 Photo</button>
+      <button class="cal-mode-tab" data-mode="describe" type="button">🔍 Describe</button>
       <button class="cal-mode-tab" data-mode="manual" type="button">✏️ Manual</button>
     </div>
 
@@ -1091,6 +1092,12 @@ main { position: relative; }
       <input class="stack-input" id="calPhotoContext" type="text" placeholder="Add context for the AI (optional) — e.g. 2 scoops protein powder, half portion, olive oil" style="width:100%;margin-bottom:12px;box-sizing:border-box;display:none">
       <button class="stack-add-btn cal-analyze-btn" id="calAnalyzeBtn" type="button" style="display:none">🔍 Analyze with AI</button>
       <div id="calAnalyzeStatus" class="cal-note" style="display:none"></div>
+    </div>
+
+    <div id="calDescribeMode" style="display:none">
+      <textarea class="stack-input" id="calDescribeText" rows="3" placeholder="Describe what you ate — e.g. 2 scrambled eggs, a slice of sourdough toast with butter, black coffee" style="width:100%;margin-bottom:12px;box-sizing:border-box;resize:vertical;font-family:inherit"></textarea>
+      <button class="stack-add-btn cal-analyze-btn" id="calAnalyzeTextBtn" type="button">🔍 Analyze with AI</button>
+      <div id="calAnalyzeTextStatus" class="cal-note" style="display:none"></div>
     </div>
 
     <div id="calManualMode" style="display:none">
@@ -1832,6 +1839,7 @@ main { position: relative; }
     tab.addEventListener('click', () => {
       document.querySelectorAll('.cal-mode-tab').forEach(t => t.classList.toggle('active', t === tab));
       $('calPhotoMode').style.display = tab.dataset.mode === 'photo' ? 'block' : 'none';
+      $('calDescribeMode').style.display = tab.dataset.mode === 'describe' ? 'block' : 'none';
       $('calManualMode').style.display = tab.dataset.mode === 'manual' ? 'block' : 'none';
       $('calEditWrap').style.display = 'none';
     });
@@ -1949,6 +1957,56 @@ main { position: relative; }
   }
   $('calAnalyzeBtn').addEventListener('click', analyzePhoto);
 
+  // ---------- AI text analysis (no photo — describe what you ate) ----------
+  const TEXT_ANALYZE_SYS = "You are a nutrition-estimation assistant. The user will describe, in their own words, what they ate — no photo. "
+    + "Identify each distinct food item they mention, infer a realistic portion size from whatever they said (assume a typical/average "
+    + "restaurant-or-home portion for anything they don't specify), and estimate calories, protein (g), carbs (g), and fat (g) for EACH item, "
+    + "using plausible whole numbers like a careful nutrition-label estimator. Treat anything specific they state (brand, exact amount, "
+    + "cooking method) as ground truth. "
+    + 'Respond with ONLY valid JSON (no markdown, no code fences, no extra text) matching exactly this schema: '
+    + '{"items":[{"name":string,"calories":number,"protein":number,"carbs":number,"fat":number}],"note":string}. '
+    + '"note" is one short sentence flagging this is a text-based estimate (no photo) the user should adjust if a portion looks off.';
+
+  async function analyzeDescription() {
+    const desc = $('calDescribeText').value.trim();
+    if (!desc) { $('calDescribeText').focus(); return; }
+    const key = savedNovaKey();
+    if (!key) {
+      $('calAnalyzeTextStatus').style.display = 'block';
+      $('calAnalyzeTextStatus').textContent = 'Paste your Anthropic API key on the Nova page first (🧠 tile on the home screen) — needed for AI analysis.';
+      return;
+    }
+    $('calAnalyzeTextStatus').style.display = 'block';
+    $('calAnalyzeTextStatus').textContent = 'Analyzing…';
+    $('calAnalyzeTextBtn').disabled = true;
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8', max_tokens: 900, system: TEXT_ANALYZE_SYS,
+          messages: [{ role: 'user', content: 'What I ate: ' + desc }]
+        }),
+      });
+      const json = await res.json();
+      if (json.error) { $('calAnalyzeTextStatus').textContent = json.error.message || 'Analysis failed — check your API key.'; $('calAnalyzeTextBtn').disabled = false; return; }
+      const raw = (json.content && json.content[0] && json.content[0].text) || '';
+      let parsed;
+      try { parsed = parsePossiblyFencedJson(raw); }
+      catch (e) { $('calAnalyzeTextStatus').textContent = "Couldn't parse the AI's response — try again or log manually."; $('calAnalyzeTextBtn').disabled = false; return; }
+      openEditor((parsed.items || []).map(it => ({
+        name: String(it.name || 'Item'),
+        calories: Number(it.calories) || 0, protein: Number(it.protein) || 0,
+        carbs: Number(it.carbs) || 0, fat: Number(it.fat) || 0
+      })), parsed.note || '');
+      $('calAnalyzeTextStatus').style.display = 'none';
+    } catch (e) {
+      $('calAnalyzeTextStatus').textContent = 'Could not reach Anthropic — check your connection and key.';
+    }
+    $('calAnalyzeTextBtn').disabled = false;
+  }
+  $('calAnalyzeTextBtn').addEventListener('click', analyzeDescription);
+
   // ---------- Editable item rows ----------
   let editItems = [];
 
@@ -1995,6 +2053,8 @@ main { position: relative; }
     $('calAnalyzeStatus').style.display = 'none';
     $('calFileCamera').value = '';
     $('calFileLibrary').value = '';
+    $('calDescribeText').value = '';
+    $('calAnalyzeTextStatus').style.display = 'none';
   }
 
   function openEditor(items, note) {
