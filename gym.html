@@ -1466,6 +1466,7 @@ img, video, canvas, svg { max-width: 100%; }
     <h1 class="po-title" id="appTitle">Progressive Overload Coach</h1>
     <div style="display:flex;gap:8px">
       <a class="po-icon-btn" href="#cardioSection" title="Cardio" aria-label="Jump to Cardio" style="text-decoration:none;font-size:17px">🏃</a>
+      <a class="po-icon-btn" href="#stretchSection" title="Stretching" aria-label="Jump to Stretching" style="text-decoration:none;font-size:17px">🧘</a>
       <button class="po-icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -3362,7 +3363,7 @@ img, video, canvas, svg { max-width: 100%; }
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
   // strips any base64 dataUrl entries before push so the payload stays
   // tiny and we never blow iOS Safari's ~5MB localStorage quota.
-  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions'];
+  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log'];
 
   let pcSupa = null;
   let pcPushTimer = null;
@@ -3431,6 +3432,7 @@ img, video, canvas, svg { max-width: 100%; }
     try { wtRender(); } catch {}
     try { photosRender(); } catch {}
     try { if (window.__cdRenderAll) window.__cdRenderAll(); } catch {}
+    try { if (window.__stRenderAll) window.__stRenderAll(); } catch {}
   }
 
   function pcApplyRemoteState(remote) {
@@ -4029,6 +4031,226 @@ img, video, canvas, svg { max-width: 100%; }
   // Exposed so pcRerender() (defined earlier in the page) can refresh this
   // section too when a remote pull applies new data.
   window.__cdRenderAll = renderCdAll;
+})();
+</script>
+
+<!-- ===== Stretching (AM mobility / PM static) ===== -->
+<style>
+  .st-section { margin-top: 8px; }
+  .st-title {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text-3); display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  }
+  .st-title::before { content: ''; width: 18px; height: 1px; background: var(--text-3); opacity: 0.6; }
+  .st-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
+  .st-card { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 14px; overflow: hidden; }
+  .st-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .st-head-left { display: flex; flex-direction: column; }
+  .st-name { font-size: 15px; font-weight: 700; color: var(--text-1); }
+  .st-sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; line-height: 1.5; max-width: 340px; }
+  .st-streak {
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text-3);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; flex-shrink: 0;
+  }
+  .st-streak.on { color: var(--good); border-color: rgba(110,231,183,0.35); }
+  .st-dots { display: flex; gap: 4px; margin-top: 10px; }
+  .st-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.08); flex-shrink: 0; }
+  .st-dot.done { background: var(--good); }
+  .st-dot.today { box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
+  .st-list { list-style: none; margin: 14px 0 0; padding: 0; }
+  .st-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); }
+  .st-row:first-child { border-top: 0; }
+  .st-check {
+    appearance: none; -webkit-appearance: none; width: 22px; height: 22px; flex-shrink: 0; margin: 0;
+    border: 1.5px solid var(--border-strong); background: rgba(0,0,0,0.28); border-radius: 7px;
+    position: relative; cursor: pointer; transition: background 0.2s, border-color 0.2s;
+  }
+  .st-check:checked { background: var(--good); border-color: var(--good); }
+  .st-check:checked::after {
+    content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
+    border: solid #0A0A0B; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+  }
+  .st-row-main { flex: 1; min-width: 0; }
+  .st-row-name { font-size: 13.5px; color: var(--text-1); font-weight: 600; }
+  .st-row.done .st-row-name { text-decoration: line-through; text-decoration-color: var(--text-3); opacity: 0.6; }
+  .st-row-rx { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .st-row-del { border: 0; background: transparent; color: var(--text-3); font-size: 17px; cursor: pointer; padding: 0 2px; opacity: 0.4; flex-shrink: 0; transition: opacity 0.2s, color 0.2s; }
+  .st-row-del:hover { opacity: 1; color: var(--bad); }
+  .st-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .st-add-row input {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,0.28);
+    color: var(--text-1); font-family: inherit; font-size: 13px; outline: none;
+  }
+  .st-add-row input#stAmName, .st-add-row input#stPmName { flex: 1; min-width: 120px; }
+  .st-add-row input#stAmRx, .st-add-row input#stPmRx { width: 110px; flex: none; }
+  .st-add-btn { border: 0; border-radius: 10px; padding: 10px 16px; background: #fff; color: #0A0A0B; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .st-empty { text-align: center; font-size: 12px; font-style: italic; color: var(--text-3); padding: 14px 0; }
+</style>
+<div class="st-section" id="stretchSection">
+
+  <div class="st-title">Stretching</div>
+  <div class="st-card">
+    <div class="st-sub" style="max-width:none">
+      Split by research consensus on stretch timing: <b style="color:var(--text-1)">mornings use dynamic mobility</b> (moving stretches — circles, swings, lunges) to prime joints and raise tissue temperature without the temporary strength/power dip static holds can cause pre-activity. <b style="color:var(--text-1)">Evenings use static holds</b> (held 20–45s) once you're already warm from the day, which is when static stretching is most effective for building range of motion and is well-supported for recovery and next-day soreness.
+    </div>
+  </div>
+
+  <div class="st-card">
+    <div class="st-head">
+      <div class="st-head-left">
+        <span class="st-name">☀️ AM — Dynamic Mobility</span>
+        <span class="st-sub">Moving stretches, done once through, no long holds.</span>
+      </div>
+      <span class="st-streak" id="stAmStreak">— streak</span>
+    </div>
+    <div class="st-dots" id="stAmDots"></div>
+    <ul class="st-list" id="stAmList"></ul>
+    <div class="st-add-row">
+      <input type="text" id="stAmName" placeholder="Add a stretch…">
+      <input type="text" id="stAmRx" placeholder="e.g. 10 reps">
+      <button class="st-add-btn" id="stAmAddBtn" type="button">Add</button>
+    </div>
+  </div>
+
+  <div class="st-card">
+    <div class="st-head">
+      <div class="st-head-left">
+        <span class="st-name">🌙 PM — Static Holds</span>
+        <span class="st-sub">Hold each stretch to a light stretch, not pain.</span>
+      </div>
+      <span class="st-streak" id="stPmStreak">— streak</span>
+    </div>
+    <div class="st-dots" id="stPmDots"></div>
+    <ul class="st-list" id="stPmList"></ul>
+    <div class="st-add-row">
+      <input type="text" id="stPmName" placeholder="Add a stretch…">
+      <input type="text" id="stPmRx" placeholder="e.g. 30s / side">
+      <button class="st-add-btn" id="stPmAddBtn" type="button">Add</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  function storeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dateKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function todayKey() { return dateKey(new Date()); }
+  function last14Days() { const out = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); out.push(dateKey(d)); } return out; }
+
+  const AM_KEY = 'stretch:am:items', PM_KEY = 'stretch:pm:items', LOG_KEY = 'stretch:log';
+
+  const AM_DEFAULTS = [
+    { id: 'am1', name: 'Cat-Cow', rx: '10 reps' },
+    { id: 'am2', name: "World's Greatest Stretch", rx: '5 / side' },
+    { id: 'am3', name: 'Leg swings (front-back)', rx: '10 / leg' },
+    { id: 'am4', name: 'Leg swings (side-side)', rx: '10 / leg' },
+    { id: 'am5', name: 'Hip circles', rx: '10 / direction' },
+    { id: 'am6', name: 'Arm circles', rx: '10 / direction' },
+    { id: 'am7', name: 'Walking lunge with twist', rx: '8 reps' },
+    { id: 'am8', name: 'Ankle circles', rx: '10 / direction' },
+  ];
+  const PM_DEFAULTS = [
+    { id: 'pm1', name: 'Standing hamstring stretch', rx: '30s / leg' },
+    { id: 'pm2', name: 'Couch stretch (quad/hip flexor)', rx: '30–45s / leg' },
+    { id: 'pm3', name: 'Figure-4 / pigeon stretch', rx: '30–45s / side' },
+    { id: 'pm4', name: "Child's pose", rx: '45s' },
+    { id: 'pm5', name: 'Doorway chest stretch', rx: '30s / side' },
+    { id: 'pm6', name: 'Seated spinal twist', rx: '30s / side' },
+    { id: 'pm7', name: 'Calf stretch (wall)', rx: '30s / leg' },
+    { id: 'pm8', name: 'Lateral neck stretch', rx: '20s / side' },
+  ];
+
+  function getItems(key, defaults) {
+    const v = storeGet(key);
+    if (Array.isArray(v) && v.length) return v;
+    storeSet(key, defaults);
+    return defaults;
+  }
+  function setItems(key, items) { storeSet(key, items); }
+  function getLog() { return storeGet(LOG_KEY) || {}; }
+  function setLog(l) { storeSet(LOG_KEY, l); }
+  function isDone(log, id, dk) { return !!(log[id] && log[id][dk]); }
+  function toggleItem(id) {
+    const log = getLog(); const dk = todayKey();
+    log[id] = log[id] || {};
+    if (log[id][dk]) delete log[id][dk]; else log[id][dk] = true;
+    setLog(log);
+    renderStAll();
+  }
+  function routineDoneOnDay(items, log, dk) { return items.length > 0 && items.every(it => isDone(log, it.id, dk)); }
+  function streakFor(items, log) {
+    let streak = 0;
+    const cursor = new Date();
+    if (!routineDoneOnDay(items, log, dateKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+    while (routineDoneOnDay(items, log, dateKey(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+    return streak;
+  }
+
+  function renderRoutine(key, defaults, listEl, streakEl, dotsEl) {
+    const items = getItems(key, defaults);
+    const log = getLog();
+    const dk = todayKey();
+
+    listEl.innerHTML = '';
+    if (!items.length) { const li = document.createElement('li'); li.className = 'st-empty'; li.textContent = 'No stretches yet — add one below.'; listEl.appendChild(li); }
+    items.forEach(it => {
+      const done = isDone(log, it.id, dk);
+      const li = document.createElement('li'); li.className = 'st-row' + (done ? ' done' : '');
+      li.innerHTML = '<input class="st-check" type="checkbox" ' + (done ? 'checked' : '') + '>'
+        + '<div class="st-row-main"><div class="st-row-name">' + escapeHtml(it.name) + '</div><div class="st-row-rx">' + escapeHtml(it.rx || '') + '</div></div>'
+        + '<button class="st-row-del" type="button" aria-label="Delete">×</button>';
+      li.querySelector('.st-check').addEventListener('change', () => toggleItem(it.id));
+      li.querySelector('.st-row-del').addEventListener('click', () => {
+        setItems(key, getItems(key, defaults).filter(x => x.id !== it.id));
+        renderStAll();
+      });
+      listEl.appendChild(li);
+    });
+
+    const streak = streakFor(items, log);
+    streakEl.textContent = '🔥 ' + streak + ' day' + (streak === 1 ? '' : 's');
+    streakEl.classList.toggle('on', streak > 0);
+
+    dotsEl.innerHTML = '';
+    last14Days().forEach(dk2 => {
+      const dot = document.createElement('span');
+      dot.className = 'st-dot' + (routineDoneOnDay(items, log, dk2) ? ' done' : '') + (dk2 === dk ? ' today' : '');
+      dotsEl.appendChild(dot);
+    });
+  }
+
+  function addStretch(key, defaults, nameId, rxId) {
+    const name = $(nameId).value.trim();
+    const rx = $(rxId).value.trim();
+    if (!name) return;
+    const items = getItems(key, defaults);
+    items.push({ id: 'st' + Date.now() + Math.floor(Math.random() * 1000), name, rx });
+    setItems(key, items);
+    $(nameId).value = ''; $(rxId).value = '';
+    renderStAll();
+  }
+  $('stAmAddBtn').addEventListener('click', () => addStretch(AM_KEY, AM_DEFAULTS, 'stAmName', 'stAmRx'));
+  $('stPmAddBtn').addEventListener('click', () => addStretch(PM_KEY, PM_DEFAULTS, 'stPmName', 'stPmRx'));
+  $('stAmRx').addEventListener('keydown', (e) => { if (e.key === 'Enter') addStretch(AM_KEY, AM_DEFAULTS, 'stAmName', 'stAmRx'); });
+  $('stPmRx').addEventListener('keydown', (e) => { if (e.key === 'Enter') addStretch(PM_KEY, PM_DEFAULTS, 'stPmName', 'stPmRx'); });
+
+  function renderStAll() {
+    renderRoutine(AM_KEY, AM_DEFAULTS, $('stAmList'), $('stAmStreak'), $('stAmDots'));
+    renderRoutine(PM_KEY, PM_DEFAULTS, $('stPmList'), $('stPmStreak'), $('stPmDots'));
+  }
+  renderStAll();
+
+  // Rides along on gym.html's existing custom Supabase sync (its keys are
+  // in PC_SYNCED_KEYS above) — exposed so pcRerender() can refresh this
+  // section too when a remote pull applies new data.
+  window.__stRenderAll = renderStAll;
 })();
 </script>
 
