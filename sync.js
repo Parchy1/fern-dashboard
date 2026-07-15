@@ -47,6 +47,7 @@
 
     let supa = null;
     let pushTimer = null;
+    let pushInFlight = false;
     let suppressSync = false;
     let lastSyncedJson = null;
 
@@ -89,6 +90,16 @@
 
     function applyRemote(remote) {
       if (!remote || typeof remote !== 'object') return false;
+      // A local edit is waiting to be pushed (or is actively being pushed
+      // right now) — this incoming snapshot predates that edit, since it
+      // was read from the server before the edit landed there. Applying it
+      // would silently overwrite the unpushed local change, and since the
+      // overwritten state would then match what the pending push is about
+      // to send, pushNow()'s no-op check would skip sending it entirely —
+      // losing the edit both locally and on the server with no error shown.
+      // Skip this pull; the pending push will land first, and a later pull
+      // will correctly pick up the merged state.
+      if (pushTimer || pushInFlight) return false;
       suppressSync = true;
       let changed = false;
       try {
@@ -119,26 +130,28 @@
     // connection (e.g. spotty mobile signal right after making a change).
     async function pushNow(attempt) {
       attempt = attempt || 0;
-      if (!supa) return;
+      pushInFlight = true;
+      if (!supa) { pushInFlight = false; return; }
       const state = collect();
       const json = JSON.stringify(state);
-      if (json === lastSyncedJson) return;
+      if (json === lastSyncedJson) { pushInFlight = false; return; }
       try {
         const { error } = await supa.from('app_state').upsert(
           { key: appKey, data: state, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         );
-        if (!error) { lastSyncedJson = json; return; }
+        if (!error) { lastSyncedJson = json; pushInFlight = false; return; }
         throw error;
       } catch (e) {
         if (attempt < 3) { setTimeout(() => pushNow(attempt + 1), 2000 * (attempt + 1)); return; }
+        pushInFlight = false;
         console.warn('[sync:' + appKey + '] push failed after 3 attempts:', e && e.message ? e.message : e);
         toast('⚠️ Couldn\'t sync your last change (' + appKey + ') — check your connection.');
       }
     }
     function schedulePush() {
       clearTimeout(pushTimer);
-      pushTimer = setTimeout(() => pushNow(0), 250);
+      pushTimer = setTimeout(() => { pushTimer = null; pushNow(0); }, 250);
     }
 
     // Re-pull the latest row from the server. Used on initial load AND
