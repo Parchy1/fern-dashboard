@@ -420,6 +420,14 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .nw-subcard .quick-add input {
   min-width: 0; width: 100%; max-width: none !important;
 }
+/* Add Income row has 4 controls (label, amount, account select, button)
+   instead of the 2-input layout .nw-subcard .quick-add's grid assumes. */
+#nwIncomeCard .quick-add {
+  grid-template-columns: 1.3fr 0.9fr 1.3fr auto !important;
+}
+#nwIncomeCard .quick-add select {
+  min-width: 0; width: 100%; max-width: none !important;
+}
 #netWorthTotal + * + .card-grid,
 .section .card .card-grid {
   display: grid;
@@ -1363,6 +1371,25 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
     font-size: 15px !important;
   }
 
+  /* ---------- Add Income row ---------- */
+  #nwIncomeCard .quick-add {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 8px;
+    gap: 8px;
+  }
+  #nwIncomeCard .quick-add input,
+  #nwIncomeCard .quick-add select,
+  #nwIncomeCard .quick-add button {
+    flex: none !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    width: 100%;
+    padding: 12px 14px !important;
+    font-size: 15px !important;
+  }
+
   /* ---------- Orders add grid ---------- */
   .ord-add-grid {
     grid-template-columns: 1fr !important;
@@ -1673,6 +1700,21 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div class="nw-donut-empty" id="nwDonutEmpty">Add an account to see your breakdown</div>
         <div class="nw-donut-legend" id="nwDonutLegend"></div>
       </div>
+    </div>
+
+    <!-- Add income / salary — quick deposit into any existing account -->
+    <div class="card nw-subcard" id="nwIncomeCard">
+      <div class="label" style="display:flex;justify-content:space-between;align-items:center">
+        <span>💰 Add Income</span>
+        <span id="nwIncomeStats" style="font-size:11.5px;color:var(--text-tertiary);font-weight:500">—</span>
+      </div>
+      <div class="quick-add" style="flex-wrap:wrap">
+        <input type="text" placeholder="Label (e.g. Salary, Freelance)" id="incomeLabel" style="flex:1.4;min-width:130px" />
+        <input type="number" placeholder="Amount" id="incomeAmount" step="0.01" style="flex:1;min-width:90px" />
+        <select id="incomeAccount" style="flex:1.2;min-width:140px;padding:8px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:13px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)"></select>
+        <button class="quick-add-btn" id="incomeAddBtn">+</button>
+      </div>
+      <div id="nwIncomeStatus" style="font-size:11.5px;color:var(--text-tertiary);margin-top:8px;display:none"></div>
     </div>
 
     <!-- Activity log — every add / edit, newest first -->
@@ -2095,6 +2137,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     renderNetWorthChart();
     renderAllocationDonut(sliceTotals, grand);
     renderActivity();
+    if (typeof populateIncomeAccountSelect === 'function') populateIncomeAccountSelect();
+    if (typeof renderIncomeStats === 'function') renderIncomeStats();
     if (typeof renderWishlist === 'function') renderWishlist();
     if (typeof renderOrders   === 'function') renderOrders();
     if (typeof updateOrdPreview === 'function') updateOrdPreview();
@@ -2145,17 +2189,103 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const sign = e.delta >= 0 ? '+' : '—';
       const cls = e.delta >= 0 ? 'up' : 'down';
       const amt = fmtMoney(Math.abs(e.delta));
-      const kind = e.kind === 'edit' ? 'EDIT' : (e.kind === 'delete' ? 'DELETE' : 'ADD');
+      const kind = e.kind === 'income' ? 'INCOME' : e.kind === 'edit' ? 'EDIT' : (e.kind === 'delete' ? 'DELETE' : 'ADD');
+      const barColor = e.kind === 'income' ? '#6EE7B7' : meta.color;
+      const prefix = e.kind === 'income' ? '💰 ' : '';
       return '<div class="nw-activity-row" style="color:' + meta.color + '">'
-        + '<span class="nw-activity-bar" style="background:' + meta.color + '"></span>'
+        + '<span class="nw-activity-bar" style="background:' + barColor + '"></span>'
         + '<div class="nw-activity-info">'
-        +   '<div class="nw-activity-name">' + escapeHtml(e.name || '(unnamed)') + '</div>'
+        +   '<div class="nw-activity-name">' + prefix + escapeHtml(e.name || '(unnamed)') + '</div>'
         +   '<div class="nw-activity-meta">' + meta.name + ' · ' + kind + '</div>'
         + '</div>'
         + '<span class="nw-activity-amt ' + cls + '">' + sign + amt + '</span>'
         + '<span class="nw-activity-date">' + fmtActivityDate(e.ts) + '</span>'
         + '</div>';
     }).join('');
+  }
+
+  // ============================================================
+  // ADD INCOME — a quick, clearly-labeled deposit into any existing
+  // NW account (bank/stocks/crypto/other), logged as its own 'income'
+  // activity kind so it's distinguishable from ordinary edits and can
+  // be summed into "income this month/year" below.
+  // ============================================================
+  function populateIncomeAccountSelect() {
+    const sel = document.getElementById('incomeAccount');
+    if (!sel) return;
+    const accounts = listAllNwAccounts();
+    const prev = sel.value;
+    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const addBtn = document.getElementById('incomeAddBtn');
+    if (!accounts.length) {
+      sel.innerHTML = '<option value="">No accounts yet</option>';
+      sel.disabled = true;
+      if (addBtn) addBtn.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    if (addBtn) addBtn.disabled = false;
+    sel.innerHTML = accounts.map(a => {
+      const value = a.catKey + '::' + a.itemName;
+      return '<option value="' + value + '">' + ICONS[a.catKey] + ' ' + escapeHtml(a.itemName) + '</option>';
+    }).join('');
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
+
+  function renderIncomeStats() {
+    const statsEl = document.getElementById('nwIncomeStats');
+    if (!statsEl) return;
+    const arr = storeGet(ACTIVITY_KEY) || [];
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+    let month = 0, year = 0;
+    arr.forEach(e => {
+      if (e.kind !== 'income') return;
+      if (e.ts >= yearStart) year += e.delta;
+      if (e.ts >= monthStart) month += e.delta;
+    });
+    statsEl.textContent = 'This month ' + fmtMoney(month) + ' · This year ' + fmtMoney(year);
+  }
+
+  function doAddIncome() {
+    const labelInput = document.getElementById('incomeLabel');
+    const amtInput = document.getElementById('incomeAmount');
+    const sel = document.getElementById('incomeAccount');
+    const status = document.getElementById('nwIncomeStatus');
+    if (!labelInput || !amtInput || !sel) return;
+    const label = labelInput.value.trim() || 'Income';
+    const amt = parseFloat(amtInput.value);
+    const target = sel.value;
+    if (!target) {
+      status.style.display = 'block';
+      status.textContent = 'Add a bank account below first, then you can log income into it.';
+      return;
+    }
+    if (isNaN(amt) || amt <= 0) { amtInput.focus(); return; }
+    const sepIdx = target.indexOf('::');
+    const catKey = target.slice(0, sepIdx);
+    const accountName = target.slice(sepIdx + 2);
+    const items = storeGet('nw:' + catKey) || [];
+    const idx = items.findIndex(x => String(x.name) === accountName);
+    if (idx < 0) return;
+    // Amount is entered in the currently selected display currency —
+    // convert to CHF for storage, same as every other NW input.
+    const symbol = currencyEl ? currencyEl.value : 'CHF';
+    const rate = exchangeRates[symbol] || 1;
+    const deltaCHF = amt / rate;
+    items[idx].amount = (Number(items[idx].amount) || 0) + deltaCHF;
+    storeSet('nw:' + catKey, items);
+    logActivity(catKey, label + ' → ' + accountName, deltaCHF, 'income');
+    labelInput.value = ''; amtInput.value = '';
+    status.style.display = 'none';
+    renderAllNetWorth();
+  }
+  const incomeAddBtnEl = document.getElementById('incomeAddBtn');
+  if (incomeAddBtnEl) {
+    incomeAddBtnEl.addEventListener('click', doAddIncome);
+    document.getElementById('incomeLabel').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAddIncome(); });
+    document.getElementById('incomeAmount').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAddIncome(); });
   }
 
   // ============================================================
