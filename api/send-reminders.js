@@ -6,15 +6,24 @@
 // one of REMINDER_HOURS_LOCAL; if so, reads today's recurring items
 // straight from Supabase (the same rows the dashboard itself reads
 // and writes — this function never talks to the browser, only to
-// Supabase and Twilio) and texts a digest of whatever's still
-// undone. Sends nothing if it's not a configured hour, or if
+// Supabase and the delivery provider) and texts a digest of whatever's
+// still undone. Sends nothing if it's not a configured hour, or if
 // everything's already done.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
-//   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
-//   TWILIO_FROM_NUMBER                your Twilio number, e.g. +15551234567
-//   TWILIO_TO_NUMBER                  your personal phone, e.g. +15559876543
+//
+// Delivery — configure ONE of these two (Twilio is preferred if both are set):
+//   Twilio (paid, reliable):
+//     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+//     TWILIO_FROM_NUMBER                your Twilio number, e.g. +15551234567
+//     TWILIO_TO_NUMBER                  your personal phone, e.g. +15559876543
+//   Email-to-SMS carrier gateway (free, via Resend):
+//     RESEND_API_KEY                    from resend.com
+//     SMS_GATEWAY_TO                    your phone's carrier gateway address,
+//                                        e.g. 5551234567@vtext.com (Verizon)
+//     RESEND_FROM                       optional, default 'onboarding@resend.dev'
+//
 // Optional:
 //   REMINDER_TIMEZONE     IANA tz name, default 'America/New_York'
 //   REMINDER_HOURS_LOCAL  comma-separated 24h hours to check, default '14,20'
@@ -23,7 +32,7 @@
 //                         sends this automatically on cron-triggered
 //                         requests when CRON_SECRET is set as an env var.
 //                         Strongly recommended so this endpoint can't be
-//                         hit by randoms to spam your phone / burn Twilio credit.
+//                         hit by randoms to spam your phone / burn your quota.
 // ============================================================
 
 function currentHourInTz(tz) {
@@ -106,6 +115,52 @@ function sourceDoneToday(autoSource, ctx) {
   return false;
 }
 
+// ---------- Delivery: Twilio SMS, or free email-to-SMS carrier gateway ----------
+// Prefers Twilio if fully configured; otherwise falls back to emailing your
+// carrier's SMS gateway address (e.g. 5551234567@vtext.com) via Resend. Either
+// way this returns a small result object; the caller doesn't need to know which
+// path was used.
+async function sendViaTwilio(body) {
+  const twSid = process.env.TWILIO_ACCOUNT_SID, twToken = process.env.TWILIO_AUTH_TOKEN;
+  const twFrom = process.env.TWILIO_FROM_NUMBER, twTo = process.env.TWILIO_TO_NUMBER;
+  const twRes = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + twSid + '/Messages.json', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Basic ' + Buffer.from(twSid + ':' + twToken).toString('base64'),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ To: twTo, From: twFrom, Body: body }).toString(),
+  });
+  const twJson = await twRes.json();
+  if (!twRes.ok) throw new Error('twilio send failed: ' + JSON.stringify(twJson));
+  return { method: 'twilio', id: twJson.sid };
+}
+
+async function sendViaEmailGateway(body) {
+  const resendKey = process.env.RESEND_API_KEY;
+  const gatewayTo = process.env.SMS_GATEWAY_TO; // full address, e.g. 5551234567@vtext.com
+  const from = process.env.RESEND_FROM || 'onboarding@resend.dev';
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+    // Blank subject on purpose — some carriers prepend the subject to the
+    // delivered text, which would duplicate content. Keep the body short;
+    // long messages get truncated or split oddly by carrier gateways.
+    body: JSON.stringify({ from, to: [gatewayTo], subject: '', text: body }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error('resend send failed: ' + JSON.stringify(json));
+  return { method: 'email-gateway', id: json.id };
+}
+
+export async function sendReminder(body) {
+  const twConfigured = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER && process.env.TWILIO_TO_NUMBER;
+  const emailConfigured = process.env.RESEND_API_KEY && process.env.SMS_GATEWAY_TO;
+  if (twConfigured) return sendViaTwilio(body);
+  if (emailConfigured) return sendViaEmailGateway(body);
+  throw new Error('no delivery method configured — set either the TWILIO_* vars or RESEND_API_KEY + SMS_GATEWAY_TO');
+}
+
 // Exported separately from the HTTP handler so it can be exercised
 // directly in tests without going through req/res or real network calls.
 export async function computeUndone(fetchers) {
@@ -164,23 +219,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ sent: false, reason: 'nothing undone' });
     }
 
-    const twSid = process.env.TWILIO_ACCOUNT_SID, twToken = process.env.TWILIO_AUTH_TOKEN;
-    const twFrom = process.env.TWILIO_FROM_NUMBER, twTo = process.env.TWILIO_TO_NUMBER;
-    if (!twSid || !twToken || !twFrom || !twTo) return res.status(500).json({ error: 'Twilio env vars not configured' });
-
     const body = 'Still todo today: ' + undone.join(', ');
-    const twRes = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + twSid + '/Messages.json', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Basic ' + Buffer.from(twSid + ':' + twToken).toString('base64'),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({ To: twTo, From: twFrom, Body: body }).toString(),
-    });
-    const twJson = await twRes.json();
-    if (!twRes.ok) return res.status(502).json({ error: 'twilio send failed', detail: twJson });
+    let result;
+    try {
+      result = await sendReminder(body);
+    } catch (e) {
+      return res.status(502).json({ error: 'send failed', detail: e && e.message ? e.message : String(e) });
+    }
 
-    return res.status(200).json({ sent: true, undone, sid: twJson.sid });
+    return res.status(200).json({ sent: true, undone, method: result.method, id: result.id });
   } catch (e) {
     return res.status(500).json({ error: e && e.message ? e.message : String(e) });
   }
