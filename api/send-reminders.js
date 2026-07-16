@@ -1,14 +1,22 @@
 // ============================================================
 // GET/POST /api/send-reminders
 //
-// Triggered by Vercel Cron (see vercel.json — runs hourly). Checks
-// whether the current time, converted to REMINDER_TIMEZONE, matches
-// one of REMINDER_HOURS_LOCAL; if so, reads today's recurring items
-// straight from Supabase (the same rows the dashboard itself reads
-// and writes — this function never talks to the browser, only to
-// Supabase and the delivery provider) and texts a digest of whatever's
-// still undone. Sends nothing if it's not a configured hour, or if
-// everything's already done.
+// Triggered by Vercel Cron (see vercel.json — two fixed daily UTC times,
+// chosen to land on REMINDER_HOURS_LOCAL's default of 14/20 America/New_York
+// during EDT). Checks whether the current time, converted to
+// REMINDER_TIMEZONE, matches one of REMINDER_HOURS_LOCAL; if so, reads
+// today's recurring items straight from Supabase (the same rows the
+// dashboard itself reads and writes — this function never talks to the
+// browser, only to Supabase and the delivery provider) and texts a digest
+// of whatever's still undone. Sends nothing if it's not a configured hour,
+// or if everything's already done.
+//
+// Vercel Hobby plan only allows cron schedules that fire at most once a
+// day each (hourly polling + in-function hour check, the original design
+// here, needs Pro) — so the cron times in vercel.json are fixed UTC clock
+// times rather than "every hour, check locally". That means they drift by
+// an hour for ~2 weeks around DST changes (mid-March and early November)
+// until nudged; see SETUP.md.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)

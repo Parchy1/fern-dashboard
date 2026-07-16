@@ -166,10 +166,22 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 
 **Either way:**
 
-3. Redeploy. [`vercel.json`](vercel.json) already schedules `/api/send-reminders` to run
-   hourly; the function itself only actually sends during the hours listed in
-   `REMINDER_HOURS_LOCAL`, and only if something's still undone — most hourly runs are a no-op
-   (skipped before any network call, so they don't cost anything or spam you).
+3. Redeploy. [`vercel.json`](vercel.json) already schedules `/api/send-reminders` to run at
+   **18:00 and 00:00 UTC** — that's 2pm/8pm America/New_York during Eastern Daylight Time,
+   matching `REMINDER_HOURS_LOCAL`'s default of `14,20`. (Vercel's free Hobby plan only allows
+   cron schedules that fire once a day each — polling hourly and gating in code, which is how
+   this originally worked, needs a paid Pro plan. Two fixed daily times fits Hobby for free.)
+   The function itself still only actually sends if the current local hour is in
+   `REMINDER_HOURS_LOCAL` and something's undone, so a run that doesn't line up (see the DST
+   note below) or finds nothing outstanding is a silent no-op — no cost, no spam.
+
+   > **Twice a year**, around DST changes (mid-March, early November), the fixed UTC cron
+   > times land an hour off from `REMINDER_HOURS_LOCAL` for about a week until manually
+   > nudged — texts will just quietly stop for a few days rather than arrive at the wrong
+   > time. If that happens, edit the two `schedule` values in `vercel.json` by ±1 hour (or set
+   > `REMINDER_HOURS_LOCAL` to match whichever local hour they're currently landing on) and
+   > redeploy. If you'd rather it just self-correct forever, that needs the hourly-poll design,
+   > which needs Vercel Pro.
 4. Add whichever recurring items you want texted about via the **Recurring Items** panel on
    the Main tab — anything with no `CRON_SECRET` set is reachable by anyone who finds the
    URL, who could then spam your phone or burn through your quota, so set it. Vercel
