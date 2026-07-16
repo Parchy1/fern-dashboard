@@ -139,6 +139,9 @@ body::after {
 .factor-adj.pos { color: var(--success); } .factor-adj.neg { color: var(--danger); } .factor-adj.flat { color: var(--text-tertiary); }
 
 /* ===== Trend chart ===== */
+.trend-toggle { display: inline-flex; border: 1px solid rgba(255,255,255,0.10); border-radius: 11px; overflow: hidden; margin-bottom: 14px; }
+.trend-toggle button { border: 0; background: transparent; color: var(--text-tertiary); font-family: inherit; font-size: 12px; font-weight: 600; padding: 8px 14px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.trend-toggle button.on { background: rgba(196,181,253,0.18); color: var(--peak); }
 .trend-wrap svg { width: 100%; height: 140px; display: block; overflow: visible; }
 .trend-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 10.5px; color: var(--text-tertiary); }
 .trend-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
@@ -187,6 +190,7 @@ body::after {
       <div class="grade-band" id="gradeBand">
         <div class="grade-item"><span class="k">Today so far</span><span class="v" id="gradeToday">—</span></div>
         <div class="grade-item"><span class="k">7-day average</span><span class="v" id="grade7d">—</span></div>
+        <div class="grade-item"><span class="k">30-day average</span><span class="v" id="grade30d">—</span></div>
         <div class="grade-item"><span class="k">vs your normal RHR</span><span class="v" id="gradeRhr">—</span></div>
       </div>
     </div>
@@ -261,6 +265,18 @@ body::after {
     </div>
   </div>
 
+  <!-- QUICK LOG (AI) -->
+  <div class="section">
+    <div class="section-title">Quick Log</div>
+    <div class="gm-card">
+      <label class="field-label">Tell it what happened</label>
+      <input class="gm-input" id="quickLogInput" type="text" placeholder="e.g. just got off work, played basketball for 2 hours">
+      <button class="gm-add" id="quickLogBtn" type="button">Log It</button>
+      <div class="gm-note" id="quickLogNote">Uses Claude (your saved Nova API key) to pull any workout or feeling/stress info out of what you type and fold it straight into today's score — a workout adds a boost + a post-activity dip sized to its intensity/duration, same as gym.html's logged sessions; feeling/stress become a normal check-in.</div>
+      <ul class="checkin-log" id="activityLog"></ul>
+    </div>
+  </div>
+
   <!-- CONTRIBUTING FACTORS -->
   <div class="section">
     <div class="section-title">What's Shaping Your Score</div>
@@ -271,10 +287,16 @@ body::after {
 
   <!-- TREND -->
   <div class="section">
-    <div class="section-title">Last 14 Days</div>
+    <div class="section-title">Trend</div>
     <div class="gm-card">
+      <div class="trend-toggle" id="trendToggle">
+        <button type="button" data-m="day" class="on">Day</button>
+        <button type="button" data-m="week">Week</button>
+        <button type="button" data-m="month">Month</button>
+      </div>
       <div class="trend-wrap" id="trendWrap">
         <svg id="trendChart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+        <div class="empty-state" id="trendEmpty" style="display:none"></div>
       </div>
       <div class="trend-legend" id="trendLegend"></div>
     </div>
@@ -384,6 +406,7 @@ body::after {
   const MORNING_KEY = 'peak:morning';
   const CHECKIN_KEY = 'peak:checkins';
   const DAILY_KEY = 'peak:daily';
+  const ACTIVITY_KEY = 'peak:activities';
 
   /* ============ WHOOP (optional — prefers this over manual entry when connected) ============ */
   let whoop = { recovery: null, rhr: null, sleepPct: null, wakeHour: null, bedHour: null };
@@ -488,6 +511,105 @@ body::after {
     });
   }
 
+  /* ============ Quick Log (AI) ============
+   * Free-text entry ("just got off work, played basketball for 2 hours") ->
+   * Claude extracts structured facts -> those facts are written into the
+   * SAME stores the rest of this page already reads, so no separate scoring
+   * path is needed: an activity becomes a peak:activities entry (feeds
+   * workoutBoostFlat()/workoutDipAt() above), feeling/stress becomes a
+   * normal peak:checkins entry (feeds checkinAdjAt() and shows up in the
+   * existing "How Are You Feeling" log, curve dot, and Nova's context,
+   * unchanged). This never touches gym.html/cardio's own data.
+   */
+  const QUICK_LOG_SYS = 'You extract structured facts from a short first-person message about what someone just did or how they feel, for a personal energy-tracking dashboard. Respond with ONLY a JSON object (no markdown fences, no commentary) matching exactly this shape:\n'
+    + '{"activity":{"present":boolean,"description":string,"durationMin":number|null,"intensity":"low"|"moderate"|"high"},"feeling":number|null,"stress":number|null,"summary":string}\n'
+    + 'Rules:\n'
+    + '- activity.present is true only for physical activity/exercise (sports, workouts, walks, etc.), not passive things like "got off work" or "ate lunch".\n'
+    + '- Infer durationMin and intensity from context (e.g. "basketball for 2 hours" -> durationMin:120, intensity likely "high"; a light walk is "low"). If activity.present is true but duration/intensity aren\'t stated, default durationMin to 30 and intensity to "moderate".\n'
+    + '- feeling is 1-5 (1=very low energy/mood, 5=great) and stress is 1-5 (1=very calm, 5=very stressed) — set ONLY if the message actually conveys something about mood, energy, or stress; leave null otherwise, don\'t invent them.\n'
+    + '- summary is a short (under 12 words) human-readable one-line summary of the whole message.\n'
+    + 'Output raw JSON only.';
+
+  function parseJsonLoose(raw) {
+    let s = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
+    return JSON.parse(s);
+  }
+
+  function applyQuickLog(parsed, originalText) {
+    const now = Date.now();
+    const activity = parsed && parsed.activity;
+    if (activity && activity.present) {
+      const activities = storeGet(ACTIVITY_KEY) || [];
+      activities.push({
+        id: 'act' + now + Math.floor(Math.random() * 1000),
+        ts: now,
+        description: (activity.description || originalText).slice(0, 140),
+        durationMin: Number(activity.durationMin) > 0 ? Number(activity.durationMin) : 30,
+        intensity: ['low', 'moderate', 'high'].indexOf(activity.intensity) !== -1 ? activity.intensity : 'moderate',
+      });
+      storeSet(ACTIVITY_KEY, activities);
+    }
+    if (parsed && (parsed.feeling != null || parsed.stress != null)) {
+      const list = getCheckins();
+      list.push({
+        id: 'ck' + now + Math.floor(Math.random() * 1000), ts: now, dateKey: todayKey(),
+        feeling: parsed.feeling != null ? clamp(Math.round(parsed.feeling), 1, 5) : null,
+        stress: parsed.stress != null ? clamp(Math.round(parsed.stress), 1, 5) : null,
+        note: (parsed.summary || originalText).slice(0, 140),
+      });
+      setCheckins(list);
+    }
+  }
+
+  function renderActivityLog() {
+    const list = $('activityLog');
+    const items = activitiesToday().slice().sort((a, b) => b.ts - a.ts);
+    list.innerHTML = '';
+    if (!items.length) { const li = document.createElement('li'); li.className = 'empty-state'; li.textContent = 'No activities logged today yet.'; list.appendChild(li); return; }
+    items.forEach(a => {
+      const li = document.createElement('li'); li.className = 'checkin-row';
+      li.innerHTML = '<span class="checkin-time">' + new Date(a.ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + '</span>'
+        + '<span class="checkin-vals">' + esc(a.description) + ' · ' + a.durationMin + 'min · ' + a.intensity + '</span>'
+        + '<button class="checkin-del" type="button" aria-label="Delete">×</button>';
+      li.querySelector('.checkin-del').addEventListener('click', () => {
+        storeSet(ACTIVITY_KEY, (storeGet(ACTIVITY_KEY) || []).filter(x => x.id !== a.id));
+        renderAll();
+      });
+      list.appendChild(li);
+    });
+  }
+
+  async function submitQuickLog() {
+    const input = $('quickLogInput'), btn = $('quickLogBtn'), note = $('quickLogNote');
+    const text = input.value.trim();
+    if (!text) return;
+    const key = savedKey();
+    if (!key) { note.textContent = "Paste your Anthropic API key on the Nova page first (the 🧠 tile on the home screen) — it's saved in this browser and reused here."; return; }
+    const origNote = note.textContent;
+    btn.disabled = true; btn.textContent = 'Analyzing…'; note.textContent = '';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 300, system: QUICK_LOG_SYS, messages: [{ role: 'user', content: text }] }),
+      });
+      const data = await res.json();
+      const raw = (data && data.content && data.content[0] && data.content[0].text) || '';
+      const parsed = parseJsonLoose(raw);
+      applyQuickLog(parsed, text);
+      input.value = '';
+      note.textContent = parsed && parsed.summary ? ('Logged: ' + parsed.summary) : 'Logged.';
+      renderAll();
+    } catch (e) {
+      note.textContent = "Couldn't understand or log that — check your API key and connection, or try rephrasing.";
+    } finally {
+      btn.disabled = false; btn.textContent = 'Log It';
+      if (!note.textContent) note.textContent = origNote;
+    }
+  }
+  $('quickLogBtn').addEventListener('click', submitQuickLog);
+  $('quickLogInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQuickLog(); });
+
   /* ============ Read-only inputs from every other domain ============ */
   function readWakeHour() {
     if (whoop.wakeHour != null) return whoop.wakeHour;
@@ -565,7 +687,7 @@ body::after {
     const ts = hToTs(t);
     return logs.reduce((s, l) => { const hrs = (ts - l.ts) / 3600000; return s + (hrs < 0 ? 0 : l.mg * Math.pow(0.5, hrs / 2)); }, 0);
   }
-  function readWorkoutTimestamps() {
+  function gymCardioTimestampsToday() {
     const out = [];
     const doneDays = storeGet('po_coach_workout_done');
     if (doneDays) {
@@ -580,13 +702,38 @@ body::after {
     if (Array.isArray(cardio)) cardio.forEach(s => { if (s.ts >= midnight()) out.push(s.ts); });
     return out;
   }
-  function workoutBoostFlat() { return readWorkoutTimestamps().length ? 3 : 0; }
+  // Ad-hoc activities logged via Quick Log (below) — same shape/intent as a
+  // gym.html workout, but for things gym.html doesn't track (basketball,
+  // a walk, etc.), sized by the intensity/duration Claude pulled out of
+  // the free-text description instead of a fixed constant.
+  function activitiesToday() {
+    const all = storeGet(ACTIVITY_KEY) || [];
+    return all.filter(a => a.ts >= midnight());
+  }
+  function intensityMult(i) { return i === 'high' ? 1.4 : i === 'low' ? 0.6 : 1.0; }
+
+  // readWorkoutTimestamps() is only used for the "logged today" count in
+  // renderFactors() / Nova's context — it doesn't need per-entry intensity.
+  function readWorkoutTimestamps() {
+    return gymCardioTimestampsToday().concat(activitiesToday().map(a => a.ts));
+  }
+  function workoutBoostFlat() {
+    let boost = gymCardioTimestampsToday().length ? 3 : 0;
+    activitiesToday().forEach(a => { boost += 3 * intensityMult(a.intensity); });
+    return clamp(boost, 0, 10);
+  }
   function workoutDipAt(t) {
     const ts = hToTs(t);
     let dip = 0;
-    readWorkoutTimestamps().forEach(wts => {
+    gymCardioTimestampsToday().forEach(wts => {
       const hoursSince = (ts - wts) / 3600000;
       if (hoursSince >= 0 && hoursSince < 1.5) dip += 15 * (1 - hoursSince / 1.5);
+    });
+    activitiesToday().forEach(a => {
+      const mult = intensityMult(a.intensity);
+      const window = clamp(1.5 * mult, 1, 2.5);
+      const hoursSince = (ts - a.ts) / 3600000;
+      if (hoursSince >= 0 && hoursSince < window) dip += (15 * mult) * (1 - hoursSince / window);
     });
     return dip;
   }
@@ -694,12 +841,43 @@ body::after {
     }
     svg.innerHTML = parts.join('');
   }
+  function avgOverLastNDays(n) {
+    const daily = storeGet(DAILY_KEY) || {};
+    const vals = Object.keys(daily).sort().slice(-n).map(k => daily[k].avgScore).filter(v => v != null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+  }
+  function weeklyAverages(nWeeks) {
+    const daily = storeGet(DAILY_KEY) || {};
+    const keys = Object.keys(daily).sort();
+    const buckets = {};
+    keys.forEach(k => {
+      const d = new Date(k + 'T00:00:00');
+      const dow = (d.getDay() + 6) % 7; // 0 = Monday
+      const weekStart = new Date(d); weekStart.setDate(d.getDate() - dow);
+      const wk = dateToKey(weekStart);
+      (buckets[wk] = buckets[wk] || []).push(daily[k].avgScore);
+    });
+    return Object.keys(buckets).sort().slice(-nWeeks).map(wk => ({
+      key: wk, v: Math.round(buckets[wk].reduce((a,b)=>a+b,0) / buckets[wk].length),
+    }));
+  }
+  function monthlyAverages(nMonths) {
+    const daily = storeGet(DAILY_KEY) || {};
+    const keys = Object.keys(daily).sort();
+    const buckets = {};
+    keys.forEach(k => { const mk = k.slice(0, 7); (buckets[mk] = buckets[mk] || []).push(daily[k].avgScore); });
+    return Object.keys(buckets).sort().slice(-nMonths).map(mk => ({
+      key: mk, v: Math.round(buckets[mk].reduce((a,b)=>a+b,0) / buckets[mk].length),
+    }));
+  }
+
   function renderGradeBand() {
     const today = todayAverageScore();
     $('gradeToday').textContent = today != null ? (Math.round(today) + ' · ' + stateWord(today)) : 'Log a morning check-in';
-    const daily = storeGet(DAILY_KEY) || {};
-    const last7 = Object.keys(daily).sort().slice(-7).map(k => daily[k].avgScore).filter(v => v != null);
-    $('grade7d').textContent = last7.length ? (Math.round(last7.reduce((a,b)=>a+b,0)/last7.length) + ' avg') : '—';
+    const avg7 = avgOverLastNDays(7);
+    $('grade7d').textContent = avg7 != null ? (Math.round(avg7) + ' avg') : '—';
+    const avg30 = avgOverLastNDays(30);
+    $('grade30d').textContent = avg30 != null ? (Math.round(avg30) + ' avg') : '—';
     const rhrAvg = rollingRhrAvg(), todayRhr = readTodayRhr();
     if (rhrAvg != null && todayRhr != null) {
       const diff = Math.round(todayRhr - rhrAvg);
@@ -760,21 +938,43 @@ body::after {
     $('factorList').innerHTML = rows.join('');
   }
 
+  let trendMode = 'day'; // 'day' | 'week' | 'month'
   function renderTrend() {
-    const daily = storeGet(DAILY_KEY) || {};
-    const keys = Object.keys(daily).sort().slice(-14);
-    const svg = $('trendChart');
-    if (!keys.length) { svg.innerHTML = ''; $('trendWrap').innerHTML = '<div class="empty-state">Not enough history yet — check back after a few days.</div>'; $('trendLegend').innerHTML = ''; return; }
+    const svg = $('trendChart'), emptyEl = $('trendEmpty');
+    let items, emptyMsg;
+    if (trendMode === 'week') {
+      items = weeklyAverages(12);
+      emptyMsg = 'Not enough history yet — check back after a couple weeks.';
+    } else if (trendMode === 'month') {
+      items = monthlyAverages(6);
+      emptyMsg = 'Not enough history yet — check back after a month or two.';
+    } else {
+      const daily = storeGet(DAILY_KEY) || {};
+      items = Object.keys(daily).sort().slice(-30).map(k => ({ key: k, v: daily[k].avgScore }));
+      emptyMsg = 'Not enough history yet — check back after a few days.';
+    }
+
+    // Toggle visibility instead of ever replacing trendWrap's innerHTML —
+    // that would permanently destroy the #trendChart svg node the same way
+    // an earlier bug did on gym.html's cardio chart.
+    if (!items.length) {
+      svg.style.display = 'none';
+      emptyEl.textContent = emptyMsg; emptyEl.style.display = '';
+      $('trendLegend').innerHTML = '';
+      return;
+    }
+    svg.style.display = ''; emptyEl.style.display = 'none';
+
     const W = 600, H = 140, padT = 10, padB = 8;
-    const barW = Math.min(30, (W / keys.length) * 0.6);
-    const gap = (W - barW * keys.length) / (keys.length + 1);
+    const barW = Math.min(30, (W / items.length) * 0.6);
+    const gap = (W - barW * items.length) / (items.length + 1);
     let parts = [];
-    keys.forEach((k, i) => {
-      const v = daily[k].avgScore;
+    items.forEach((it, i) => {
+      const v = it.v;
       const x = gap + i * (barW + gap);
       const h = (v / 100) * (H - padT - padB);
       const y = H - padB - h;
-      parts.push('<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + stateColor(v) + '" opacity="0.9"><title>' + k + ': ' + v + '</title></rect>');
+      parts.push('<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + stateColor(v) + '" opacity="0.9"><title>' + it.key + ': ' + v + '</title></rect>');
     });
     svg.innerHTML = parts.join('');
     $('trendLegend').innerHTML = ['Peak','High','Steady','Dip','Low'].map(w => {
@@ -782,10 +982,16 @@ body::after {
       return '<span class="lg"><span class="sw" style="background:' + colorMap[w] + '"></span>' + w + '</span>';
     }).join('');
   }
+  $('trendToggle').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    trendMode = b.dataset.m;
+    $('trendToggle').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    renderTrend();
+  }));
 
   function renderAll() {
     loadMorningForm();
     renderCheckinLog();
+    renderActivityLog();
     persistDailyScore();
     renderRing(); renderChart(); renderGradeBand(); renderFactors(); renderTrend();
   }
@@ -889,7 +1095,7 @@ body::after {
     if (!window.initCloudSync) return;
     window.initCloudSync({
       appKey: 'peak',
-      syncedKeys: [MORNING_KEY, CHECKIN_KEY, DAILY_KEY, HIST_KEY],
+      syncedKeys: [MORNING_KEY, CHECKIN_KEY, DAILY_KEY, HIST_KEY, ACTIVITY_KEY],
       onApplied: function () { renderAll(); },
     });
   });
