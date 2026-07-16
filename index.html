@@ -59,6 +59,15 @@ body::after {
 }
 @media (max-width: 480px) { .dash-title { font-size: 22px; } }
 
+/* ===== Tile groups ===== */
+.tile-group { margin-bottom: 22px; }
+.group-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-tertiary); display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+}
+.group-label::before { content: ''; width: 18px; height: 1px; background: var(--text-tertiary); opacity: 0.6; }
+.group-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
+
 /* ===== BENTO GRID ===== */
 .bento {
   display: grid;
@@ -254,176 +263,192 @@ body::after {
     </div>
   </div>
 
-  <div class="bento">
+  <div class="tile-group">
+    <div class="group-label">Today</div>
+    <div class="bento">
+      <!-- Big tile -->
+      <a class="tile big" href="main.html" style="--accent:#6BE3A4">
+        <div class="tile-top">
+          <span class="tile-num">·01</span>
+          <span class="tile-emoji">🏠</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Main</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Goals & daily plan</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Big tile -->
-    <a class="tile big" href="main.html" style="--accent:#6BE3A4">
-      <div class="tile-top">
-        <span class="tile-num">·01</span>
-        <span class="tile-emoji">🏠</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Main</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Goals & daily plan</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Wide tile -->
+      <a class="tile wide" href="gym.html" style="--accent:#7DD3FC">
+        <div class="tile-top">
+          <span class="tile-num">·02</span>
+          <span class="tile-emoji">💪</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Fitness</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Workouts, splits, sessions</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
+    </div>
+  </div>
 
-    <!-- Wide tile -->
-    <a class="tile wide" href="gym.html" style="--accent:#7DD3FC">
-      <div class="tile-top">
-        <span class="tile-num">·02</span>
-        <span class="tile-emoji">💪</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Fitness</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Workouts, splits, sessions</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+  <div class="tile-group">
+    <div class="group-label">Body</div>
+    <div class="bento">
+      <!-- Small tile -->
+      <a class="tile" href="health.html" style="--accent:#A7F3D0">
+        <div class="tile-top">
+          <span class="tile-num">·03</span>
+          <span class="tile-emoji">💊</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Health</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Supplements & vitals</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="health.html" style="--accent:#A7F3D0">
-      <div class="tile-top">
-        <span class="tile-num">·03</span>
-        <span class="tile-emoji">💊</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Health</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Supplements & vitals</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Small tile -->
+      <a class="tile" href="po-water.html" style="--accent:#60A5FA">
+        <div class="tile-top">
+          <span class="tile-num">·04</span>
+          <span class="tile-emoji">💧</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Water</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Hydration</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="po-water.html" style="--accent:#60A5FA">
-      <div class="tile-top">
-        <span class="tile-num">·04</span>
-        <span class="tile-emoji">💧</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Water</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Hydration</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Small tile -->
+      <a class="tile" href="caffeine.html" style="--accent:#C9A36B">
+        <div class="tile-top">
+          <span class="tile-num">·06</span>
+          <span class="tile-emoji">☕</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Caffeine</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Intake & timing</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Wide tile -->
-    <a class="tile wide" href="finance.html" style="--accent:#F2C063">
-      <div class="tile-top">
-        <span class="tile-num">·05</span>
-        <span class="tile-emoji">📊</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Finance</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Net worth & spending</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Small tile -->
+      <a class="tile" href="peak.html" style="--accent:#C4B5FD">
+        <div class="tile-top">
+          <span class="tile-num">·12</span>
+          <span class="tile-emoji">⚡</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Peak</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Energy & recovery</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
+    </div>
+  </div>
 
-    <!-- Small tile -->
-    <a class="tile" href="caffeine.html" style="--accent:#C9A36B">
-      <div class="tile-top">
-        <span class="tile-num">·06</span>
-        <span class="tile-emoji">☕</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Caffeine</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Intake & timing</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+  <div class="tile-group">
+    <div class="group-label">Money & Growth</div>
+    <div class="bento">
+      <!-- Wide tile -->
+      <a class="tile wide" href="finance.html" style="--accent:#F2C063">
+        <div class="tile-top">
+          <span class="tile-num">·05</span>
+          <span class="tile-emoji">📊</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Finance</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Net worth & spending</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Wide tile -->
-    <a class="tile wide" href="nova-lite.html" style="--accent:#A78BFA">
-      <div class="tile-top">
-        <span class="tile-num">·07</span>
-        <span class="tile-emoji">🧠</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Nova</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Your AI mentor</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Wide tile -->
+      <a class="tile wide" href="business.html" style="--accent:#EAB308">
+        <div class="tile-top">
+          <span class="tile-num">·10</span>
+          <span class="tile-emoji">💼</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Businesses</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Side hustles & revenue</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="notes.html" style="--accent:#F472B6">
-      <div class="tile-top">
-        <span class="tile-num">·08</span>
-        <span class="tile-emoji">📝</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Notes</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Freeform notes</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Small tile -->
+      <a class="tile" href="reading.html" style="--accent:#FDBA74">
+        <div class="tile-top">
+          <span class="tile-num">·09</span>
+          <span class="tile-emoji">📚</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Learning</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Books, courses & more</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
+    </div>
+  </div>
 
-    <!-- Small tile -->
-    <a class="tile" href="reading.html" style="--accent:#FDBA74">
-      <div class="tile-top">
-        <span class="tile-num">·09</span>
-        <span class="tile-emoji">📚</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Learning</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Books, courses & more</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+  <div class="tile-group">
+    <div class="group-label">Reflect</div>
+    <div class="bento">
+      <!-- Wide tile -->
+      <a class="tile wide" href="nova-lite.html" style="--accent:#A78BFA">
+        <div class="tile-top">
+          <span class="tile-num">·07</span>
+          <span class="tile-emoji">🧠</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Nova</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Your AI mentor</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Wide tile -->
-    <a class="tile wide" href="business.html" style="--accent:#EAB308">
-      <div class="tile-top">
-        <span class="tile-num">·10</span>
-        <span class="tile-emoji">💼</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Businesses</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Side hustles & revenue</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
+      <!-- Small tile -->
+      <a class="tile" href="notes.html" style="--accent:#F472B6">
+        <div class="tile-top">
+          <span class="tile-num">·08</span>
+          <span class="tile-emoji">📝</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Notes</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Freeform notes</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="peak.html" style="--accent:#C4B5FD">
-      <div class="tile-top">
-        <span class="tile-num">·12</span>
-        <span class="tile-emoji">⚡</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Peak</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Energy & recovery</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
-    <!-- Wide tile -->
-    <a class="tile wide" href="review.html" style="--accent:#5EEAD4">
-      <div class="tile-top">
-        <span class="tile-num">·11</span>
-        <span class="tile-emoji">🪞</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Review</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Weekly & monthly recap</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
+      <!-- Wide tile -->
+      <a class="tile wide" href="review.html" style="--accent:#5EEAD4">
+        <div class="tile-top">
+          <span class="tile-num">·11</span>
+          <span class="tile-emoji">🪞</span>
+        </div>
+        <div class="tile-spacer"></div>
+        <h2 class="tile-title">Review</h2>
+        <div class="tile-foot">
+          <span class="tile-sub">Weekly & monthly recap</span>
+          <span class="tile-arrow">→</span>
+        </div>
+      </a>
+    </div>
   </div>
 </div>
 
