@@ -3363,7 +3363,7 @@ img, video, canvas, svg { max-width: 100%; }
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
   // strips any base64 dataUrl entries before push so the payload stays
   // tiny and we never blow iOS Safari's ~5MB localStorage quota.
-  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log'];
+  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log', 'stretch:version'];
 
   let pcSupa = null;
   let pcPushTimer = null;
@@ -4086,21 +4086,35 @@ img, video, canvas, svg { max-width: 100%; }
   .st-add-row input#stAmRx, .st-add-row input#stPmRx { width: 110px; flex: none; }
   .st-add-btn { border: 0; border-radius: 10px; padding: 10px 16px; background: #fff; color: #0A0A0B; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
   .st-empty { text-align: center; font-size: 12px; font-style: italic; color: var(--text-3); padding: 14px 0; }
+  .st-tag {
+    display: inline-block; font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 5px; margin-left: 7px; vertical-align: middle;
+  }
+  .st-tag.apt { background: rgba(125,211,252,0.15); color: #7DD3FC; }
+  .st-tag.fhp { background: rgba(196,181,253,0.15); color: #C4B5FD; }
+  .st-tag.tension { background: rgba(110,231,183,0.15); color: #6ee7b7; }
+  .st-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 10.5px; color: var(--text-3); }
+  .st-legend b { color: var(--text-1); }
 </style>
 <div class="st-section" id="stretchSection">
 
-  <div class="st-title">Stretching</div>
+  <div class="st-title">Posture & Mobility</div>
   <div class="st-card">
     <div class="st-sub" style="max-width:none">
-      Split by research consensus on stretch timing: <b style="color:var(--text-1)">mornings use dynamic mobility</b> (moving stretches — circles, swings, lunges) to prime joints and raise tissue temperature without the temporary strength/power dip static holds can cause pre-activity. <b style="color:var(--text-1)">Evenings use static holds</b> (held 20–45s) once you're already warm from the day, which is when static stretching is most effective for building range of motion and is well-supported for recovery and next-day soreness.
+      Targeted at three things: <b style="color:var(--text-1)">anterior pelvic tilt</b> (tight hip flexors + lower back pulling the pelvis forward, weak glutes/deep core failing to hold it back — corrected by stretching the tight side and activating the weak side), <b style="color:var(--text-1)">forward head posture</b> (tight upper traps/pecs/levator scapulae pulling the head and shoulders forward, weak deep neck flexors/lower traps failing to hold you upright — same stretch-tight/strengthen-weak approach), and general daily tension. <b style="color:var(--text-1)">AM activates the weak, underused muscles</b> and briefly mobilizes what's tightest after sleep. <b style="color:var(--text-1)">PM statically holds the tight, overactive muscles</b> once you're warm from the day, which is when static stretching is most effective for actually building range of motion.
+    </div>
+    <div class="st-legend">
+      <span><span class="st-tag apt">APT</span> anterior pelvic tilt</span>
+      <span><span class="st-tag fhp">FHP</span> forward head posture</span>
+      <span><span class="st-tag tension">Tension</span> general release</span>
     </div>
   </div>
 
   <div class="st-card">
     <div class="st-head">
       <div class="st-head-left">
-        <span class="st-name">☀️ AM — Dynamic Mobility</span>
-        <span class="st-sub">Moving stretches, done once through, no long holds.</span>
+        <span class="st-name">☀️ AM — Activation & Reset</span>
+        <span class="st-sub">Wake the weak muscles up before a day of sitting undoes them.</span>
       </div>
       <span class="st-streak" id="stAmStreak">— streak</span>
     </div>
@@ -4116,8 +4130,8 @@ img, video, canvas, svg { max-width: 100%; }
   <div class="st-card">
     <div class="st-head">
       <div class="st-head-left">
-        <span class="st-name">🌙 PM — Static Holds</span>
-        <span class="st-sub">Hold each stretch to a light stretch, not pain.</span>
+        <span class="st-name">🌙 PM — Corrective Release</span>
+        <span class="st-sub">Long holds on what's actually tight. Stretch to a light pull, not pain.</span>
       </div>
       <span class="st-streak" id="stPmStreak">— streak</span>
     </div>
@@ -4146,26 +4160,49 @@ img, video, canvas, svg { max-width: 100%; }
 
   const AM_KEY = 'stretch:am:items', PM_KEY = 'stretch:pm:items', LOG_KEY = 'stretch:log';
 
+  // v2 — replaced the generic "any mobility routine" defaults with ones
+  // targeted at anterior pelvic tilt (tight hip flexors/lower back, weak
+  // glutes/deep core) and forward head posture (tight upper traps/pecs/
+  // levator scap, weak deep neck flexors/lower traps) per the standard
+  // Janda crossed-syndrome corrective model: stretch the tight side,
+  // strengthen the weak side, on each.
   const AM_DEFAULTS = [
-    { id: 'am1', name: 'Cat-Cow', rx: '10 reps' },
-    { id: 'am2', name: "World's Greatest Stretch", rx: '5 / side' },
-    { id: 'am3', name: 'Leg swings (front-back)', rx: '10 / leg' },
-    { id: 'am4', name: 'Leg swings (side-side)', rx: '10 / leg' },
-    { id: 'am5', name: 'Hip circles', rx: '10 / direction' },
-    { id: 'am6', name: 'Arm circles', rx: '10 / direction' },
-    { id: 'am7', name: 'Walking lunge with twist', rx: '8 reps' },
-    { id: 'am8', name: 'Ankle circles', rx: '10 / direction' },
+    { id: 'am1', name: 'Cat-Cow', rx: '10 reps', tag: 'Tension' },
+    { id: 'am2', name: 'Chin tucks', rx: '10 reps, 2s hold', tag: 'FHP' },
+    { id: 'am3', name: 'Wall angels', rx: '10 reps', tag: 'FHP' },
+    { id: 'am4', name: 'Glute bridges', rx: '15 reps', tag: 'APT' },
+    { id: 'am5', name: 'Dead bug', rx: '8 / side', tag: 'APT' },
+    { id: 'am6', name: 'Half-kneeling hip flexor stretch', rx: '20s / side', tag: 'APT' },
+    { id: 'am7', name: 'Thoracic extension over chair', rx: '8 reps', tag: 'FHP' },
+    { id: 'am8', name: 'Diaphragmatic breathing', rx: '5 breaths', tag: 'Tension' },
   ];
   const PM_DEFAULTS = [
-    { id: 'pm1', name: 'Standing hamstring stretch', rx: '30s / leg' },
-    { id: 'pm2', name: 'Couch stretch (quad/hip flexor)', rx: '30–45s / leg' },
-    { id: 'pm3', name: 'Figure-4 / pigeon stretch', rx: '30–45s / side' },
-    { id: 'pm4', name: "Child's pose", rx: '45s' },
-    { id: 'pm5', name: 'Doorway chest stretch', rx: '30s / side' },
-    { id: 'pm6', name: 'Seated spinal twist', rx: '30s / side' },
-    { id: 'pm7', name: 'Calf stretch (wall)', rx: '30s / leg' },
-    { id: 'pm8', name: 'Lateral neck stretch', rx: '20s / side' },
+    { id: 'pm1', name: 'Couch stretch (hip flexor/quad)', rx: '45s / side', tag: 'APT' },
+    { id: 'pm2', name: "Child's pose", rx: '45s', tag: 'APT' },
+    { id: 'pm3', name: 'Doorway pec stretch', rx: '30s / side', tag: 'FHP' },
+    { id: 'pm4', name: 'Upper trap stretch', rx: '30s / side', tag: 'FHP' },
+    { id: 'pm5', name: 'Levator scapulae stretch', rx: '30s / side', tag: 'FHP' },
+    { id: 'pm6', name: 'Seated figure-4 stretch', rx: '30s / side', tag: 'APT' },
+    { id: 'pm7', name: 'Foam roll thoracic spine', rx: '60s', tag: 'FHP' },
+    { id: 'pm8', name: 'Supine breathing (knees bent)', rx: '6 breaths', tag: 'Tension' },
   ];
+
+  // One-time reseed to the v2 routine above. Any item the user added
+  // themselves (via the "add a stretch" row, id prefixed 'st' + timestamp)
+  // is preserved; only the old v1 default ids (am1-8 / pm1-8, whatever
+  // they used to point to) get replaced.
+  const STRETCH_VERSION = 2, VERSION_KEY = 'stretch:version';
+  const OLD_DEFAULT_ID_RE = /^(am|pm)[1-8]$/;
+  function migrateStretchDefaults() {
+    if (storeGet(VERSION_KEY) === STRETCH_VERSION) return;
+    [[AM_KEY, AM_DEFAULTS], [PM_KEY, PM_DEFAULTS]].forEach(([key, defaults]) => {
+      let items = storeGet(key);
+      if (!Array.isArray(items)) items = [];
+      const custom = items.filter(it => !OLD_DEFAULT_ID_RE.test(it.id));
+      storeSet(key, defaults.concat(custom));
+    });
+    storeSet(VERSION_KEY, STRETCH_VERSION);
+  }
 
   function getItems(key, defaults) {
     const v = storeGet(key);
@@ -4203,8 +4240,9 @@ img, video, canvas, svg { max-width: 100%; }
     items.forEach(it => {
       const done = isDone(log, it.id, dk);
       const li = document.createElement('li'); li.className = 'st-row' + (done ? ' done' : '');
+      const tagHtml = it.tag ? '<span class="st-tag ' + it.tag.toLowerCase() + '">' + escapeHtml(it.tag) + '</span>' : '';
       li.innerHTML = '<input class="st-check" type="checkbox" ' + (done ? 'checked' : '') + '>'
-        + '<div class="st-row-main"><div class="st-row-name">' + escapeHtml(it.name) + '</div><div class="st-row-rx">' + escapeHtml(it.rx || '') + '</div></div>'
+        + '<div class="st-row-main"><div class="st-row-name">' + escapeHtml(it.name) + tagHtml + '</div><div class="st-row-rx">' + escapeHtml(it.rx || '') + '</div></div>'
         + '<button class="st-row-del" type="button" aria-label="Delete">×</button>';
       li.querySelector('.st-check').addEventListener('change', () => toggleItem(it.id));
       li.querySelector('.st-row-del').addEventListener('click', () => {
@@ -4245,6 +4283,7 @@ img, video, canvas, svg { max-width: 100%; }
     renderRoutine(AM_KEY, AM_DEFAULTS, $('stAmList'), $('stAmStreak'), $('stAmDots'));
     renderRoutine(PM_KEY, PM_DEFAULTS, $('stPmList'), $('stPmStreak'), $('stPmDots'));
   }
+  migrateStretchDefaults();
   renderStAll();
 
   // Rides along on gym.html's existing custom Supabase sync (its keys are
