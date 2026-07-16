@@ -166,27 +166,34 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 
 **Either way:**
 
-3. Redeploy. [`vercel.json`](vercel.json) already schedules `/api/send-reminders` to run at
-   **18:00 and 00:00 UTC** — that's 2pm/8pm America/New_York during Eastern Daylight Time,
-   matching `REMINDER_HOURS_LOCAL`'s default of `14,20`. (Vercel's free Hobby plan only allows
-   cron schedules that fire once a day each — polling hourly and gating in code, which is how
-   this originally worked, needs a paid Pro plan. Two fixed daily times fits Hobby for free.)
-   The function itself still only actually sends if the current local hour is in
-   `REMINDER_HOURS_LOCAL` and something's undone, so a run that doesn't line up (see the DST
-   note below) or finds nothing outstanding is a silent no-op — no cost, no spam.
+3. Redeploy after adding the env vars above.
+4. Scheduling runs on **GitHub Actions**, not Vercel Cron — see
+   [`.github/workflows/reminders.yml`](.github/workflows/reminders.yml). Vercel's free Hobby
+   plan only allows cron schedules that fire once a day each, which can't do hourly; a scheduled
+   GitHub Actions workflow on a public repo is free at any frequency, so that's what pings
+   `/api/send-reminders` instead ([`vercel.json`](vercel.json) is intentionally empty). To turn
+   it on:
+   - Repo → **Settings → Secrets and variables → Actions → New repository secret** → name it
+     `CRON_SECRET`, value = the **same** random string you set as the `CRON_SECRET` env var in
+     Vercel (step 3 above). This is what lets the workflow call your endpoint without exposing
+     it publicly.
+   - That's it — the workflow is already scheduled hourly (8am-10pm America/New_York during
+     EDT). It'll start firing on the next scheduled hour, or trigger it immediately yourself:
+     repo → **Actions** tab → **Hourly dashboard reminders** → **Run workflow**.
+   - The function itself is still the actual gate on *how often you get texted* — it only sends
+     if the current local hour is listed in `REMINDER_HOURS_LOCAL` and something's undone, so
+     set that env var to every hour you want covered, e.g.
+     `8,9,10,11,12,13,14,15,16,17,18,19,20,21,22` for hourly 8am-10pm — narrower than that (say,
+     just `14,20`) and the workflow keeps pinging every hour but only actually texts you twice.
 
-   > **Twice a year**, around DST changes (mid-March, early November), the fixed UTC cron
-   > times land an hour off from `REMINDER_HOURS_LOCAL` for about a week until manually
-   > nudged — texts will just quietly stop for a few days rather than arrive at the wrong
-   > time. If that happens, edit the two `schedule` values in `vercel.json` by ±1 hour (or set
-   > `REMINDER_HOURS_LOCAL` to match whichever local hour they're currently landing on) and
-   > redeploy. If you'd rather it just self-correct forever, that needs the hourly-poll design,
-   > which needs Vercel Pro.
-4. Add whichever recurring items you want texted about via the **Recurring Items** panel on
+   > **Twice a year**, around DST changes (mid-March, early November), the workflow's fixed UTC
+   > cron times land an hour off from `REMINDER_HOURS_LOCAL` for about a week until manually
+   > nudged — texts just quietly pause for a few days rather than arrive at the wrong time. If
+   > that happens, edit the `cron:` line in `.github/workflows/reminders.yml` by ±1 hour (or
+   > shift `REMINDER_HOURS_LOCAL` to match whichever local hour it's currently landing on).
+5. Add whichever recurring items you want texted about via the **Recurring Items** panel on
    the Main tab — anything with no `CRON_SECRET` set is reachable by anyone who finds the
-   URL, who could then spam your phone or burn through your quota, so set it. Vercel
-   automatically sends `Authorization: Bearer <CRON_SECRET>` on cron-triggered requests once
-   the env var exists — no extra config needed for that part.
+   URL, who could then spam your phone or burn through your quota, so set it.
 
 ---
 

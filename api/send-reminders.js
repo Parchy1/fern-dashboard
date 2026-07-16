@@ -1,22 +1,22 @@
 // ============================================================
 // GET/POST /api/send-reminders
 //
-// Triggered by Vercel Cron (see vercel.json — two fixed daily UTC times,
-// chosen to land on REMINDER_HOURS_LOCAL's default of 14/20 America/New_York
-// during EDT). Checks whether the current time, converted to
-// REMINDER_TIMEZONE, matches one of REMINDER_HOURS_LOCAL; if so, reads
-// today's recurring items straight from Supabase (the same rows the
-// dashboard itself reads and writes — this function never talks to the
-// browser, only to Supabase and the delivery provider) and texts a digest
-// of whatever's still undone. Sends nothing if it's not a configured hour,
-// or if everything's already done.
+// Triggered by a scheduler hitting this URL (see .github/workflows/
+// reminders.yml — GitHub Actions, not Vercel Cron: Vercel's Hobby plan only
+// allows cron schedules that fire once a day each, which can't do true
+// hourly, and Actions on a public repo is free at any frequency). Checks
+// whether the current time, converted to REMINDER_TIMEZONE, matches one of
+// REMINDER_HOURS_LOCAL; if so, reads today's recurring items straight from
+// Supabase (the same rows the dashboard itself reads and writes — this
+// function never talks to the browser, only to Supabase and the delivery
+// provider) and texts a digest of whatever's still undone, with a rotating
+// opening line so repeated sends through the day don't read identically.
+// Sends nothing if it's not a configured hour, or if everything's already
+// done.
 //
-// Vercel Hobby plan only allows cron schedules that fire at most once a
-// day each (hourly polling + in-function hour check, the original design
-// here, needs Pro) — so the cron times in vercel.json are fixed UTC clock
-// times rather than "every hour, check locally". That means they drift by
-// an hour for ~2 weeks around DST changes (mid-March and early November)
-// until nudged; see SETUP.md.
+// The workflow's schedule is fixed UTC clock times, so — same as any fixed-
+// UTC cron — it drifts an hour for ~2 weeks around DST changes (mid-March
+// and early November) until nudged; see SETUP.md.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
@@ -34,7 +34,12 @@
 //
 // Optional:
 //   REMINDER_TIMEZONE     IANA tz name, default 'America/New_York'
-//   REMINDER_HOURS_LOCAL  comma-separated 24h hours to check, default '14,20'
+//   REMINDER_HOURS_LOCAL  comma-separated 24h hours to check, default '14,20'.
+//                         Set this to every hour you want texts during (e.g.
+//                         '8,9,10,11,12,13,14,15,16,17,18,19,20,21,22' for
+//                         hourly 8am-10pm) — it's the actual gate on how
+//                         often you get texted, independent of how often
+//                         the workflow pings this endpoint.
 //   CRON_SECRET           if set, requests must carry
 //                         Authorization: Bearer <CRON_SECRET> — Vercel
 //                         sends this automatically on cron-triggered
@@ -47,6 +52,24 @@ function currentHourInTz(tz) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(new Date());
   const h = parts.find(p => p.type === 'hour').value;
   return Number(h) % 24;
+}
+
+// Varies the opening line across sends (same undone list otherwise reads
+// identically every time it repeats through the day) — deterministic by
+// date+hour rather than random, so a given run is reproducible if re-sent.
+const INTROS = [
+  'Still todo today:',
+  "Yo — still haven't done:",
+  "Don't forget:",
+  'Reminder, still open:',
+  'Knock these out:',
+  'Still waiting on you for:',
+  'Hey, still undone:',
+  'Circling back — still todo:',
+];
+function pickIntro(dateKey, hour) {
+  const day = Number(dateKey.slice(-2)) || 0;
+  return INTROS[(day + hour) % INTROS.length];
 }
 
 // Mirrors the dashboard's own day-key conventions (6 AM boundary for
@@ -227,7 +250,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ sent: false, reason: 'nothing undone' });
     }
 
-    const body = 'Still todo today: ' + undone.join(', ');
+    const body = pickIntro(todayPlain, nowHour) + ' ' + undone.join(', ');
     let result;
     try {
       result = await sendReminder(body);
