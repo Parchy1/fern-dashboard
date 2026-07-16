@@ -109,9 +109,48 @@ console.anthropic.com.
 ## 5. Text reminders (optional)
 
 `main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) can text you a digest of
-whatever's still undone, a couple times a day, via **Twilio**. This runs entirely server-side
-on a schedule — it doesn't need the dashboard open in a browser. It reuses your existing
-Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed there.
+whatever's still undone, a couple times a day. This runs entirely server-side on a schedule —
+it doesn't need the dashboard open in a browser. It reuses your existing Supabase
+`SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed there. Pick **one** of
+the two delivery methods below (Twilio is preferred automatically if both happen to be set).
+
+**Option A — free, via your carrier's email-to-SMS gateway (recommended to start):**
+
+Every US carrier lets you "text" a phone by emailing a special address. A free service called
+**Resend** sends that email on a schedule — no phone number to buy, no card required.
+
+1. **resend.com** → sign up (email/password or GitHub, no card needed for the free tier) →
+   **API Keys** → create one → copy it.
+2. Find your phone's gateway address — `<your 10-digit number>@<carrier domain>`:
+
+| Carrier | Domain |
+|---|---|
+| Verizon | `vtext.com` |
+| T-Mobile | `tmomail.net` |
+| AT&T | `txt.att.net` |
+| Google Fi | `msg.fi.google.com` |
+| Cricket | `sms.cricketwireless.net` |
+| Boost Mobile | `sms.myboostmobile.com` |
+| Metro by T-Mobile | `mymetropcs.com` |
+| US Cellular | `email.uscc.net` |
+| Visible | `vtext.com` |
+
+   e.g. Verizon number `5551234567` → `5551234567@vtext.com`
+
+3. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `RESEND_API_KEY` | from resend.com |
+| `SMS_GATEWAY_TO` | your gateway address from step 2, e.g. `5551234567@vtext.com` |
+| `REMINDER_TIMEZONE` | your IANA timezone, e.g. `America/New_York` (default if unset) |
+| `REMINDER_HOURS_LOCAL` | comma-separated 24h hours to check, e.g. `14,20` (default if unset) |
+| `CRON_SECRET` | any random string — **strongly recommended**, see below |
+
+> Carrier gateways aren't as instant or reliable as real SMS — texts can occasionally arrive
+> late or not at all. If that becomes annoying, Option B below is the fix.
+
+**Option B — paid, via Twilio (more reliable):**
 
 1. **twilio.com** → sign up → buy a phone number (~$1/mo; texts cost fractions of a cent each).
    From the Console **Dashboard**, copy your **Account SID** and **Auth Token**.
@@ -123,19 +162,19 @@ Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed
 | `TWILIO_AUTH_TOKEN` | from the Twilio console (**secret**) |
 | `TWILIO_FROM_NUMBER` | the Twilio number you bought, e.g. `+15551234567` |
 | `TWILIO_TO_NUMBER` | your real phone, e.g. `+15559876543` |
-| `REMINDER_TIMEZONE` | your IANA timezone, e.g. `America/New_York` (default if unset) |
-| `REMINDER_HOURS_LOCAL` | comma-separated 24h hours to check, e.g. `14,20` (default if unset) |
-| `CRON_SECRET` | any random string — **strongly recommended**, see below |
+| `REMINDER_TIMEZONE` / `REMINDER_HOURS_LOCAL` / `CRON_SECRET` | same as Option A above |
+
+**Either way:**
 
 3. Redeploy. [`vercel.json`](vercel.json) already schedules `/api/send-reminders` to run
-   hourly; the function itself only actually sends a text during the hours listed in
+   hourly; the function itself only actually sends during the hours listed in
    `REMINDER_HOURS_LOCAL`, and only if something's still undone — most hourly runs are a no-op
    (skipped before any network call, so they don't cost anything or spam you).
 4. Add whichever recurring items you want texted about via the **Recurring Items** panel on
    the Main tab — anything with no `CRON_SECRET` set is reachable by anyone who finds the
-   URL, who could then spam your phone or burn through your Twilio balance, so set it.
-   Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` on cron-triggered
-   requests once the env var exists — no extra config needed for that part.
+   URL, who could then spam your phone or burn through your quota, so set it. Vercel
+   automatically sends `Authorization: Bearer <CRON_SECRET>` on cron-triggered requests once
+   the env var exists — no extra config needed for that part.
 
 ---
 
@@ -144,5 +183,5 @@ Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
    `topbar.js`, `gym.html`.
 3. (Optional) WHOOP: Client ID in `health.html` + the two env vars in Vercel.
-4. (Optional) Text reminders: Twilio account + the env vars in step 5 above.
+4. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 5 above.
 5. Change the password in `lock.js`. Done.
