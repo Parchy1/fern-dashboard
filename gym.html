@@ -88,6 +88,7 @@ const CONFIG = {
     { name: "Shoulder press machine",      gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 30 },
     { name: "Cable tricep pushdown",       gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
     { name: "Lateral raise (dumbbell)",    gym: "comm", day: "push", repMin: 10, repMax: 15, step: 1.25, startWeight: 8  },
+    { name: "Ab crunch machine",           gym: "comm", day: "push", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
 
     // Day 2: Pull
     { name: "Lat pulldown",                gym: "comm", day: "pull", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 45 },
@@ -102,6 +103,7 @@ const CONFIG = {
     { name: "Leg curl machine",            gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 30 },
     { name: "Leg extension machine",       gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 35 },
     { name: "Calf raise",                  gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 40 },
+    { name: "Ab crunch machine",           gym: "comm", day: "legs", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
 
     // Day 4: Upper
     { name: "Incline dumbbell press",      gym: "comm", day: "upper", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 20 },
@@ -116,7 +118,8 @@ const CONFIG = {
     { name: "Hip thrust",                  gym: "comm", day: "lower", repMin: 6,  repMax: 10, step: 5,   startWeight: 60 },
     { name: "Leg curl",                    gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 30 },
     { name: "Leg extension",               gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 35 },
-    { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 40 }
+    { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 40 },
+    { name: "Ab crunch machine",           gym: "comm", day: "lower", repMin: 12, repMax: 20, step: 2.5, startWeight: 20 }
   ]
 };
 </script>
@@ -1752,6 +1755,15 @@ img, video, canvas, svg { max-width: 100%; }
     s = s || {};
     s.units = s.units || CONFIG.units || 'kg';
     s.gyms  = (Array.isArray(s.gyms)  && s.gyms.length)  ? s.gyms  : CONFIG.gyms.slice();
+    // One-off additive patches (see below) for returning users whose state
+    // already has `exercises` populated. Tracked separately from
+    // configVersion so a patch can just append to existing data instead of
+    // forcing a whole-program rewrite through the block below — that reset
+    // regenerates every exercise id, which orphans s.logs (keyed by id) and
+    // silently loses all progression history. Whenever fresh defaults get
+    // built (either path below), they already contain anything patched in
+    // below, so this is pre-marked as satisfied to avoid double-adding it.
+    s.patchesApplied = Array.isArray(s.patchesApplied) ? s.patchesApplied : [];
 
     if (s.configVersion !== CONFIG_VERSION) {
       s.days = CONFIG.days.slice();
@@ -1759,10 +1771,28 @@ img, video, canvas, svg { max-width: 100%; }
       s.splitRotation = null;
       s.splitAnchor = null;
       s.configVersion = CONFIG_VERSION;
+      if (s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) s.patchesApplied.push('ab_crunch_machine_2026_07');
     }
 
     s.days  = (Array.isArray(s.days)  && s.days.length)  ? s.days  : CONFIG.days.slice();
+    const exercisesWereMissing = !Array.isArray(s.exercises);
     s.exercises = Array.isArray(s.exercises) ? s.exercises : buildDefaultExercises();
+    if (exercisesWereMissing && s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) {
+      s.patchesApplied.push('ab_crunch_machine_2026_07');
+    }
+
+    // The actual additive patch: only reaches here (flag not yet set) for a
+    // returning user whose exercises array predates this change. Runs once,
+    // guarded by the flag above, so deleting it afterward on purpose sticks.
+    if (s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) {
+      ['push', 'legs', 'lower'].forEach(function (dayId) {
+        s.exercises.push({
+          id: 'ex_abcrunch_' + dayId + '_patch', name: 'Ab crunch machine', gym: 'comm', day: dayId,
+          repMin: 12, repMax: 20, step: 2.5, startWeight: 20,
+        });
+      });
+      s.patchesApplied.push('ab_crunch_machine_2026_07');
+    }
     s.logs = (s.logs && typeof s.logs === 'object') ? s.logs : {};
     s.filterGym = s.filterGym || s.gyms[0].id;
     s.filterDay = s.filterDay || s.days[0].id;
