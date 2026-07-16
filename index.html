@@ -59,15 +59,6 @@ body::after {
 }
 @media (max-width: 480px) { .dash-title { font-size: 22px; } }
 
-/* ===== Tile groups ===== */
-.tile-group { margin-bottom: 22px; }
-.group-label {
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--text-tertiary); display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
-}
-.group-label::before { content: ''; width: 18px; height: 1px; background: var(--text-tertiary); opacity: 0.6; }
-.group-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
-
 /* ===== BENTO GRID ===== */
 .bento {
   display: grid;
@@ -263,192 +254,62 @@ body::after {
     </div>
   </div>
 
-  <div class="tile-group">
-    <div class="group-label">Today</div>
-    <div class="bento">
-      <!-- Big tile -->
-      <a class="tile big" href="main.html" style="--accent:#6BE3A4">
-        <div class="tile-top">
-          <span class="tile-num">·01</span>
-          <span class="tile-emoji">🏠</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Main</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Goals & daily plan</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
+  <div class="bento">
+    <!-- Big tile -->
+    <a class="tile big" href="hub-today.html" style="--accent:#6BE3A4">
+      <div class="tile-top">
+        <span class="tile-num">·01</span>
+        <span class="tile-emoji">🏠</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Today</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Main & Fitness</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
 
-      <!-- Wide tile -->
-      <a class="tile wide" href="gym.html" style="--accent:#7DD3FC">
-        <div class="tile-top">
-          <span class="tile-num">·02</span>
-          <span class="tile-emoji">💪</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Fitness</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Workouts, splits, sessions</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-    </div>
-  </div>
+    <!-- Big tile -->
+    <a class="tile big" href="hub-body.html" style="--accent:#C4B5FD">
+      <div class="tile-top">
+        <span class="tile-num">·02</span>
+        <span class="tile-emoji">⚡</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Body</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Health, Water, Caffeine, Peak</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
 
-  <div class="tile-group">
-    <div class="group-label">Body</div>
-    <div class="bento">
-      <!-- Small tile -->
-      <a class="tile" href="health.html" style="--accent:#A7F3D0">
-        <div class="tile-top">
-          <span class="tile-num">·03</span>
-          <span class="tile-emoji">💊</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Health</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Supplements & vitals</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
+    <!-- Big tile -->
+    <a class="tile big" href="hub-money.html" style="--accent:#F2C063">
+      <div class="tile-top">
+        <span class="tile-num">·03</span>
+        <span class="tile-emoji">💰</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Money & Growth</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Finance, Businesses, Learning</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
 
-      <!-- Small tile -->
-      <a class="tile" href="po-water.html" style="--accent:#60A5FA">
-        <div class="tile-top">
-          <span class="tile-num">·04</span>
-          <span class="tile-emoji">💧</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Water</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Hydration</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Small tile -->
-      <a class="tile" href="caffeine.html" style="--accent:#C9A36B">
-        <div class="tile-top">
-          <span class="tile-num">·06</span>
-          <span class="tile-emoji">☕</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Caffeine</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Intake & timing</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Small tile -->
-      <a class="tile" href="peak.html" style="--accent:#C4B5FD">
-        <div class="tile-top">
-          <span class="tile-num">·12</span>
-          <span class="tile-emoji">⚡</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Peak</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Energy & recovery</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-    </div>
-  </div>
-
-  <div class="tile-group">
-    <div class="group-label">Money & Growth</div>
-    <div class="bento">
-      <!-- Wide tile -->
-      <a class="tile wide" href="finance.html" style="--accent:#F2C063">
-        <div class="tile-top">
-          <span class="tile-num">·05</span>
-          <span class="tile-emoji">📊</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Finance</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Net worth & spending</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Wide tile -->
-      <a class="tile wide" href="business.html" style="--accent:#EAB308">
-        <div class="tile-top">
-          <span class="tile-num">·10</span>
-          <span class="tile-emoji">💼</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Businesses</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Side hustles & revenue</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Small tile -->
-      <a class="tile" href="reading.html" style="--accent:#FDBA74">
-        <div class="tile-top">
-          <span class="tile-num">·09</span>
-          <span class="tile-emoji">📚</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Learning</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Books, courses & more</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-    </div>
-  </div>
-
-  <div class="tile-group">
-    <div class="group-label">Reflect</div>
-    <div class="bento">
-      <!-- Wide tile -->
-      <a class="tile wide" href="nova-lite.html" style="--accent:#A78BFA">
-        <div class="tile-top">
-          <span class="tile-num">·07</span>
-          <span class="tile-emoji">🧠</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Nova</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Your AI mentor</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Small tile -->
-      <a class="tile" href="notes.html" style="--accent:#F472B6">
-        <div class="tile-top">
-          <span class="tile-num">·08</span>
-          <span class="tile-emoji">📝</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Notes</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Freeform notes</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-
-      <!-- Wide tile -->
-      <a class="tile wide" href="review.html" style="--accent:#5EEAD4">
-        <div class="tile-top">
-          <span class="tile-num">·11</span>
-          <span class="tile-emoji">🪞</span>
-        </div>
-        <div class="tile-spacer"></div>
-        <h2 class="tile-title">Review</h2>
-        <div class="tile-foot">
-          <span class="tile-sub">Weekly & monthly recap</span>
-          <span class="tile-arrow">→</span>
-        </div>
-      </a>
-    </div>
+    <!-- Big tile -->
+    <a class="tile big" href="hub-reflect.html" style="--accent:#A78BFA">
+      <div class="tile-top">
+        <span class="tile-num">·04</span>
+        <span class="tile-emoji">🪞</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Reflect</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Nova, Notes, Review</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
   </div>
 </div>
 
@@ -697,11 +558,13 @@ body::after {
   });
 })();
 
-/* ============ Today snapshot ============
- * Reads each page's own localStorage keys directly (same origin, no fetch)
- * and swaps each tile's static caption for a live "today" number, without
- * touching the tiles' navigation or layout. Read-only — never writes back
- * to another page's keys, so it can't corrupt anything another page owns.
+/* ============ Today Score ============
+ * Reads every domain's own localStorage keys directly (same origin, no
+ * fetch) to compute the composite score card above. Read-only — never
+ * writes back to another page's keys, so it can't corrupt anything another
+ * page owns. (The old per-tile live captions this file used to render live
+ * on hub-today.html/hub-body.html/hub-money.html now that the home screen's
+ * tiles are category links rather than direct feature links.)
  */
 (function () {
   'use strict';
@@ -713,147 +576,6 @@ body::after {
   function activeDate6am() { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return d; }
   function activeDateKey6am() { return dateToKey(activeDate6am()); }
   function plainTodayKey() { return dateToKey(new Date()); }
-
-  function setTileSub(href, text) {
-    const el = document.querySelector('.tile[href="' + href + '"] .tile-sub');
-    if (el && text) el.textContent = text;
-  }
-
-  function renderMainTile() {
-    const todayK = activeDateKey6am();
-    const goals = storeGet('goals:' + todayK) || [];
-    const goalsLeft = goals.filter(g => !g.done).length;
-    const defs = storeGet('habits:defs') || [];
-    const log = storeGet('habits:log') || {};
-    const habitsDone = defs.filter(h => log[h.id] && log[h.id][todayK]).length;
-    const parts = [];
-    if (defs.length) parts.push(habitsDone + '/' + defs.length + ' habits');
-    if (goals.length) parts.push(goalsLeft > 0 ? goalsLeft + ' to-do' + (goalsLeft === 1 ? '' : 's') + ' left' : 'to-dos done');
-    if (parts.length) setTileSub('main.html', parts.join(' · '));
-  }
-
-  function renderFitnessTile() {
-    const state = storeGet('po_coach_v1');
-    if (!state || !Array.isArray(state.splitRotation) || !state.splitRotation.length || !state.splitAnchor) return;
-    const rot = state.splitRotation;
-    const a = new Date(state.splitAnchor.date), t = new Date();
-    a.setHours(0, 0, 0, 0); t.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((t - a) / 86400000);
-    const idx = ((state.splitAnchor.index + diffDays) % rot.length + rot.length) % rot.length;
-    const splitName = rot[idx];
-    if (!splitName) return;
-    const doneDays = storeGet('po_coach_workout_done') || {};
-    const logged = !!doneDays[plainTodayKey()];
-    let text = 'Today: ' + splitName + (logged ? ' · done' : ' · not logged yet');
-    const cardioSessions = storeGet('cardio:sessions');
-    if (Array.isArray(cardioSessions) && cardioSessions.length) {
-      const cutoff = Date.now() - 7 * 86400000;
-      const recentCardio = cardioSessions.filter(s => s.ts >= cutoff).length;
-      if (recentCardio) text += ' · ' + recentCardio + ' cardio this wk';
-    }
-    setTileSub('gym.html', text);
-  }
-
-  function renderHealthTile() {
-    const items = storeGet('stack:items');
-    if (!Array.isArray(items) || !items.length) return;
-    const taken = storeGet('stack:taken:' + activeDateKey6am()) || {};
-    const doneCount = items.filter(it => taken[it.id]).length;
-    setTileSub('health.html', doneCount + '/' + items.length + ' supplements taken');
-  }
-
-  function renderWaterTile() {
-    const state = storeGet('po_water_v1');
-    if (!state || !state.profile) return;
-    const p = state.profile;
-    const wKg = state.weightUnit === 'lb' ? (p.weightKg || 0) / 2.20462 : (p.weightKg || 0);
-    if (!wKg) return;
-    const base = wKg * 35;
-    const exercise = (p.activityHrsPerWeek || 0) / 7 * 500;
-    const caffeine = Math.max(0, (state.caffeineMgPerDay || 0) - 200) * 1.5;
-    let adjust = 0; if (p.sex === 'm') adjust += 200; if ((p.age || 0) >= 50) adjust += 100;
-    const total = base + exercise + caffeine + adjust;
-    let unitMl = 1, label = 'ml';
-    if (state.unit === 'bottle') { unitMl = state.bottleMl || 500; label = 'bottles'; }
-    else if (state.unit === 'glass') { unitMl = state.glassMl || 250; label = 'glasses'; }
-    else if (state.unit === 'oz') { unitMl = 30; label = 'oz'; }
-    const targetUnits = Math.ceil(total / unitMl);
-    const count = (state.logs && state.logs[plainTodayKey()]) || 0;
-    setTileSub('po-water.html', count + ' / ' + targetUnits + ' ' + label);
-  }
-
-  function renderFinanceTile() {
-    const cats = ['bank', 'stocks', 'crypto', 'other'];
-    let total = 0, any = false;
-    cats.forEach(c => {
-      const arr = storeGet('nw:' + c);
-      if (Array.isArray(arr) && arr.length) { any = true; arr.forEach(it => { total += Number(it.amount) || 0; }); }
-    });
-    if (!any) return;
-    const currency = storeGet('nw_currency') || 'CHF';
-    setTileSub('finance.html', 'Net worth: ' + currency + ' ' + Math.round(total).toLocaleString());
-  }
-
-  function renderCaffeineTile() {
-    const logs = storeGet('caf:logs') || [];
-    const nicLogs = storeGet('nic:logs') || [];
-    if (!logs.length && !nicLogs.length) return;
-    const midnight = new Date(); midnight.setHours(0, 0, 0, 0); const mt = midnight.getTime();
-    const cafToday = Math.round(logs.filter(l => l.ts >= mt).reduce((a, l) => a + l.mg, 0));
-    const nicToday = Math.round(nicLogs.filter(l => l.ts >= mt).reduce((a, l) => a + l.mg, 0) * 10) / 10;
-    const parts = [cafToday + 'mg caffeine'];
-    if (nicToday > 0) parts.push(nicToday + 'mg nicotine');
-    setTileSub('caffeine.html', parts.join(' · '));
-  }
-
-  function renderReadingTile() {
-    const items = storeGet('reading:items') || [];
-    if (!items.length) return;
-    // reading.html logs sessions keyed by a UTC-ISO date string, not the
-    // local-date helpers used elsewhere in this file — match it exactly.
-    const todayK = new Date().toISOString().slice(0, 10);
-    let pagesToday = 0, any = false;
-    items.forEach(it => {
-      const sessions = (it.sessions || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
-      const idx = sessions.findIndex(s => s.date === todayK);
-      if (idx === -1) return;
-      any = true;
-      const priorPage = idx > 0 ? sessions[idx - 1].page : 0;
-      const delta = sessions[idx].page - priorPage;
-      if (delta > 0) pagesToday += delta;
-    });
-    if (any) { setTileSub('reading.html', pagesToday + ' page' + (pagesToday === 1 ? '' : 's') + ' read today'); return; }
-    const inProgress = items.find(it => it.status === 'in-progress');
-    if (inProgress && inProgress.title) setTileSub('reading.html', 'Reading: ' + inProgress.title);
-  }
-
-  function renderBusinessTile() {
-    const commitments = storeGet('biz:affiliate:commitments') || [];
-    const commitLog = storeGet('biz:affiliate:commitLog') || {};
-    const clients = storeGet('biz:editing:clients') || [];
-    const delivery = storeGet('biz:editing:deliveryLog') || {};
-    const todayK = activeDateKey6am();
-    let total = 0, done = 0;
-    commitments.forEach(c => { total++; if (commitLog[c.id] && commitLog[c.id][todayK]) done++; });
-    clients.forEach(c => {
-      if (c.billingType === 'retainer' && c.dailyDeliverables > 0) {
-        total++;
-        const doneToday = (delivery[c.id] && delivery[c.id][todayK]) || 0;
-        if (doneToday >= c.dailyDeliverables) done++;
-      }
-    });
-    if (!total) return;
-    setTileSub('business.html', done + '/' + total + ' commitments done today');
-  }
-
-  function renderPeakTile() {
-    const daily = storeGet('peak:daily');
-    if (!daily) return;
-    const today = daily[plainTodayKey()];
-    if (today) { setTileSub('peak.html', today.avgScore + ' · ' + today.tier + ' today'); return; }
-    const keys = Object.keys(daily).sort();
-    if (keys.length) { const last = daily[keys[keys.length - 1]]; setTileSub('peak.html', 'Last: ' + last.avgScore + ' · ' + last.tier); }
-  }
 
   /* ---------- Today Score ----------
    * One composite number from whichever domains you've actually got data
@@ -963,18 +685,12 @@ body::after {
     card.classList.add('show');
   }
 
-  function renderTodaySnapshot() {
-    renderMainTile(); renderFitnessTile(); renderHealthTile(); renderWaterTile();
-    renderFinanceTile(); renderCaffeineTile(); renderReadingTile(); renderBusinessTile();
-    renderPeakTile(); renderTodayScore();
-  }
-
-  renderTodaySnapshot();
-  window.addEventListener('pageshow', renderTodaySnapshot);
+  renderTodayScore();
+  window.addEventListener('pageshow', renderTodayScore);
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') renderTodaySnapshot();
+    if (document.visibilityState === 'visible') renderTodayScore();
   });
-  window.addEventListener('storage', renderTodaySnapshot);
+  window.addEventListener('storage', renderTodayScore);
 })();
 </script>
 </body>
