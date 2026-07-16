@@ -153,6 +153,32 @@ body::after {
 .gear-btn:active { transform: scale(0.94) rotate(35deg); }
 .gear-btn svg { width: 22px; height: 22px; }
 
+/* ===== Today Score ===== */
+.score-card {
+  display: none; margin: 0 0 18px; padding: 22px 24px;
+  border-radius: 20px; background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  align-items: center; gap: 22px;
+}
+.score-card.show { display: flex; }
+.score-num-wrap { display: flex; align-items: baseline; gap: 4px; flex-shrink: 0; }
+.score-num {
+  font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+}
+.score-max { font-size: 16px; font-weight: 600; color: var(--text-tertiary); }
+.score-body { min-width: 0; flex: 1; }
+.score-tier { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+.score-breakdown { font-size: 12.5px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) {
+  .score-card { flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; }
+  .score-breakdown { white-space: normal; }
+}
+
 /* ===== Settings modal ===== */
 .modal-bg {
   position: fixed; inset: 0; z-index: 120; display: none;
@@ -218,6 +244,14 @@ body::after {
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
     </button>
+  </div>
+
+  <div class="score-card" id="scoreCard">
+    <div class="score-num-wrap"><span class="score-num" id="scoreNum">–</span><span class="score-max">/100</span></div>
+    <div class="score-body">
+      <div class="score-tier" id="scoreTier"></div>
+      <div class="score-breakdown" id="scoreBreakdown"></div>
+    </div>
   </div>
 
   <div class="bento">
@@ -796,10 +830,118 @@ body::after {
     if (keys.length) { const last = daily[keys[keys.length - 1]]; setTileSub('peak.html', 'Last: ' + last.avgScore + ' · ' + last.tier); }
   }
 
+  /* ---------- Today Score ----------
+   * One composite number from whichever domains you've actually got data
+   * for today — a domain with nothing set up (no habits defined, no
+   * business commitments, etc.) is left out of the average entirely
+   * rather than counted as a zero, so the score stays fair as your setup
+   * grows. Finance and caffeine/nicotine are deliberately excluded: they
+   * aren't "did today go well" behaviors in the same sense the others are.
+   */
+  function tierForScore(s) {
+    if (s >= 90) return 'Elite day';
+    if (s >= 75) return 'Strong day';
+    if (s >= 55) return 'Decent day';
+    if (s >= 35) return 'Slipping';
+    return 'Rough day';
+  }
+
+  function computeTodayScore() {
+    const todayK6 = activeDateKey6am();
+    const todayPlain = plainTodayKey();
+    const parts = []; // { weight, done, total, label(done,total) }
+
+    const goals = storeGet('goals:' + todayK6) || [];
+    if (goals.length) parts.push({ weight: 25, done: goals.filter(g => g.done).length, total: goals.length, label: (n, t) => n + '/' + t + ' to-dos' });
+
+    const habitDefs = storeGet('habits:defs') || [];
+    if (habitDefs.length) {
+      const log = storeGet('habits:log') || {};
+      const done = habitDefs.filter(h => log[h.id] && log[h.id][todayK6]).length;
+      parts.push({ weight: 15, done, total: habitDefs.length, label: (n, t) => n + '/' + t + ' habits' });
+    }
+
+    const coach = storeGet('po_coach_v1');
+    if (coach && Array.isArray(coach.splitRotation) && coach.splitRotation.length) {
+      const doneDays = storeGet('po_coach_workout_done') || {};
+      const logged = !!doneDays[todayPlain];
+      parts.push({ weight: 15, done: logged ? 1 : 0, total: 1, label: () => (logged ? 'workout logged' : 'no workout yet') });
+    }
+
+    const water = storeGet('po_water_v1');
+    if (water && water.profile && water.profile.weightKg) {
+      const p = water.profile;
+      const wKg = water.weightUnit === 'lb' ? (p.weightKg || 0) / 2.20462 : (p.weightKg || 0);
+      const base = wKg * 35;
+      const exercise = (p.activityHrsPerWeek || 0) / 7 * 500;
+      const caffeine = Math.max(0, (water.caffeineMgPerDay || 0) - 200) * 1.5;
+      let adjust = 0; if (p.sex === 'm') adjust += 200; if ((p.age || 0) >= 50) adjust += 100;
+      const total = base + exercise + caffeine + adjust;
+      let unitMl = 1; if (water.unit === 'bottle') unitMl = water.bottleMl || 500; else if (water.unit === 'glass') unitMl = water.glassMl || 250; else if (water.unit === 'oz') unitMl = 30;
+      const targetUnits = Math.ceil(total / unitMl);
+      const count = (water.logs && water.logs[todayPlain]) || 0;
+      if (targetUnits > 0) parts.push({ weight: 15, done: Math.min(count, targetUnits), total: targetUnits, label: (n, t) => n + '/' + t + ' water' });
+    }
+
+    const stackItems = storeGet('stack:items');
+    if (Array.isArray(stackItems) && stackItems.length) {
+      const taken = storeGet('stack:taken:' + todayK6) || {};
+      const done = stackItems.filter(it => taken[it.id]).length;
+      parts.push({ weight: 10, done, total: stackItems.length, label: (n, t) => n + '/' + t + ' supplements' });
+    }
+
+    const commitments = storeGet('biz:affiliate:commitments') || [];
+    const commitLog = storeGet('biz:affiliate:commitLog') || {};
+    const clients = storeGet('biz:editing:clients') || [];
+    const delivery = storeGet('biz:editing:deliveryLog') || {};
+    let bizTotal = 0, bizDone = 0;
+    commitments.forEach(c => { bizTotal++; if (commitLog[c.id] && commitLog[c.id][todayK6]) bizDone++; });
+    clients.forEach(c => {
+      if (c.billingType === 'retainer' && c.dailyDeliverables > 0) {
+        bizTotal++;
+        const doneToday = (delivery[c.id] && delivery[c.id][todayK6]) || 0;
+        if (doneToday >= c.dailyDeliverables) bizDone++;
+      }
+    });
+    if (bizTotal > 0) parts.push({ weight: 10, done: bizDone, total: bizTotal, label: (n, t) => n + '/' + t + ' commitments' });
+
+    const readingItems = storeGet('reading:items') || [];
+    if (readingItems.length) {
+      let any = false;
+      readingItems.forEach(it => {
+        const sessions = it.sessions || [];
+        if (sessions.some(s => s.date === todayPlain)) any = true;
+      });
+      parts.push({ weight: 10, done: any ? 1 : 0, total: 1, label: () => (any ? 'reading done' : 'no reading yet') });
+    }
+
+    if (!parts.length) return null;
+
+    let weightedSum = 0, weightTotal = 0;
+    const breakdownBits = [];
+    parts.forEach(p => {
+      const ratio = p.total > 0 ? Math.min(1, p.done / p.total) : 0;
+      weightedSum += ratio * p.weight;
+      weightTotal += p.weight;
+      breakdownBits.push(p.label(p.done, p.total));
+    });
+    return { score: Math.round((weightedSum / weightTotal) * 100), breakdown: breakdownBits.join(' · ') };
+  }
+
+  function renderTodayScore() {
+    const card = document.getElementById('scoreCard');
+    const result = computeTodayScore();
+    if (!result) { card.classList.remove('show'); return; }
+    document.getElementById('scoreNum').textContent = result.score;
+    document.getElementById('scoreTier').textContent = tierForScore(result.score);
+    document.getElementById('scoreBreakdown').textContent = result.breakdown;
+    card.classList.add('show');
+  }
+
   function renderTodaySnapshot() {
     renderMainTile(); renderFitnessTile(); renderHealthTile(); renderWaterTile();
     renderFinanceTile(); renderCaffeineTile(); renderReadingTile(); renderBusinessTile();
-    renderPeakTile();
+    renderPeakTile(); renderTodayScore();
   }
 
   renderTodaySnapshot();
