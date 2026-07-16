@@ -9,10 +9,14 @@
 // REMINDER_HOURS_LOCAL; if so, reads today's recurring items straight from
 // Supabase (the same rows the dashboard itself reads and writes — this
 // function never talks to the browser, only to Supabase and the delivery
-// provider) and texts a digest of whatever's still undone, with a rotating
-// opening line so repeated sends through the day don't read identically.
-// Sends nothing if it's not a configured hour, or if everything's already
-// done.
+// provider) and texts a digest of whatever's still undone. Each undone item
+// gets its own hand-written, deterministic-but-varied one-liner keyed off
+// the item's name (gym/water/reading/stretch/etc. each have their own
+// phrase pool, with a generic fallback for anything unmatched — see
+// categorizeItem/PHRASES/composeMessage below), on top of a rotating
+// opening line, so repeated sends through the day read like different
+// messages instead of the same template every time. Sends nothing if it's
+// not a configured hour, or if everything's already done.
 //
 // The workflow's schedule is fixed UTC clock times, so — same as any fixed-
 // UTC cron — it drifts an hour for ~2 weeks around DST changes (mid-March
@@ -70,6 +74,126 @@ const INTROS = [
 function pickIntro(dateKey, hour) {
   const day = Number(dateKey.slice(-2)) || 0;
   return INTROS[(day + hour) % INTROS.length];
+}
+
+// ---------- Per-item phrasing ----------
+// Recurring item names are whatever the user typed into main.html's
+// Recurring Items settings, not a fixed enum — so this matches on keywords
+// rather than exact names, with a generic pool as the fallback for anything
+// that doesn't match (custom items, one-off to-dos). Each item gets its own
+// deterministic-but-varied line instead of one flat comma list, so what
+// changes each send is tied to what's actually still undone, not just a
+// generic rotating header.
+function categorizeItem(name) {
+  const n = String(name).toLowerCase();
+  if (/side ?hustle|\bhustle\b|business|affiliate|editing client/.test(n)) return 'sideHustle';
+  if (/\bgym\b|workout|\blift/.test(n)) return 'gym';
+  if (/water|hydrat/.test(n)) return 'water';
+  if (/\bread(ing)?\b|\bbook/.test(n)) return 'reading';
+  if (/stretch|mobility|\byoga\b/.test(n)) return 'stretch';
+  if (/skin ?care/.test(n)) return 'skincare';
+  if (/\bclean|\btidy|\broom\b/.test(n)) return 'cleaning';
+  if (/supplement|vitamin/.test(n)) return 'supplements';
+  if (/\bsleep\b|bed ?time/.test(n)) return 'sleep';
+  if (/\bmed(s|ication)?\b|\bpill/.test(n)) return 'meds';
+  if (/\bwork\b/.test(n)) return 'work';
+  return 'generic';
+}
+const PHRASES = {
+  gym: [
+    n => n + ' — the weights aren\'t lifting themselves',
+    n => 'Still no ' + n.toLowerCase() + ' today',
+    n => n + ': future you is currently disappointed',
+    n => 'Your gym bag is still zipped shut (' + n + ')',
+    n => n + ' — bench press beats bench sitting',
+    n => 'Zero reps logged for ' + n + ' today',
+  ],
+  water: [
+    n => n + ' — hydrate or diedrate',
+    n => 'Still haven\'t hit ' + n.toLowerCase() + ' today',
+    n => n + ': your cells are filing a complaint',
+    n => 'That water bottle isn\'t drinking itself (' + n + ')',
+    n => n + ' — go take a sip right now',
+  ],
+  reading: [
+    n => n + ' — that bookmark hasn\'t moved',
+    n => 'Zero pages today for ' + n,
+    n => n + ' is still waiting on the nightstand',
+    n => 'Still haven\'t cracked ' + n.toLowerCase() + ' open today',
+    n => n + ' — even one page counts',
+  ],
+  stretch: [
+    n => n + ' — your hips will remember this',
+    n => 'Still haven\'t stretched (' + n + ')',
+    n => n + ': five minutes, that\'s it',
+    n => 'Everything\'s still tight — ' + n,
+    n => n + ' — don\'t skip it two days running',
+  ],
+  skincare: [
+    n => n + ' — skip it and regret it in the mirror later',
+    n => 'Still haven\'t done ' + n.toLowerCase(),
+    n => n + ': quick one, don\'t skip',
+    n => 'Still waiting on ' + n.toLowerCase() + ' today',
+  ],
+  cleaning: [
+    n => n + ' — the mess isn\'t cleaning itself',
+    n => 'Still haven\'t done ' + n.toLowerCase(),
+    n => n + ': five minutes and it\'s done',
+    n => 'Still a mess in there — ' + n,
+  ],
+  supplements: [
+    n => n + ' — still sitting in the bottle',
+    n => 'Haven\'t taken ' + n.toLowerCase() + ' yet',
+    n => n + ': quick one, don\'t forget',
+    n => 'Still untouched today (' + n + ')',
+  ],
+  sleep: [
+    n => n + ' — still owe yourself this one',
+    n => 'Haven\'t logged ' + n.toLowerCase() + ' yet',
+  ],
+  meds: [
+    n => n + ' — don\'t forget this one',
+    n => 'Still haven\'t taken ' + n.toLowerCase(),
+    n => n + ': this one actually matters, don\'t skip',
+  ],
+  sideHustle: [
+    n => n + ' — still nothing logged today',
+    n => 'Haven\'t touched ' + n.toLowerCase() + ' yet',
+    n => n + ': even 15 minutes moves it forward',
+    n => 'Still no progress on ' + n.toLowerCase() + ' today',
+    n => n + ' — the money\'s not making itself',
+  ],
+  work: [
+    n => n + ' — still not clocked in',
+    n => 'Haven\'t started ' + n.toLowerCase() + ' yet',
+    n => n + ': still on the clock to start',
+  ],
+  generic: [
+    n => n + ' — still undone',
+    n => 'Haven\'t gotten to ' + n.toLowerCase() + ' yet',
+    n => n + ' is still sitting there',
+    n => 'Still need to knock out ' + n.toLowerCase(),
+    n => n + ' — waiting on you',
+    n => 'Still open: ' + n.toLowerCase(),
+  ],
+};
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+// Exported for direct testing. dateKey/hour (not real randomness) drive the
+// phrase choice so the same undone list at the same date+hour always
+// composes the same message — a re-send after a transient failure won't
+// read as a different, confusing text.
+export function composeMessage(undone, dateKey, hour) {
+  const intro = pickIntro(dateKey, hour);
+  const lines = undone.map(name => {
+    const pool = PHRASES[categorizeItem(name)] || PHRASES.generic;
+    const seed = hashStr(dateKey + '|' + hour + '|' + name);
+    return '- ' + pool[seed % pool.length](name);
+  });
+  return intro + '\n' + lines.join('\n');
 }
 
 // Mirrors the dashboard's own day-key conventions (6 AM boundary for
@@ -250,7 +374,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ sent: false, reason: 'nothing undone' });
     }
 
-    const body = pickIntro(todayPlain, nowHour) + ' ' + undone.join(', ');
+    const body = composeMessage(undone, todayPlain, nowHour);
     let result;
     try {
       result = await sendReminder(body);
