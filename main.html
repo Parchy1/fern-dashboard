@@ -804,6 +804,8 @@ body::after {
           <option value="stretch_am">Auto-check: AM stretch routine completed</option>
           <option value="stretch_pm">Auto-check: PM stretch routine completed</option>
           <option value="business">Auto-check: any side-hustle activity logged today</option>
+          <option value="water">Auto-check: hit today's water target</option>
+          <option value="supplements">Auto-check: all supplements taken today</option>
         </select>
         <input id="recurNote" class="gm-input" type="text" placeholder="Optional note (e.g. 3–6pm)">
         <div class="recur-form-actions">
@@ -1546,6 +1548,25 @@ body::after {
       const anyRevenue = revenue.some(r => r.date === bizKey) || payments.some(p => p.date === bizKey);
       return anyCommit || anyDelivery || anyRevenue;
     }
+    if (autoSource === 'water') {
+      const w = storeGet('po_water_v1');
+      if (!w || !w.profile || !w.profile.weightKg) return false;
+      const p = w.profile;
+      const wKg = w.weightUnit === 'lb' ? p.weightKg / 2.20462 : p.weightKg;
+      const base = wKg * 35, exercise = (p.activityHrsPerWeek || 0) / 7 * 500, caffeine = Math.max(0, (w.caffeineMgPerDay || 0) - 200) * 1.5;
+      let adjust = 0; if (p.sex === 'm') adjust += 200; if ((p.age || 0) >= 50) adjust += 100;
+      const totalMl = base + exercise + caffeine + adjust;
+      let unitMl = 1; if (w.unit === 'bottle') unitMl = w.bottleMl || 500; else if (w.unit === 'glass') unitMl = w.glassMl || 250; else if (w.unit === 'oz') unitMl = 30;
+      const targetUnits = Math.ceil(totalMl / unitMl);
+      const count = (w.logs && w.logs[plainToday]) || 0;
+      return targetUnits > 0 && count >= targetUnits;
+    }
+    if (autoSource === 'supplements') {
+      const items = storeGet('stack:items');
+      const taken = storeGet('stack:taken:' + getActiveDateString()) || {};
+      if (!Array.isArray(items) || !items.length) return false;
+      return items.every(it => taken[it.id]);
+    }
     return false;
   }
 
@@ -1651,7 +1672,7 @@ body::after {
     const defs = getRecurDefs();
     list.innerHTML = '';
     empty.style.display = defs.length ? 'none' : 'block';
-    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles' };
+    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles', water: 'auto: water', supplements: 'auto: supplements' };
     defs.forEach(def => {
       const li = document.createElement('li');
       li.className = 'recur-row';
