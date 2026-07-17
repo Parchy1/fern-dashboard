@@ -2205,7 +2205,14 @@ img, video, canvas, svg { max-width: 100%; }
     const byDay = {};
     state.exercises.forEach(ex => {
       (state.logs[ex.id] || []).forEach(l => {
-        const dk = l.date.slice(0, 10);
+        // l.date is a full UTC ISO instant (new Date().toISOString()) --
+        // slicing its first 10 characters takes the UTC calendar date, not
+        // the local one. Anyone west of UTC logging in the evening (already
+        // "tomorrow" in UTC) would have that set silently filed under the
+        // wrong day and vanish from Today's Workout despite being saved
+        // correctly. Reconstruct a real Date and read local components
+        // instead, same as the History list already correctly does.
+        const dk = wtDateKey(new Date(l.date));
         if (!byDay[dk]) byDay[dk] = [];
         byDay[dk].push({ ex, log: l });
       });
@@ -2943,7 +2950,7 @@ img, video, canvas, svg { max-width: 100%; }
         // Still count volume / sessions even for bodyweight + sparse exercises
         logs.forEach(l => {
           if (new Date(l.date) >= start) {
-            workoutDays.add(l.date.slice(0, 10));
+            workoutDays.add(wtDateKey(new Date(l.date))); // local day, not the UTC slice -- see logsByDay()
             totalVolumeInWindow += (l.weight || 0) * (l.reps || 0);
           }
         });
@@ -2952,7 +2959,7 @@ img, video, canvas, svg { max-width: 100%; }
       const inWin  = logs.filter(l => new Date(l.date) >= start);
       const before = logs.filter(l => new Date(l.date) < start);
       inWin.forEach(l => {
-        workoutDays.add(l.date.slice(0, 10));
+        workoutDays.add(wtDateKey(new Date(l.date))); // local day, not the UTC slice -- see logsByDay()
         totalVolumeInWindow += (l.weight || 0) * (l.reps || 0);
       });
       if (!inWin.length || !before.length) return;
