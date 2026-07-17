@@ -685,10 +685,43 @@ body::after {
     card.classList.add('show');
   }
 
+  // Every domain's own page (main.html, health.html, gym.html, ...) only
+  // ever pulls its own fresh data from Supabase when THAT page loads — this
+  // page has no cloud sync of its own for any of them, so the score above
+  // was reading whatever happened to already be sitting in this browser's
+  // localStorage. On a device/session where you haven't opened Fitness or
+  // Health yet today, that's stale or missing entirely, which is why the
+  // score would show 0 (or nothing) until visiting those pages first. Pull
+  // each domain's current row directly from Supabase — same plain REST call
+  // api/send-reminders.js already makes server-side — and cache it into
+  // localStorage before computing the score, so it's correct on the very
+  // first load without needing to visit anything else first.
+  const SCORE_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+  const SCORE_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading'];
+  async function pullFreshScoreSources() {
+    if (SCORE_SUPABASE_URL.indexOf('PASTE-') === 0 || SCORE_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
+    try {
+      const rows = await Promise.all(SCORE_SOURCE_APP_KEYS.map(k =>
+        fetch(SCORE_SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(k) + '&select=data', {
+          headers: { apikey: SCORE_SUPABASE_KEY, Authorization: 'Bearer ' + SCORE_SUPABASE_KEY },
+        }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ));
+      rows.forEach(r => {
+        const data = r && r[0] && r[0].data;
+        if (!data) return;
+        Object.keys(data).forEach(k => {
+          try { localStorage.setItem(k, JSON.stringify(data[k])); } catch (e) {}
+        });
+      });
+    } catch (e) {}
+  }
+
   renderTodayScore();
-  window.addEventListener('pageshow', renderTodayScore);
+  pullFreshScoreSources().then(renderTodayScore);
+  window.addEventListener('pageshow', function () { pullFreshScoreSources().then(renderTodayScore); });
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') renderTodayScore();
+    if (document.visibilityState === 'visible') pullFreshScoreSources().then(renderTodayScore);
   });
   window.addEventListener('storage', renderTodayScore);
 })();

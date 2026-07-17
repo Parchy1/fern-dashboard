@@ -269,10 +269,37 @@ body::after {
   }
 
   function renderSnapshot() { renderHealthTile(); renderWaterTile(); renderCaffeineTile(); renderPeakTile(); }
+
+  // These captions only pull fresh data from Supabase when
+  // health.html/caffeine.html/peak.html themselves load — this page has no
+  // cloud sync of its own, so it was reading whatever already happened to
+  // be in this browser's localStorage. Pull each domain's row directly
+  // (same plain REST call api/send-reminders.js already makes server-side)
+  // before rendering, so it's correct on the very first visit.
+  const SNAP_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+  const SNAP_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  const SNAP_SOURCE_APP_KEYS = ['health', 'caffeine', 'peak'];
+  async function pullFreshSnapshotSources() {
+    if (SNAP_SUPABASE_URL.indexOf('PASTE-') === 0 || SNAP_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
+    try {
+      const rows = await Promise.all(SNAP_SOURCE_APP_KEYS.map(k =>
+        fetch(SNAP_SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(k) + '&select=data', {
+          headers: { apikey: SNAP_SUPABASE_KEY, Authorization: 'Bearer ' + SNAP_SUPABASE_KEY },
+        }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ));
+      rows.forEach(r => {
+        const data = r && r[0] && r[0].data;
+        if (!data) return;
+        Object.keys(data).forEach(k => { try { localStorage.setItem(k, JSON.stringify(data[k])); } catch (e) {} });
+      });
+    } catch (e) {}
+  }
+
   renderSnapshot();
-  window.addEventListener('pageshow', renderSnapshot);
+  pullFreshSnapshotSources().then(renderSnapshot);
+  window.addEventListener('pageshow', function () { pullFreshSnapshotSources().then(renderSnapshot); });
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') renderSnapshot();
+    if (document.visibilityState === 'visible') pullFreshSnapshotSources().then(renderSnapshot);
   });
   window.addEventListener('storage', renderSnapshot);
 })();
