@@ -820,18 +820,30 @@ img, video, canvas, svg { max-width: 100%; }
   display: flex; flex-direction: column; gap: 6px;
 }
 .po-tw-row {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 10px;
   padding: 10px 12px;
   background: rgba(255,255,255,0.025);
   border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 13px;
 }
+.po-tw-row-body { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .po-tw-row-name { font-weight: 600; color: var(--text-1); }
 .po-tw-row-meta {
   font-size: 11px; color: var(--text-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+.po-tw-ex-done {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid var(--border-strong); background: transparent;
+  color: transparent; font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.po-tw-ex-done.is-done {
+  background: rgba(110,231,183,0.16); border-color: var(--good); color: var(--good);
 }
 .po-tw-empty {
   text-align: center; padding: 14px 0;
@@ -2174,6 +2186,21 @@ img, video, canvas, svg { max-width: 100%; }
   }
   let doneDays = loadDoneDays();
 
+  // Per-movement "done" toggle — separate from doneDays above, which marks
+  // the whole day/session. { [dayKey]: { [exerciseId]: true } }. Logging a
+  // set already saves that set's data correctly; this is a distinct,
+  // explicit "yes, I'm finished with this specific exercise" signal so it's
+  // visually obvious per-movement, not just implied by the log history.
+  const EX_DONE_KEY = 'po_coach_ex_done';
+  function loadExDone() {
+    try { const raw = localStorage.getItem(EX_DONE_KEY); return raw ? JSON.parse(raw) : {}; }
+    catch (e) { return {}; }
+  }
+  function saveExDone(d) {
+    try { localStorage.setItem(EX_DONE_KEY, JSON.stringify(d)); } catch (e) {}
+  }
+  let exDone = loadExDone();
+
   function logsByDay() {
     const byDay = {};
     state.exercises.forEach(ex => {
@@ -2231,6 +2258,7 @@ img, video, canvas, svg { max-width: 100%; }
       empty.classList.remove('hidden');
     } else {
       empty.classList.add('hidden');
+      const todayExDone = exDone[todayKey] || {};
       list.innerHTML = sum.perEx.map(e => {
         const top = e.ex.bw
           ? 'top ' + Math.max.apply(null, e.sets.map(s => s.reps)) + ' reps'
@@ -2238,9 +2266,13 @@ img, video, canvas, svg { max-width: 100%; }
         const meta = e.ex.bw
           ? (e.sets.length + ' set' + (e.sets.length === 1 ? '' : 's') + ' · ' + top)
           : (e.sets.length + ' set' + (e.sets.length === 1 ? '' : 's') + ' · ' + top + ' · ' + Math.round(e.vol) + u + ' total');
+        const done = !!todayExDone[e.ex.id];
         return '<li class="po-tw-row">'
-          + '<span class="po-tw-row-name">' + escape(e.ex.name) + '</span>'
-          + '<span class="po-tw-row-meta">' + meta + '</span>'
+          + '<button class="po-tw-ex-done' + (done ? ' is-done' : '') + '" data-ex-id="' + escape(e.ex.id) + '" type="button" aria-label="Mark ' + escape(e.ex.name) + ' done" title="Mark this movement done">' + (done ? '✓' : '') + '</button>'
+          + '<div class="po-tw-row-body">'
+          +   '<span class="po-tw-row-name">' + escape(e.ex.name) + '</span>'
+          +   '<span class="po-tw-row-meta">' + meta + '</span>'
+          + '</div>'
           + '</li>';
       }).join('');
     }
@@ -2297,6 +2329,17 @@ img, video, canvas, svg { max-width: 100%; }
     saveDoneDays(doneDays);
     renderTodaysWorkout();
     renderPastWorkouts();
+  });
+  $('poTwList').addEventListener('click', (e) => {
+    const btn = e.target.closest('.po-tw-ex-done');
+    if (!btn) return;
+    const exId = btn.dataset.exId;
+    const todayKey = wtDateKey(new Date());
+    exDone[todayKey] = exDone[todayKey] || {};
+    if (exDone[todayKey][exId]) delete exDone[todayKey][exId];
+    else exDone[todayKey][exId] = true;
+    saveExDone(exDone);
+    renderTodaysWorkout();
   });
   $('poTwPastToggle').addEventListener('click', () => {
     const body = $('poTwPastBody');
@@ -3393,7 +3436,7 @@ img, video, canvas, svg { max-width: 100%; }
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
   // strips any base64 dataUrl entries before push so the payload stays
   // tiny and we never blow iOS Safari's ~5MB localStorage quota.
-  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log', 'stretch:version'];
+  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_ex_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log', 'stretch:version'];
 
   let pcSupa = null;
   let pcPushTimer = null;
@@ -3455,6 +3498,8 @@ img, video, canvas, svg { max-width: 100%; }
     // in-memory copies from before the remote pull.
     try { state = loadState(); } catch {}
     try { wtEntries = wtLoad(); } catch {}
+    try { doneDays = loadDoneDays(); } catch {}
+    try { exDone = loadExDone(); } catch {}
     try {
       const raw = localStorage.getItem(PHOTO_KEY);
       photos = raw ? JSON.parse(raw) : [];
