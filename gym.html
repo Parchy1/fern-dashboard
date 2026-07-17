@@ -3397,6 +3397,7 @@ img, video, canvas, svg { max-width: 100%; }
 
   let pcSupa = null;
   let pcPushTimer = null;
+  let pcPushInFlight = false;
   let pcSuppressSync = false;
   let pcPendingRemote = null;
   // JSON of the last state we sent or received — used to ignore
@@ -3501,13 +3502,34 @@ img, video, canvas, svg { max-width: 100%; }
     return changed;
   }
 
+  // pcIsUserEditing() alone isn't enough: logging a set/workout happens via
+  // button taps, never a focused input, so it's false the whole time even
+  // with a change sitting unpushed in the 250ms debounce window. Without
+  // this, a realtime pull landing in that window overwrites localStorage
+  // with the stale pre-change snapshot, and the corrupted result then gets
+  // pushed back out — silently wiping the just-logged set both locally and
+  // on the server. Same root cause as the finance.html order-drop bug
+  // fixed earlier in sync.js, just never applied to this page's separate
+  // custom sync implementation.
+  //
+  // Busy → DROP the remote rather than queueing it into pcPendingRemote:
+  // by the time sync stops being busy, the pending local edit has already
+  // been pushed, so replaying an older snapshot captured before that push
+  // would silently revert the very change that just went out. A future
+  // pull/realtime event will bring correct post-push data instead.
+  // pcPendingRemote itself stays reserved for its original purpose — an
+  // incoming update arriving while the user has a form field focused,
+  // where waiting for focusout and then applying it is exactly the point.
+  function pcSyncBusy() { return !!pcPushTimer || pcPushInFlight; }
+
   function pcMaybeApplyRemote(remote) {
+    if (pcSyncBusy()) return;
     if (pcIsUserEditing()) { pcPendingRemote = remote; return; }
     pcApplyRemoteState(remote);
   }
 
   function pcApplyPendingIfReady() {
-    if (pcPendingRemote && !pcIsUserEditing()) {
+    if (pcPendingRemote && !pcIsUserEditing() && !pcSyncBusy()) {
       const r = pcPendingRemote;
       pcPendingRemote = null;
       pcApplyRemoteState(r);
@@ -3519,6 +3541,7 @@ img, video, canvas, svg { max-width: 100%; }
     const state = pcCollectState();
     const json = JSON.stringify(state);
     if (json === pcLastSyncedJson) return;
+    pcPushInFlight = true;
     try {
       const { error } = await pcSupa
         .from('app_state')
@@ -3527,13 +3550,21 @@ img, video, canvas, svg { max-width: 100%; }
           { onConflict: 'key' }
         );
       if (!error) pcLastSyncedJson = json;
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      pcPushInFlight = false;
+      pcApplyPendingIfReady();
+    }
   }
 
   function pcSchedulePush() {
     if (pcSuppressSync) return;
     clearTimeout(pcPushTimer);
-    pcPushTimer = setTimeout(pcPushNow, 250);
+    // Null out pcPushTimer before pcPushNow runs, not after — otherwise
+    // pcSyncBusy() would see a stale non-null timer ID forever after the
+    // very first scheduled push and permanently block all future remote
+    // updates from ever applying.
+    pcPushTimer = setTimeout(() => { pcPushTimer = null; pcPushNow(); }, 250);
   }
 
   // Backup push on unload via fetch keepalive so a fast refresh
