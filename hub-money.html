@@ -205,7 +205,7 @@ body::after {
   }
 
   function renderFinanceTile() {
-    const cats = ['bank', 'stocks', 'crypto', 'other'];
+    const cats = ['cash', 'bank', 'stocks', 'crypto', 'other'];
     let total = 0, any = false;
     cats.forEach(c => {
       const arr = storeGet('nw:' + c);
