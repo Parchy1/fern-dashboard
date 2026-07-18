@@ -91,6 +91,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
       <div class="orb" id="orb"></div>
       <div class="title"><h1>Nova Lite</h1><div class="role">your mentor</div></div>
       <button id="newChatBtn" class="new-chat-btn" aria-label="New conversation" title="New conversation">↻</button>
+      <button id="profileToggle" class="key-toggle" aria-label="About you" title="About you">👤</button>
       <button id="keyToggle" class="key-toggle" aria-label="API key settings" title="API key">🔑</button>
     </div>
 
@@ -102,6 +103,17 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
       <div class="hint" id="hint">
         Your key is stored only in <b>this browser</b> and sent straight to Anthropic — never to us.
         Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.
+      </div>
+    </div>
+
+    <div class="keypanel" id="profilepanel">
+      <textarea id="profileInput" rows="7" placeholder="Tell Nova about yourself — goals, priorities, what's actually going on in your life. This gets sent with every message alongside your dashboard data." style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:11px 13px;font-size:13px;font-family:inherit;outline:none;resize:vertical"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button id="profileSave" style="border:0;border-radius:10px;padding:9px 16px;cursor:pointer;color:#04140d;background:var(--accent);font-weight:600;font-size:13px">Save</button>
+      </div>
+      <div class="hint" id="profileHint">
+        Stored only in <b>this browser</b>, sent as context with every message — never to us.
+        Edit this any time; the more specific, the better advice you'll get.
       </div>
     </div>
 
@@ -117,6 +129,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
 (function(){
   const KEY_LS = 'nova_lite_api_key';
   const HIST_KEY = 'nova:lite:history';
+  const PROFILE_LS = 'nova:profile';
   const feed = document.getElementById('feed');
   const input = document.getElementById('chatInput');
   const orb = document.getElementById('orb');
@@ -126,6 +139,33 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
   const keyToggle = document.getElementById('keyToggle');
   const newChatBtn = document.getElementById('newChatBtn');
   keyToggle.addEventListener('click', () => keypanel.classList.toggle('open'));
+
+  // ---- "About you" profile — free-text context sent with every message,
+  // alongside the raw dashboard data, so Nova knows more than just numbers. ----
+  const profilepanel = document.getElementById('profilepanel');
+  const profileToggle = document.getElementById('profileToggle');
+  const profileInput = document.getElementById('profileInput');
+  const profileSave = document.getElementById('profileSave');
+  const DEFAULT_PROFILE =
+    "Starter draft — edit this to be accurate, then Save. Add or remove anything.\n\n" +
+    "- Uses this dashboard as a personal command center: to-dos, fitness, health, finances, side hustles, reading.\n" +
+    "- Mostly on phone, not a laptop.\n" +
+    "- Budget-conscious — picked the free email-based reminder setup over paying for Twilio.\n" +
+    "- Training: push/legs/lower split, tracks a daily supplement stack (creatine included).\n" +
+    "- Finance: tracks net worth across cash, bank, stocks, and crypto (incl. live wallet tracking), logs purchases separately from incoming orders.\n" +
+    "- Runs a side hustle / affiliate + editing-client business alongside a reading habit.\n" +
+    "- Wants nudges (text reminders) for whatever recurring habit hasn't been done yet each day.\n" +
+    "- Prefers being walked through things step by step over reading long docs.\n" +
+    "- What Nova should actually know: your bigger goals, what's stressing you out, what you're working toward — add that here.";
+  function loadProfile() { try { return localStorage.getItem(PROFILE_LS) || ''; } catch (e) { return ''; } }
+  function saveProfile(v) { try { localStorage.setItem(PROFILE_LS, v); } catch (e) {} }
+  profileInput.value = loadProfile() || DEFAULT_PROFILE;
+  profileToggle.addEventListener('click', () => profilepanel.classList.toggle('open'));
+  profileSave.addEventListener('click', () => {
+    saveProfile(profileInput.value);
+    profileHint.textContent = '✓ Saved — Nova will use this from your next message.';
+    setTimeout(() => { profileHint.innerHTML = 'Stored only in <b>this browser</b>, sent as context with every message — never to us. Edit this any time; the more specific, the better advice you\'ll get.'; }, 2500);
+  });
 
   // Running conversation history, persisted locally so Nova remembers past
   // chats across reloads instead of forgetting everything on refresh.
@@ -184,8 +224,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
     "Give honest, specific, encouraging guidance. " +
     "Answer in short bullet points starting with '- ', few words each, plain language. " +
     "Wrap key words and numbers in **double asterisks**. " +
-    "End with one '- Do today:' bullet giving the single action. " +
-    "Dashboard data as JSON:\n";
+    "End with one '- Do today:' bullet giving the single action.";
 
   let busy = false;
   async function ask(text){
@@ -210,7 +249,7 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: 
         body: JSON.stringify({
           model: 'claude-opus-4-8',
           max_tokens: 1024,
-          system: SYS + JSON.stringify(dashboardData()),
+          system: SYS + "\n\nAbout the user (their own words — weigh this heavily):\n" + (loadProfile() || DEFAULT_PROFILE) + "\n\nDashboard data as JSON:\n" + JSON.stringify(dashboardData()),
           messages: history,
         }),
       });
