@@ -141,7 +141,39 @@ that reads your Health data and pushes it here on a schedule.
 
 ---
 
-## 5. Nova (AI mentor / gym coach) — optional
+## 5. Google — Calendar / Gmail / Drive (optional)
+
+One connection covers all three (today's Calendar events, unread Gmail, recent Drive files)
+on the **Google** tile (Today hub). Same OAuth pattern as WHOOP above.
+
+1. **console.cloud.google.com** → create a project (or use an existing one).
+2. **APIs & Services → Library** → enable these three: **Google Calendar API**, **Gmail API**,
+   **Google Drive API**.
+3. **APIs & Services → OAuth consent screen** → External → fill in the basics → add these
+   scopes: `calendar.readonly`, `gmail.readonly`, `drive.metadata.readonly` → add **yourself**
+   as a test user → save. Leave it in **Testing** status — publishing/verification isn't
+   needed for personal use, but see the caveat below.
+4. **APIs & Services → Credentials** → **Create Credentials → OAuth client ID** → type
+   **Web application** → Authorized redirect URI: `https://your-app.vercel.app/api/google-callback`
+   (use your real Vercel domain).
+5. Put the **Client ID** in [`google.html`](google.html) (`const CLIENT_ID = '...'`), and add
+   these in Vercel → **Settings → Environment Variables**, then redeploy:
+
+| Variable | Value |
+|---|---|
+| `GOOGLE_CLIENT_ID` | your OAuth client's Client ID |
+| `GOOGLE_CLIENT_SECRET` | your OAuth client's Client Secret (**secret**) |
+
+6. Open the site at that exact domain → **Today** hub → **Google** tile → **Connect Google**.
+
+> **Testing-mode caveat:** while the OAuth consent screen is in "Testing" status, Google
+> expires the connection after about 7 days regardless of activity — you'll just need to
+> tap **Connect Google** again when that happens. Submitting the app for Google's (free,
+> lightweight) verification review removes this limit, but isn't required to use it.
+
+---
+
+## 6. Nova (AI mentor / gym coach) — optional
 
 No setup or key in the repo. Each user **pastes their own Anthropic API key** on the
 **Nova** tile; it's stored only in their browser and sent straight to Anthropic. Get a key at
@@ -149,7 +181,7 @@ console.anthropic.com.
 
 ---
 
-## 6. Text reminders (optional)
+## 7. Text reminders (optional)
 
 `main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) can text you a digest of
 whatever's still undone, a couple times a day. This runs entirely server-side on a schedule —
@@ -246,5 +278,6 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
    `topbar.js`, `gym.html`.
 3. (Optional) WHOOP: Client ID in `health.html` + the two env vars in Vercel.
 4. (Optional) Apple Health: `APPLE_HEALTH_SECRET` env var + an iOS Shortcut, see step 4 above.
-5. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 6 above.
-6. Change the password in `lock.js`. Done.
+5. (Optional) Google: Client ID in `google.html` + the two env vars in Vercel, see step 5 above.
+6. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 7 above.
+7. Change the password in `lock.js`. Done.
