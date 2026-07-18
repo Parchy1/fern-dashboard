@@ -1005,6 +1005,125 @@ main { position: relative; }
   })();
   </script>
 
+  <!-- ===== Apple Health card ===== -->
+  <style>
+    .ah-section { margin-bottom: 32px; }
+    .ah-card {
+      padding: 20px 22px;
+      background: rgba(255,255,255,0.025);
+      border-radius: 22px;
+      box-shadow: 0 1px 0 0 rgba(255,255,255,0.06) inset, 0 12px 40px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.25);
+    }
+    .ah-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+    .ah-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; color: var(--text-primary); }
+    .ah-updated { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+    .ah-disc { text-align: center; padding: 14px 8px 4px; color: var(--text-tertiary); font-size: 13px; line-height: 1.6; }
+    .ah-disc a, .ah-disc code { color: var(--text-secondary); }
+    .ah-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+    .ah-stat { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 12px 10px; text-align: center; }
+    .ah-stat-label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-bottom: 8px; }
+    .ah-stat-val { font-size: 19px; font-weight: 700; color: var(--text-primary); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .ah-stat-sub { font-size: 10px; color: var(--text-tertiary); margin-top: 5px; }
+    @media (max-width: 480px) { .ah-stats { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+  <div class="ah-section">
+    <div class="section-title">Apple Health</div>
+    <div class="ah-card">
+      <div class="ah-head">
+        <div class="ah-brand">🍏 Apple Health</div>
+        <span id="ahUpdated" class="ah-updated"></span>
+      </div>
+      <div id="ahDisc" class="ah-disc">
+        Not connected — Apple doesn't offer a "connect" flow like WHOOP, but an
+        iOS Shortcut can push your Health data here on a schedule. See
+        <code>SETUP.md</code> for the walkthrough.
+      </div>
+      <div id="ahStats" class="ah-stats" style="display:none"></div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    const AH_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+    const AH_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+    const CACHE_KEY = 'apple_health_cache';
+    // label, unit, decimals
+    const AH_FIELD_META = {
+      steps:             { label: 'Steps',         unit: '',    dp: 0 },
+      activeEnergyKcal:  { label: 'Active Energy', unit: 'kcal', dp: 0 },
+      exerciseMinutes:   { label: 'Exercise',      unit: 'min', dp: 0 },
+      standHours:        { label: 'Stand',         unit: 'hrs', dp: 0 },
+      restingHeartRate:  { label: 'Resting HR',    unit: 'bpm', dp: 0 },
+      sleepHours:        { label: 'Sleep',         unit: 'hrs', dp: 1 },
+      weightKg:          { label: 'Weight',         unit: 'kg', dp: 1 },
+    };
+    const $ = (id) => document.getElementById(id);
+
+    function timeAgo(iso) {
+      if (!iso) return '';
+      const ms = Date.now() - new Date(iso).getTime();
+      if (ms < 0 || isNaN(ms)) return '';
+      const mins = Math.round(ms / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      return Math.round(hrs / 24) + 'd ago';
+    }
+
+    function render(data) {
+      const latest = data && data.latest;
+      const fields = latest ? Object.keys(AH_FIELD_META).filter(f => typeof latest[f] === 'number') : [];
+      if (!fields.length) {
+        $('ahDisc').style.display = '';
+        $('ahStats').style.display = 'none';
+        $('ahUpdated').textContent = '';
+        return;
+      }
+      $('ahDisc').style.display = 'none';
+      const stats = $('ahStats');
+      stats.style.display = '';
+      stats.innerHTML = fields.map(f => {
+        const meta = AH_FIELD_META[f];
+        const val = meta.dp ? latest[f].toFixed(meta.dp) : Math.round(latest[f]).toLocaleString();
+        return '<div class="ah-stat"><div class="ah-stat-label">' + meta.label + '</div>'
+          + '<div class="ah-stat-val">' + val + '</div>'
+          + (meta.unit ? '<div class="ah-stat-sub">' + meta.unit + '</div>' : '')
+          + '</div>';
+      }).join('');
+      $('ahUpdated').textContent = latest.date === undefined ? '' : ('Updated ' + timeAgo(latest.receivedAt));
+    }
+
+    // Paint instantly from whatever was cached last time, then refresh from
+    // Supabase in the background — this data is pushed by a phone Shortcut
+    // running independently of this page, so there's no local sync to rely
+    // on the way other pages do; it's a plain read-only pull.
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
+      if (cached) render(cached);
+    } catch (e) {}
+
+    async function pullLatest() {
+      if (AH_SUPABASE_URL.indexOf('PASTE-') === 0 || AH_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
+      try {
+        const r = await fetch(AH_SUPABASE_URL + '/rest/v1/app_state?key=eq.apple_health&select=data', {
+          headers: { apikey: AH_SUPABASE_KEY, Authorization: 'Bearer ' + AH_SUPABASE_KEY },
+        });
+        if (!r.ok) return;
+        const rows = await r.json();
+        const data = rows && rows[0] && rows[0].data;
+        if (!data) return;
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+        render(data);
+      } catch (e) {}
+    }
+    pullLatest();
+    window.addEventListener('pageshow', pullLatest);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') pullLatest();
+    });
+  })();
+  </script>
+
   <div class="section-title">Daily Stack</div>
 
   <div class="stack-card">

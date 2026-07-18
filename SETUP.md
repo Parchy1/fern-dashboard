@@ -98,7 +98,50 @@ Replace the old URL/key in these files:
 
 ---
 
-## 4. Nova (AI mentor / gym coach) — optional
+## 4. Apple Health (optional)
+
+Apple doesn't have a public web API for HealthKit the way WHOOP does OAuth — there's no
+"connect" flow a website can hook into, full stop. The workaround is an **iOS Shortcut**
+that reads your Health data and pushes it here on a schedule.
+
+1. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `APPLE_HEALTH_SECRET` | any long random string — this is your shared secret |
+| `APPLE_HEALTH_TIMEZONE` | optional, IANA tz name, default `America/New_York` |
+
+   Redeploy after adding it.
+
+2. On your iPhone, open **Shortcuts** → **+** → build a new shortcut:
+   - Add a **Get Health Sample** action (or several) for whichever metrics you want —
+     Steps, Active Energy, Exercise Minutes, Stand Hours, Resting Heart Rate, Sleep
+     Analysis, Weight. For each one, add **Calculate Statistics** (Sum for steps/energy/
+     exercise/stand, Average or the latest value for HR/sleep/weight) to turn it into a
+     single number.
+   - Add a **Text** action and build JSON by hand, e.g.:
+     ```
+     {"steps": [Steps result], "activeEnergyKcal": [Energy result], "sleepHours": [Sleep result]}
+     ```
+     (only include the fields you actually wired up — all fields are optional)
+   - Add **Get Contents of URL**:
+     - URL: `https://your-app.vercel.app/api/apple-health-ingest`
+     - Method: **POST**
+     - Headers: `Authorization` → `Bearer <your APPLE_HEALTH_SECRET>`, `Content-Type` → `application/json`
+     - Request Body: **JSON** → the Text action's output
+3. Tap the shortcut once to test it, then check the **Health** page on the dashboard —
+   a stat card should appear with whatever fields you sent.
+4. Automate it: **Automation** tab → **+** → **Personal Automation** → **Time of Day**
+   (pick a few times a day, e.g. morning/midday/night) → **Run Shortcut** → your shortcut
+   → turn off "Ask Before Running" so it fires silently in the background.
+
+> Each POST only needs to carry the fields that changed — a same-day resend merges into
+> that day's record instead of overwriting it, so an evening run with just sleep data
+> won't erase the steps a morning run already sent.
+
+---
+
+## 5. Nova (AI mentor / gym coach) — optional
 
 No setup or key in the repo. Each user **pastes their own Anthropic API key** on the
 **Nova** tile; it's stored only in their browser and sent straight to Anthropic. Get a key at
@@ -106,7 +149,7 @@ console.anthropic.com.
 
 ---
 
-## 5. Text reminders (optional)
+## 6. Text reminders (optional)
 
 `main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) can text you a digest of
 whatever's still undone, a couple times a day. This runs entirely server-side on a schedule —
@@ -202,5 +245,6 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
    `topbar.js`, `gym.html`.
 3. (Optional) WHOOP: Client ID in `health.html` + the two env vars in Vercel.
-4. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 5 above.
-5. Change the password in `lock.js`. Done.
+4. (Optional) Apple Health: `APPLE_HEALTH_SECRET` env var + an iOS Shortcut, see step 4 above.
+5. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 6 above.
+6. Change the password in `lock.js`. Done.
