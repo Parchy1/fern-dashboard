@@ -256,7 +256,7 @@ body {
     const events = (data && data.items) || [];
     $('gcCalCount').textContent = events.length + (events.length === 1 ? ' event' : ' events');
     const list = $('gcCalList');
-    if (!events.length) { list.innerHTML = '<div class="gc-empty">Nothing on the calendar today.</div>'; return; }
+    if (!events.length) { list.innerHTML = '<div class="gc-empty">Nothing on the calendar today.</div>'; return []; }
     list.innerHTML = events.map(ev => {
       const start = ev.start && (ev.start.dateTime || ev.start.date);
       const timeLabel = ev.start && ev.start.dateTime ? fmtTime(start) : 'All day';
@@ -265,6 +265,11 @@ body {
         + '<div class="gc-row-sub">' + timeLabel + (ev.location ? ' · ' + escapeHtml(ev.location) : '') + '</div>'
         + '</div></div>';
     }).join('');
+    // Summarized for Nova (see cacheSnapshot) — title + time only, no location/attendees.
+    return events.map(ev => ({
+      title: ev.summary || '(no title)',
+      time: ev.start && ev.start.dateTime ? fmtTime(ev.start.dateTime) : 'All day',
+    }));
   }
 
   async function loadGmail(t) {
@@ -272,22 +277,27 @@ body {
     const unreadCount = labelData.messagesUnread || 0;
     $('gcMailCount').textContent = unreadCount;
     const listEl = $('gcMailList');
-    if (!unreadCount) { listEl.innerHTML = '<div class="gc-empty">Inbox zero — nothing unread.</div>'; return; }
+    if (!unreadCount) { listEl.innerHTML = '<div class="gc-empty">Inbox zero — nothing unread.</div>'; return { unreadCount: 0, recent: [] }; }
     const listData = await gFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5', t);
     const ids = ((listData && listData.messages) || []).map(m => m.id);
     const metas = await Promise.all(ids.map(id =>
       gFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From', t).catch(() => null)
     ));
-    listEl.innerHTML = metas.filter(Boolean).map(m => {
+    const parsed = metas.filter(Boolean).map(m => {
       const headers = (m.payload && m.payload.headers) || [];
       const subject = (headers.find(h => h.name === 'Subject') || {}).value || '(no subject)';
       const from = (headers.find(h => h.name === 'From') || {}).value || '';
       const fromShort = from.replace(/<.*>/, '').trim() || from;
-      return '<div class="gc-row"><span class="gc-row-icon">📧</span><div class="gc-row-info">'
-        + '<div class="gc-row-title">' + escapeHtml(subject) + '</div>'
-        + '<div class="gc-row-sub">' + escapeHtml(fromShort) + '</div>'
-        + '</div></div>';
-    }).join('');
+      return { subject, from: fromShort };
+    });
+    listEl.innerHTML = parsed.map(m =>
+      '<div class="gc-row"><span class="gc-row-icon">📧</span><div class="gc-row-info">'
+        + '<div class="gc-row-title">' + escapeHtml(m.subject) + '</div>'
+        + '<div class="gc-row-sub">' + escapeHtml(m.from) + '</div>'
+        + '</div></div>'
+    ).join('');
+    // Summarized for Nova (see cacheSnapshot) — subject + sender only, no body content.
+    return { unreadCount, recent: parsed };
   }
 
   async function loadDrive(t) {
@@ -297,7 +307,7 @@ body {
     const files = (data && data.files) || [];
     $('gcDriveCount').textContent = files.length + (files.length === 1 ? ' file' : ' files');
     const list = $('gcDriveList');
-    if (!files.length) { list.innerHTML = '<div class="gc-empty">No files found.</div>'; return; }
+    if (!files.length) { list.innerHTML = '<div class="gc-empty">No files found.</div>'; return []; }
     list.innerHTML = files.map(f => {
       const modified = f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
       return '<a class="gc-row" href="' + (f.webViewLink || '#') + '" target="_blank" rel="noopener">'
@@ -306,6 +316,25 @@ body {
         + '<div class="gc-row-sub">Edited ' + modified + '</div>'
         + '</div></a>';
     }).join('');
+    // Summarized for Nova (see cacheSnapshot) — filename + modified date only.
+    return files.map(f => ({ name: f.name || '(untitled)', modified: f.modifiedTime || null }));
+  }
+
+  // Nova (nova-lite.html) reads EVERYTHING in this browser's localStorage as
+  // its context, so caching a small summary here — not the raw tokens — is
+  // all it takes for Nova to know about today's schedule/inbox/files too.
+  // Titles/subjects/filenames only: no event descriptions, email bodies, or
+  // file contents.
+  function cacheSnapshot(calEvents, mail, driveFiles) {
+    try {
+      localStorage.setItem('google:snapshot', JSON.stringify({
+        calendarEventsToday: calEvents || [],
+        gmailUnreadCount: (mail && mail.unreadCount) || 0,
+        gmailRecentSubjects: (mail && mail.recent) || [],
+        driveRecentFiles: driveFiles || [],
+        updatedAt: new Date().toISOString(),
+      }));
+    } catch (e) {}
   }
 
   async function loadData() {
@@ -314,11 +343,12 @@ body {
     if (!t.access) { showErr('Not connected — reconnect below.'); return; }
     showErr('');
     try {
-      await Promise.all([
+      const [calEvents, mail, driveFiles] = await Promise.all([
         loadCalendar(t).catch(e => { console.error('[google] calendar', e.message); throw e; }),
         loadGmail(t).catch(e => { console.error('[google] gmail', e.message); throw e; }),
         loadDrive(t).catch(e => { console.error('[google] drive', e.message); throw e; }),
       ]);
+      cacheSnapshot(calEvents, mail, driveFiles);
       $('gcUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     } catch (e) {
       showErr((e && e.message) || 'Something went wrong.');
