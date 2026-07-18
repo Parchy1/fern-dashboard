@@ -795,6 +795,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   transition: background 0.15s;
 }
 .ord-card:hover { background: rgba(255,255,255,0.045); }
+.ord-card.cat-cash   { border-left-color: #F472B6; }
 .ord-card.cat-bank   { border-left-color: #7DD3FC; }
 .ord-card.cat-stocks { border-left-color: #6EE7B7; }
 .ord-card.cat-crypto { border-left-color: #FBBF24; }
@@ -1728,6 +1729,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     </div>
 
     <div class="card-grid" style="gap:10px">
+      <!-- Cash -->
+      <div class="card nw-subcard">
+        <div class="label" style="display:flex;justify-content:space-between;align-items:center"><span>💵 Cash</span><span id="cashTotal" style="font-size:13px;color:var(--text-primary);font-weight:600">0</span></div>
+        <div id="cashList" class="nw-list"></div>
+        <div class="quick-add">
+          <input type="text" placeholder="e.g. Wallet, Safe" id="cashName" />
+          <input type="number" placeholder="Amount" id="cashAmount" step="0.01" />
+          <button class="quick-add-btn" id="cashAddBtn">+</button>
+        </div>
+      </div>
       <!-- Bank accounts -->
       <div class="card nw-subcard">
         <div class="label" style="display:flex;justify-content:space-between;align-items:center"><span>🏦 Bank accounts</span><span id="bankTotal" style="font-size:13px;color:var(--text-primary);font-weight:600">0</span></div>
@@ -1953,6 +1964,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // and ORD_FROM_META hasn't been initialized yet.
   // ============================================================
   const ORD_FROM_META = {
+    cash:   { name: 'Cash',   color: '#F472B6' },
     bank:   { name: 'Bank',   color: '#7DD3FC' },
     stocks: { name: 'Stocks', color: '#6EE7B7' },
     crypto: { name: 'Crypto', color: '#FBBF24' },
@@ -1984,6 +1996,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // ============================================================
   const CURRENCY_KEY = 'nw_currency';
   const NW_CATS = [
+    { key: 'cash',   listId: 'cashList',   totalId: 'cashTotal',   nameId: 'cashName',   amtId: 'cashAmount',   addId: 'cashAddBtn' },
     { key: 'bank',   listId: 'bankList',   totalId: 'bankTotal',   nameId: 'bankName',   amtId: 'bankAmount',   addId: 'bankAddBtn' },
     { key: 'stocks', listId: 'stocksList', totalId: 'stocksTotal', nameId: 'stocksName', amtId: 'stocksAmount', addId: 'stocksAddBtn' },
     { key: 'crypto', listId: 'cryptoList', totalId: 'cryptoTotal', nameId: 'cryptoName', amtId: 'cryptoAmount', addId: 'cryptoAddBtn' },
@@ -2206,7 +2219,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   // ============================================================
   // ADD INCOME — a quick, clearly-labeled deposit into any existing
-  // NW account (bank/stocks/crypto/other), logged as its own 'income'
+  // NW account (cash/bank/stocks/crypto/other), logged as its own 'income'
   // activity kind so it's distinguishable from ordinary edits and can
   // be summed into "income this month/year" below.
   // ============================================================
@@ -2215,7 +2228,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!sel) return;
     const accounts = listAllNwAccounts();
     const prev = sel.value;
-    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const ICONS = { cash: '💵', bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
     const addBtn = document.getElementById('incomeAddBtn');
     if (!accounts.length) {
       sel.innerHTML = '<option value="">No accounts yet</option>';
@@ -2294,6 +2307,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // Each NW category gets a fixed color; subs get red because outflow.
   // ============================================================
   const NW_SLICE_META = {
+    cash:   { name: 'Cash',     color: '#F472B6' },
     bank:   { name: 'Bank',     color: '#7DD3FC' },
     stocks: { name: 'Stocks',   color: '#6EE7B7' },
     crypto: { name: 'Crypto',   color: '#FBBF24' },
@@ -2712,7 +2726,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!sel) return;
     const prev = sel.value;
     const accounts = (typeof listAllNwAccounts === 'function') ? listAllNwAccounts() : [];
-    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const ICONS = { cash: '💵', bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
     if (!accounts.length) {
       sel.innerHTML = '<option value="">No accounts yet</option>';
       sel.disabled = true;
@@ -2790,7 +2804,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     ).join('');
     // Build From-account options from the live NW accounts
     const accounts = (typeof listAllNwAccounts === 'function') ? listAllNwAccounts() : [];
-    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const ICONS = { cash: '💵', bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
     const currentFrom = (it.fromCat && it.fromAccount) ? (it.fromCat + '::' + it.fromAccount) : '';
     const fromOpts = '<option value="">No account linked</option>' + accounts.map(a => {
       const v = a.catKey + '::' + a.itemName;
@@ -3070,7 +3084,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     else if (diffDays <= 7)  { cls = 'soon';  prefix = 'in ' + diffDays + 'd · '; }
     return { cls, label: prefix + dateLabel };
   }
-  // Build the flat list of every NW account (across all 4 categories) so
+  // Build the flat list of every NW account (across all 5 categories) so
   // both the "From" dropdown on the add form AND the deduct chooser share
   // the same source of truth.
   function listAllNwAccounts() {
@@ -3095,7 +3109,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!sel) return;
     const accounts = listAllNwAccounts();
     const prev = sel.value;
-    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const ICONS = { cash: '💵', bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
     if (!accounts.length) {
       sel.innerHTML = '<option value="">No accounts yet</option>';
       sel.disabled = true;
@@ -3213,7 +3227,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       alert('Add at least one net worth account before deducting.');
       return;
     }
-    const ICONS = { bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
+    const ICONS = { cash: '💵', bank: '🏦', stocks: '📈', crypto: '🪙', other: '💼' };
     const cost = Number(order.amount) || 0;
     const optsHtml = accounts.map(a => {
       const insufficient = a.amountCHF < cost - 0.005;
