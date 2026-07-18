@@ -399,6 +399,12 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   flex-shrink: 0;
 }
 .nw-del:hover { color: var(--danger); }
+.nw-wallet-refresh {
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; padding: 0 2px; line-height: 1; flex-shrink: 0;
+  opacity: 0.75;
+}
+.nw-wallet-refresh:hover { opacity: 1; }
 
 .nw-subcard {
   background: rgba(255,255,255,0.025) !important;
@@ -1768,6 +1774,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
           <input type="number" placeholder="Value" id="cryptoAmount" step="0.01" />
           <button class="quick-add-btn" id="cryptoAddBtn">+</button>
         </div>
+        <div class="quick-add" style="margin-top:6px">
+          <input type="text" placeholder="Or paste a wallet address to auto-track" id="cryptoWalletAddr" style="flex:2" />
+          <button class="quick-add-btn" id="cryptoWalletAddBtn">Track</button>
+        </div>
+        <div id="cryptoWalletStatus" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;display:none"></div>
       </div>
       <!-- Other assets -->
       <div class="card nw-subcard">
@@ -1972,6 +1983,156 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   };
 
   // ============================================================
+  // WALLET_CHAINS — auto-detected chains for the "paste an address"
+  // crypto tracker. Same TDZ constraint as ORD_FROM_META above: must
+  // be defined before the first renderAllNetWorth() call, since a
+  // saved tracked wallet renders through renderNetWorthCategory
+  // immediately, and that references this map.
+  //
+  // Only chains with a free, no-signup, browser-callable (CORS-open)
+  // balance API are supported. Bitcoin-style addresses are verified
+  // via base58check before being accepted as Bitcoin — otherwise a
+  // Solana address that happens to start with the same characters
+  // would be misread as Bitcoin.
+  // ============================================================
+  const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  function base58Decode(str) {
+    let bytes = [0];
+    for (const c of str) {
+      const idx = B58_ALPHABET.indexOf(c);
+      if (idx < 0) return null;
+      let carry = idx;
+      for (let i = 0; i < bytes.length; i++) {
+        carry += bytes[i] * 58;
+        bytes[i] = carry & 0xff;
+        carry >>= 8;
+      }
+      while (carry > 0) { bytes.push(carry & 0xff); carry >>= 8; }
+    }
+    for (let i = 0; i < str.length && str[i] === '1'; i++) bytes.push(0);
+    return bytes.reverse();
+  }
+  async function sha256Bytes(bytes) {
+    const buf = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+    return new Uint8Array(buf);
+  }
+  async function isValidBase58Check(str) {
+    try {
+      const decoded = base58Decode(str);
+      if (!decoded || decoded.length < 5) return false;
+      const payload = decoded.slice(0, -4);
+      const checksum = decoded.slice(-4);
+      const hash1 = await sha256Bytes(payload);
+      const hash2 = await sha256Bytes(Array.from(hash1));
+      return checksum.every((b, i) => b === hash2[i]);
+    } catch (e) { return false; }
+  }
+  const WALLET_CHAINS = {
+    bitcoin: {
+      ticker: 'BTC', coingeckoId: 'bitcoin',
+      async fetchNativeBalance(addr) {
+        const res = await fetch('https://blockstream.info/api/address/' + addr);
+        if (!res.ok) throw new Error('lookup failed');
+        const d = await res.json();
+        const sats = (d.chain_stats.funded_txo_sum - d.chain_stats.spent_txo_sum)
+          + (d.mempool_stats.funded_txo_sum - d.mempool_stats.spent_txo_sum);
+        return sats / 1e8;
+      }
+    },
+    ethereum: {
+      ticker: 'ETH', coingeckoId: 'ethereum',
+      async fetchNativeBalance(addr) {
+        const res = await fetch('https://ethereum-rpc.publicnode.com', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [addr, 'latest'] })
+        });
+        const d = await res.json();
+        if (!d.result) throw new Error('lookup failed');
+        return parseInt(d.result, 16) / 1e18;
+      }
+    },
+    solana: {
+      ticker: 'SOL', coingeckoId: 'solana',
+      async fetchNativeBalance(addr) {
+        const res = await fetch('https://api.mainnet-beta.solana.com', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [addr] })
+        });
+        const d = await res.json();
+        if (!d.result) throw new Error('lookup failed');
+        return d.result.value / 1e9;
+      }
+    }
+  };
+  // Returns a chain key from WALLET_CHAINS, or null if unrecognized.
+  async function detectWalletChain(addr) {
+    const a = String(addr || '').trim();
+    if (/^0x[a-fA-F0-9]{40}$/.test(a)) return 'ethereum';
+    if (/^bc1[a-z0-9]{14,74}$/.test(a)) return 'bitcoin';
+    if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(a) && await isValidBase58Check(a)) return 'bitcoin';
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)) return 'solana';
+    return null;
+  }
+  const WALLET_PRICE_CACHE = {}; // coingeckoId -> { usd, ts }
+  async function fetchUsdPrice(coingeckoId) {
+    const cached = WALLET_PRICE_CACHE[coingeckoId];
+    if (cached && Date.now() - cached.ts < 120000) return cached.usd;
+    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=' + coingeckoId + '&vs_currencies=usd');
+    if (!res.ok) throw new Error('price lookup failed');
+    const d = await res.json();
+    const usd = d && d[coingeckoId] && d[coingeckoId].usd;
+    if (typeof usd !== 'number') throw new Error('price lookup failed');
+    WALLET_PRICE_CACHE[coingeckoId] = { usd, ts: Date.now() };
+    return usd;
+  }
+  function usdToCHF(usd) {
+    const rate = exchangeRates.USD || 1; // exchangeRates is CHF-based: 1 CHF = rate USD
+    return usd / rate;
+  }
+  function shortAddr(addr) {
+    return addr.length > 12 ? addr.slice(0, 6) + '…' + addr.slice(-4) : addr;
+  }
+  // Re-fetches balance + price for one tracked wallet (by index into
+  // nw:crypto) and updates its stored amount. Used both by the manual
+  // per-row refresh button and the on-load staleness sweep below.
+  async function refreshTrackedWallet(idx) {
+    const items = storeGet('nw:crypto') || [];
+    const it = items[idx];
+    if (!it || !it.walletAddress || !it.chain || !WALLET_CHAINS[it.chain]) return;
+    const chain = WALLET_CHAINS[it.chain];
+    try {
+      const [native, usd] = await Promise.all([
+        chain.fetchNativeBalance(it.walletAddress),
+        fetchUsdPrice(chain.coingeckoId)
+      ]);
+      const newCHF = usdToCHF(native * usd);
+      const deltaCHF = newCHF - (Number(it.amount) || 0);
+      items[idx] = { ...it, amount: newCHF, nativeBalance: native, lastFetchedAt: Date.now() };
+      storeSet('nw:crypto', items);
+      if (Math.abs(deltaCHF) > 0.0001) logActivity('crypto', it.name, deltaCHF, 'edit');
+      if (typeof renderAllNetWorth === 'function') renderAllNetWorth();
+    } catch (e) {
+      const statusEl = document.getElementById('cryptoWalletStatus');
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = '#FF8A8A';
+        statusEl.textContent = "Couldn't refresh " + it.name + ' — try again in a bit.';
+      }
+    }
+  }
+  // Silently re-pulls any tracked wallet not refreshed in the last 15
+  // minutes, once on load, so balances stay reasonably current without
+  // hammering the free public APIs on every render.
+  async function refreshStaleTrackedWallets() {
+    const items = storeGet('nw:crypto') || [];
+    const staleIdxs = [];
+    items.forEach((it, i) => {
+      if (it.walletAddress && (!it.lastFetchedAt || Date.now() - it.lastFetchedAt > 15 * 60 * 1000)) staleIdxs.push(i);
+    });
+    for (const i of staleIdxs) { await refreshTrackedWallet(i); }
+  }
+
+  // ============================================================
   // BOTTOM TABS — switch between Net Worth / Subs / Orders.
   // Active tab persisted in localStorage.
   // ============================================================
@@ -2059,7 +2220,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         if (removed) logActivity(cat.key, removed.name, -(Number(removed.amount) || 0), 'delete');
         renderAllNetWorth();
       });
-      row.appendChild(name); row.appendChild(amt); row.appendChild(del);
+      row.appendChild(name);
+      if (cat.key === 'crypto' && it.walletAddress) {
+        const badge = document.createElement('button');
+        badge.className = 'nw-wallet-refresh';
+        badge.type = 'button';
+        badge.textContent = '🔄';
+        badge.title = 'Live-tracked · ' + (WALLET_CHAINS[it.chain] ? WALLET_CHAINS[it.chain].ticker : it.chain)
+          + ' ' + it.walletAddress + (it.lastFetchedAt ? ' · updated ' + fmtActivityDate(it.lastFetchedAt) : '');
+        badge.addEventListener('click', (e) => { e.stopPropagation(); refreshTrackedWallet(idx); });
+        row.appendChild(badge);
+      }
+      row.appendChild(amt); row.appendChild(del);
       list.appendChild(row);
     });
     document.getElementById(cat.totalId).textContent = fmtMoney(total);
@@ -2553,6 +2725,68 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
     amtInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
   });
+
+  // ============================================================
+  // CRYPTO WALLET TRACKER — paste an address, auto-detect the chain
+  // (Bitcoin / Ethereum / Solana), pull the live balance + USD price,
+  // and add/update it as a crypto NW entry. Manual crypto entries are
+  // unaffected — this is purely an alternate way to add/refresh one.
+  // ============================================================
+  const cryptoWalletAddrInput = document.getElementById('cryptoWalletAddr');
+  const cryptoWalletAddBtnEl = document.getElementById('cryptoWalletAddBtn');
+  const cryptoWalletStatusEl = document.getElementById('cryptoWalletStatus');
+  function setWalletStatus(text, isError) {
+    if (!cryptoWalletStatusEl) return;
+    cryptoWalletStatusEl.style.display = text ? 'block' : 'none';
+    cryptoWalletStatusEl.style.color = isError ? '#FF8A8A' : 'var(--text-tertiary)';
+    cryptoWalletStatusEl.textContent = text || '';
+  }
+  async function doAddCryptoWallet() {
+    const addr = (cryptoWalletAddrInput.value || '').trim();
+    if (!addr) return;
+    cryptoWalletAddBtnEl.disabled = true;
+    setWalletStatus('Detecting chain…', false);
+    try {
+      const chainKey = await detectWalletChain(addr);
+      if (!chainKey) {
+        setWalletStatus("Couldn't detect the chain from that address. Supported: Bitcoin, Ethereum, Solana.", true);
+        return;
+      }
+      const chain = WALLET_CHAINS[chainKey];
+      setWalletStatus('Fetching ' + chain.ticker + ' balance…', false);
+      const [native, usd] = await Promise.all([
+        chain.fetchNativeBalance(addr),
+        fetchUsdPrice(chain.coingeckoId)
+      ]);
+      const amountCHF = usdToCHF(native * usd);
+      const items = storeGet('nw:crypto') || [];
+      const existingIdx = items.findIndex(x => x.walletAddress === addr);
+      if (existingIdx >= 0) {
+        const deltaCHF = amountCHF - (Number(items[existingIdx].amount) || 0);
+        items[existingIdx] = { ...items[existingIdx], amount: amountCHF, nativeBalance: native, lastFetchedAt: Date.now() };
+        storeSet('nw:crypto', items);
+        logActivity('crypto', items[existingIdx].name, deltaCHF, 'edit');
+        setWalletStatus('Already tracking that address — refreshed its balance.', false);
+      } else {
+        const label = chain.ticker + ' · ' + shortAddr(addr);
+        items.push({ name: label, amount: amountCHF, walletAddress: addr, chain: chainKey, nativeBalance: native, lastFetchedAt: Date.now() });
+        storeSet('nw:crypto', items);
+        logActivity('crypto', label, amountCHF, 'add');
+        cryptoWalletAddrInput.value = '';
+        setWalletStatus('Now tracking ' + label + '.', false);
+      }
+      renderAllNetWorth();
+    } catch (e) {
+      setWalletStatus("Couldn't fetch that wallet's balance. Double-check the address and try again.", true);
+    } finally {
+      cryptoWalletAddBtnEl.disabled = false;
+    }
+  }
+  if (cryptoWalletAddBtnEl) {
+    cryptoWalletAddBtnEl.addEventListener('click', doAddCryptoWallet);
+    cryptoWalletAddrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAddCryptoWallet(); });
+  }
+  refreshStaleTrackedWallets();
 
   if (currencyEl) {
     const savedCur = storeGet(CURRENCY_KEY);
