@@ -88,7 +88,7 @@
       try { if (!suppressSync && matches(k)) schedulePush(); } catch (e) {}
     };
 
-    function applyRemote(remote) {
+    function applyRemote(remote, opts) {
       if (!remote || typeof remote !== 'object') return false;
       // A local edit is waiting to be pushed (or is actively being pushed
       // right now) — this incoming snapshot predates that edit, since it
@@ -102,6 +102,7 @@
       if (pushTimer || pushInFlight) return false;
       suppressSync = true;
       let changed = false;
+      let localOnly = false;
       try {
         for (const k of Object.keys(remote)) {
           if (!matches(k)) continue;
@@ -112,14 +113,28 @@
           }
         }
         for (const k of listAllKeys()) {
-          if (!(k in remote)) {
-            try { origRemove(k); changed = true; } catch (e) {}
-          }
+          if (k in remote) continue;
+          // A key can be locally-present-but-absent-from-remote for two very
+          // different reasons: (a) it was deleted on another device and that
+          // deletion needs to propagate here, or (b) this key was only just
+          // added to syncedKeys/syncedPrefixes (a new feature) and the
+          // server's row simply predates it, so it was never part of any
+          // remote snapshot at all. Treating (b) as a deletion silently
+          // destroys real local data the first time this runs — exactly
+          // what happened when 'purchases' was added to syncedKeys while
+          // pre-existing remote rows still lacked that key entirely. Only
+          // the ongoing (non-initial) sync path — where we've already
+          // established a synced baseline — should treat "missing from
+          // remote" as "deleted elsewhere". On the very first pull of a
+          // page load, treat it instead as local-only data to reconcile up.
+          if (opts && opts.skipDelete) { localOnly = true; continue; }
+          try { origRemove(k); changed = true; } catch (e) {}
         }
       } finally { suppressSync = false; }
       if (changed && typeof onApplied === 'function') {
         try { onApplied(); } catch (e) {}
       }
+      if (localOnly) schedulePush();
       return changed;
     }
 
@@ -204,7 +219,7 @@
           .from('app_state').select('data').eq('key', appKey).maybeSingle();
         if (!error && data && data.data && Object.keys(data.data).length > 0) {
           lastSyncedJson = JSON.stringify(data.data);
-          applyRemote(data.data);
+          applyRemote(data.data, { skipDelete: true });
         } else if (Object.keys(collect()).length > 0) {
           schedulePush();
         }
