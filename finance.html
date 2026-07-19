@@ -1899,6 +1899,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     <span class="ord-section-count" id="purStats">This month — · This year —</span>
   </div>
 
+  <!-- Gmail-suggested purchases -->
+  <div class="card ord-add-card" id="gmailSuggestCard">
+    <div class="ord-add-eyebrow" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>📧 SUGGESTED FROM GMAIL</span>
+      <button class="ord-add-btn" id="gmailScanBtn" type="button" style="padding:7px 14px;font-size:11px;white-space:nowrap">🔍 Scan Gmail</button>
+    </div>
+    <div id="gmailScanStatus" style="font-size:11.5px;color:var(--text-tertiary);margin-top:8px"></div>
+    <div id="gmailSuggestList" style="margin-top:10px"></div>
+  </div>
+
   <!-- Add card -->
   <div class="card ord-add-card">
     <div class="ord-add-eyebrow">+ LOG A PURCHASE</div>
@@ -3970,6 +3980,255 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   })();
   renderPurchases();
   updatePurPreview();
+
+  // ============================================================
+  // GMAIL-SUGGESTED PURCHASES — scans Gmail's built-in "Purchases"
+  // category (the same bucket Google Pay's purchase tracker uses) for
+  // receipt/order-confirmation emails, has Claude pull merchant/amount/
+  // date/category out of each one, and surfaces them here as a review
+  // queue. Nothing touches net worth until you tap "Add" on a specific
+  // suggestion — money data is too easy to get wrong to auto-insert
+  // silently. Reuses the Google tokens from google.html (same origin,
+  // same localStorage) and the Anthropic key already saved for Nova.
+  // ============================================================
+  const GMAIL_TOKENS_KEY = 'google_tokens_v1';
+  const GMAIL_SEEN_KEY = 'google:purchaseSeen';
+  const GMAIL_SUGGEST_KEY = 'google:purchaseSuggestions';
+  const NOVA_KEY_LS = 'nova_lite_api_key';
+
+  function loadGoogleTokens() { try { return JSON.parse(localStorage.getItem(GMAIL_TOKENS_KEY)); } catch (e) { return null; } }
+  function saveGoogleTokens(t) { try { localStorage.setItem(GMAIL_TOKENS_KEY, JSON.stringify(t)); } catch (e) {} }
+  async function refreshGoogleTok(t) {
+    if (!t.refresh) return null;
+    try {
+      const r = await fetch('/api/google-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: t.refresh }) });
+      const j = await r.json();
+      if (j.access_token) {
+        const next = { access: j.access_token, refresh: t.refresh, expires: Date.now() + (j.expires_in || 3500) * 1000 };
+        saveGoogleTokens(next); return next;
+      }
+    } catch (e) {}
+    return null;
+  }
+  async function gmailFetch(url, t) {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t.access, Accept: 'application/json' } });
+    if (r.status === 401) { const n = await refreshGoogleTok(t); if (n) return gmailFetch(url, n); throw new Error('unauthorized — reconnect Google'); }
+    if (!r.ok) throw new Error('Gmail ' + r.status + ': ' + (await r.text()));
+    return await r.json();
+  }
+
+  function b64urlDecode(s) {
+    try { return decodeURIComponent(escape(atob(String(s || '').replace(/-/g, '+').replace(/_/g, '/')))); }
+    catch (e) { return ''; }
+  }
+  function stripHtml(html) {
+    return String(html || '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function extractPlainText(payload) {
+    if (!payload) return '';
+    if (payload.mimeType === 'text/plain' && payload.body && payload.body.data) return b64urlDecode(payload.body.data);
+    if (Array.isArray(payload.parts)) {
+      const plain = payload.parts.find(p => p.mimeType === 'text/plain' && p.body && p.body.data);
+      if (plain) return b64urlDecode(plain.body.data);
+      for (const part of payload.parts) {
+        const nested = extractPlainText(part);
+        if (nested) return nested;
+      }
+      const html = payload.parts.find(p => p.mimeType === 'text/html' && p.body && p.body.data);
+      if (html) return stripHtml(b64urlDecode(html.body.data));
+    }
+    if (payload.body && payload.body.data) {
+      const decoded = b64urlDecode(payload.body.data);
+      return payload.mimeType === 'text/html' ? stripHtml(decoded) : decoded;
+    }
+    return '';
+  }
+
+  function parseJsonLoose(raw) {
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) {}
+    const match = String(raw).match(/\{[\s\S]*\}/);
+    if (match) { try { return JSON.parse(match[0]); } catch (e2) {} }
+    return null;
+  }
+
+  const PUR_CAT_KEYS = PURCHASE_CATS.map(c => c.key);
+  const PUR_CCY_KEYS = ['CHF', 'USD', 'EUR', 'GBP'];
+  async function aiParseReceipt(subject, from, dateHeader, bodyText, apiKey) {
+    const prompt = 'Subject: ' + subject + '\nFrom: ' + from + '\nDate: ' + dateHeader + '\nBody:\n' + bodyText.slice(0, 3000);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        system: 'You extract purchase details from an email so they can be logged in a budget app. '
+          + 'Reply with ONLY compact JSON, no prose, no markdown fences: '
+          + '{"isPurchase":bool,"merchant":string,"amount":number,"currency":string,"date":"YYYY-MM-DD","category":string}. '
+          + 'Set isPurchase to false if this is not actually an order/purchase/payment receipt with a charged total '
+          + '(e.g. a shipping-only update, newsletter, promo, or a subscription notice with no amount charged). '
+          + 'amount must be the TOTAL charged, a plain number, no currency symbol or thousands separators. '
+          + 'currency must be one of: ' + PUR_CCY_KEYS.join(', ') + ' (best guess if unclear, default USD). '
+          + 'category must be one of: ' + PUR_CAT_KEYS.join(', ') + '. '
+          + 'date must be the purchase/charge date in YYYY-MM-DD (use the email date if no other date is given).',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || 'Anthropic API error');
+    const text = json.content && json.content[0] && json.content[0].text;
+    return parseJsonLoose(text);
+  }
+
+  function loadSeenIds() { try { return new Set(JSON.parse(localStorage.getItem(GMAIL_SEEN_KEY)) || []); } catch (e) { return new Set(); } }
+  function saveSeenIds(set) { try { localStorage.setItem(GMAIL_SEEN_KEY, JSON.stringify([...set])); } catch (e) {} }
+  function loadSuggestions() { try { return JSON.parse(localStorage.getItem(GMAIL_SUGGEST_KEY)) || []; } catch (e) { return []; } }
+  function saveSuggestions(arr) { try { localStorage.setItem(GMAIL_SUGGEST_KEY, JSON.stringify(arr)); } catch (e) {} }
+
+  function setGmailScanStatus(text, isError) {
+    const el = document.getElementById('gmailScanStatus');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = isError ? '#FF8A8A' : 'var(--text-tertiary)';
+  }
+
+  function renderGmailSuggestions() {
+    const list = document.getElementById('gmailSuggestList');
+    if (!list) return;
+    const suggestions = loadSuggestions();
+    if (!suggestions.length) { list.innerHTML = ''; return; }
+    list.innerHTML = suggestions.map(s => {
+      const catMeta = purCatMeta(s.category);
+      return '<div class="ord-card pcat-' + catMeta.key + '" style="margin-top:8px">'
+        + '<div class="ord-card-h">'
+        +   '<div class="ord-card-name">' + escapeHtml(s.merchant) + '</div>'
+        +   '<div class="ord-card-amt">' + s.currency + ' ' + Number(s.amount).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '</div>'
+        + '</div>'
+        + '<div class="ord-card-meta">'
+        +   '<span class="ord-meta-pill" style="color:' + catMeta.color + '">' + catMeta.label + '</span>'
+        +   '<span class="ord-meta-pill date">' + escapeHtml(s.date || '') + '</span>'
+        + '</div>'
+        + '<div class="ord-card-foot" style="display:flex;gap:8px;margin-top:10px">'
+        +   '<button class="ord-deduct-btn" data-add-id="' + s.gmailId + '">+ Add to Purchases</button>'
+        +   '<button class="ord-deduct-undo" data-dismiss-id="' + s.gmailId + '">Dismiss</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+    list.querySelectorAll('[data-add-id]').forEach(b => {
+      b.addEventListener('click', () => addSuggestion(b.dataset.addId));
+    });
+    list.querySelectorAll('[data-dismiss-id]').forEach(b => {
+      b.addEventListener('click', () => dismissSuggestion(b.dataset.dismissId));
+    });
+  }
+
+  function addSuggestion(gmailId) {
+    const suggestions = loadSuggestions();
+    const idx = suggestions.findIndex(s => s.gmailId === gmailId);
+    if (idx < 0) return;
+    const s = suggestions[idx];
+    const rate = exchangeRates[s.currency] || 1;
+    const amountCHF = (Number(s.amount) || 0) / rate;
+    const arr = storeGet('purchases') || [];
+    arr.push({
+      id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
+      name: s.merchant,
+      amount: amountCHF,
+      entered_amount: s.amount,
+      entered_currency: s.currency,
+      category: s.category,
+      fromCat: null,
+      fromAccount: null,
+      date: s.date,
+      ts: Date.now(),
+    });
+    storeSet('purchases', arr);
+    suggestions.splice(idx, 1);
+    saveSuggestions(suggestions);
+    renderGmailSuggestions();
+    renderPurchases();
+  }
+  function dismissSuggestion(gmailId) {
+    const suggestions = loadSuggestions().filter(s => s.gmailId !== gmailId);
+    saveSuggestions(suggestions);
+    renderGmailSuggestions();
+  }
+
+  async function scanGmailForPurchases() {
+    const tokens = loadGoogleTokens();
+    if (!tokens || !tokens.access) {
+      setGmailScanStatus('Not connected — open the Google tile (Today hub) and Connect Google first.', true);
+      return;
+    }
+    const apiKey = (() => { try { return localStorage.getItem(NOVA_KEY_LS); } catch (e) { return null; } })();
+    if (!apiKey) {
+      setGmailScanStatus('Paste your Anthropic API key on the Nova tile first — it\'s reused here to read receipts.', true);
+      return;
+    }
+    const scanBtn = document.getElementById('gmailScanBtn');
+    if (scanBtn) scanBtn.disabled = true;
+    try {
+      let t = tokens;
+      if (t.expires && Date.now() > t.expires - 60000) { const n = await refreshGoogleTok(t); if (n) t = n; }
+      setGmailScanStatus('Searching Gmail…', false);
+      const listData = await gmailFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent('category:purchases newer_than:30d') + '&maxResults=20', t);
+      const ids = ((listData && listData.messages) || []).map(m => m.id);
+      const seen = loadSeenIds();
+      const newIds = ids.filter(id => !seen.has(id));
+      if (!newIds.length) {
+        setGmailScanStatus('No new purchase emails found.', false);
+        return;
+      }
+      const suggestions = loadSuggestions();
+      let found = 0;
+      for (let i = 0; i < newIds.length; i++) {
+        const id = newIds[i];
+        setGmailScanStatus('Scanning ' + (i + 1) + ' of ' + newIds.length + '…', false);
+        seen.add(id); // mark seen regardless of outcome — never reconsider it
+        try {
+          const msg = await gmailFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + id + '?format=full', t);
+          const headers = (msg.payload && msg.payload.headers) || [];
+          const subject = (headers.find(h => h.name === 'Subject') || {}).value || '';
+          const from = (headers.find(h => h.name === 'From') || {}).value || '';
+          const dateHeader = (headers.find(h => h.name === 'Date') || {}).value || '';
+          const bodyText = extractPlainText(msg.payload) || msg.snippet || '';
+          const parsed = await aiParseReceipt(subject, from, dateHeader, bodyText, apiKey);
+          if (parsed && parsed.isPurchase && parsed.amount > 0) {
+            const currency = PUR_CCY_KEYS.includes(parsed.currency) ? parsed.currency : 'USD';
+            const category = PUR_CAT_KEYS.includes(parsed.category) ? parsed.category : 'other';
+            const date = /^\d{4}-\d{2}-\d{2}$/.test(parsed.date || '') ? parsed.date : new Date().toISOString().slice(0, 10);
+            suggestions.push({
+              gmailId: id,
+              merchant: String(parsed.merchant || from.replace(/<.*>/, '').trim() || '(unknown)').slice(0, 80),
+              amount: parsed.amount,
+              currency,
+              category,
+              date,
+            });
+            found++;
+          }
+        } catch (e) { console.error('[gmail-purchases] failed to parse message', id, e.message); }
+      }
+      saveSeenIds(seen);
+      saveSuggestions(suggestions);
+      renderGmailSuggestions();
+      setGmailScanStatus(found ? ('Found ' + found + ' new ' + (found === 1 ? 'purchase' : 'purchases') + ' to review.') : 'Scanned ' + newIds.length + ' new emails — nothing looked like a purchase.', false);
+    } catch (e) {
+      setGmailScanStatus((e && e.message) || 'Something went wrong scanning Gmail.', true);
+    } finally {
+      if (scanBtn) scanBtn.disabled = false;
+    }
+  }
+  const gmailScanBtnEl = document.getElementById('gmailScanBtn');
+  if (gmailScanBtnEl) gmailScanBtnEl.addEventListener('click', scanGmailForPurchases);
+  renderGmailSuggestions();
 
   // ============================================================
   // FINANCE TICKER — rotates through upcoming subscription renewals
