@@ -347,6 +347,15 @@ assistant"** steps further down, after the core setup below.
 > dashboard's own pages use, so anything it logs shows up in the normal UI immediately (and vice
 > versa) — there's no separate/shadow data store.
 
+> **Memory:** the assistant remembers roughly your last 10 exchanges (its own Supabase row, not
+> tied to any one device), so you can say "log another set of that" or ask a follow-up without
+> repeating context. It doesn't remember indefinitely — very old messages roll off automatically
+> once the limit is hit.
+
+> **Checking off a recurring item (e.g. "mark Skin care done"):** works even if you haven't
+> opened the Main tab yet today — the assistant matches it against the Recurring Items list
+> directly rather than only searching today's already-generated to-do list.
+
 ### Connect Google to the assistant (optional, needs step 5 done first)
 
 Everything above works without this — the assistant just won't know about your Calendar,
