@@ -415,6 +415,57 @@ const TOOLS = [
       required: ['name'],
     },
   },
+  {
+    name: 'log_food_entry',
+    description: 'Log a meal/food/drink entry on the Health tab\'s calorie tracker. There is no food database here — estimate calories/protein/carbs/fat yourself from general nutrition knowledge (a careful home-cook/restaurant-portion estimate), the same way the dashboard\'s own AI photo-estimate feature works, unless the user gives you exact numbers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'What was eaten/drunk, e.g. "Chicken burrito bowl"' },
+        calories: { type: 'number' },
+        protein: { type: 'number', description: 'Grams, estimate if not given' },
+        carbs: { type: 'number', description: 'Grams, estimate if not given' },
+        fat: { type: 'number', description: 'Grams, estimate if not given' },
+      },
+      required: ['name', 'calories'],
+    },
+  },
+  {
+    name: 'log_caffeine',
+    description: 'Log a caffeine intake entry on the Caffeine tab. There is no lookup table here — use your own general knowledge of typical caffeine content for the named drink/product (matching the dashboard\'s own preset amounts, e.g. Red Bull 8.4oz ≈ 80mg, Monster 16oz ≈ 160mg, an espresso shot ≈ 64mg, an 8oz brewed coffee ≈ 95mg, a 200mg pre-workout scoop) unless the user states an exact amount.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'e.g. "Red Bull (8.4 oz)"' },
+        mg: { type: 'number', description: 'Milligrams of caffeine — estimate from general knowledge if not given exactly' },
+      },
+      required: ['name', 'mg'],
+    },
+  },
+  {
+    name: 'log_nicotine',
+    description: 'Log a nicotine intake entry (pouch/vape/etc.) on the Caffeine tab. Estimate mg from general knowledge if not given exactly (e.g. a standard Zyn pouch is 3, 6, or 9mg).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'e.g. "Zyn 6mg (Wintergreen)"' },
+        mg: { type: 'number' },
+      },
+      required: ['name', 'mg'],
+    },
+  },
+  {
+    name: 'add_note',
+    description: 'Add a new note on the Notes tab — for anything the user wants jotted down/remembered that doesn\'t fit a to-do or another tracker.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Optional short title' },
+        body: { type: 'string' },
+      },
+      required: ['body'],
+    },
+  },
 ];
 
 async function execLogPurchase(args) {
@@ -917,6 +968,77 @@ async function execAddRecurringItem(args) {
   });
 }
 
+// ---------- Health tab: food/calorie log ----------
+// Mirrors health.html's manual-entry path exactly (single-item entry, no
+// photo) — cal:entries uses a plain calendar date, same as plainDateKey().
+async function execLogFoodEntry(args) {
+  return patchRow('health', (health) => {
+    const arr = health['cal:entries'] || [];
+    const calories = Number(args.calories) || 0;
+    const protein = Number(args.protein) || 0;
+    const carbs = Number(args.carbs) || 0;
+    const fat = Number(args.fat) || 0;
+    arr.push({
+      id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      dateKey: plainDateKey(), photo: null,
+      items: [{ name: args.name, calories, protein, carbs, fat }],
+      calories, protein, carbs, fat, ts: Date.now(),
+    });
+    health['cal:entries'] = arr;
+    return { ok: true };
+  });
+}
+
+// ---------- Caffeine tab: caffeine/nicotine logs ----------
+// caffeine.html has a large hardcoded preset drink database purely for its
+// own search UI — rather than duplicate (and have to keep in sync with)
+// that list here, Claude supplies mg itself from general knowledge (see the
+// tool descriptions), same philosophy as food-calorie estimation above.
+function classifyCaffeineEmoji(name) {
+  const n = String(name || '').toLowerCase();
+  if (/energy|red ?bull|monster|rockstar|bang|reign|celsius|alani|prime|c4|ghost|nos\b|5-hour/.test(n)) return '⚡';
+  if (/tea|matcha/.test(n)) return '🍵';
+  if (/chocolate|cocoa/.test(n)) return '🍫';
+  if (/pill|pre-?workout|supplement/.test(n)) return '💊';
+  if (/soda|coke|pepsi|dew|dr pepper|root beer/.test(n)) return '🥤';
+  return '☕';
+}
+async function execLogCaffeine(args) {
+  return patchRow('caffeine', (pc) => {
+    const logs = pc['caf:logs'] || [];
+    logs.push({
+      id: 'c' + Date.now() + Math.floor(Math.random() * 1000),
+      n: args.name, mg: Math.round(Number(args.mg) || 0), e: classifyCaffeineEmoji(args.name), ts: Date.now(),
+    });
+    pc['caf:logs'] = logs;
+    return { ok: true };
+  });
+}
+async function execLogNicotine(args) {
+  return patchRow('caffeine', (pc) => {
+    const logs = pc['nic:logs'] || [];
+    logs.push({
+      id: 'n' + Date.now() + Math.floor(Math.random() * 1000),
+      n: args.name, mg: Math.round(Number(args.mg) || 0), e: '🟣', ts: Date.now(),
+    });
+    pc['nic:logs'] = logs;
+    return { ok: true };
+  });
+}
+
+// ---------- Notes tab ----------
+async function execAddNote(args) {
+  return patchRow('notes', (n) => {
+    const arr = n['notes:items'] || [];
+    arr.push({
+      id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title: args.title || '', body: args.body, updatedAt: Date.now(),
+    });
+    n['notes:items'] = arr;
+    return { ok: true };
+  });
+}
+
 const TOOL_EXECUTORS = {
   log_purchase: execLogPurchase,
   add_todo: execAddTodo,
@@ -944,6 +1066,10 @@ const TOOL_EXECUTORS = {
   log_morning_checkin: execLogMorningCheckin,
   log_feeling_checkin: execLogFeelingCheckin,
   add_recurring_item: execAddRecurringItem,
+  log_food_entry: execLogFoodEntry,
+  log_caffeine: execLogCaffeine,
+  log_nicotine: execLogNicotine,
+  add_note: execAddNote,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -1052,7 +1178,7 @@ async function buildGoogleContext() {
 
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
-  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak'];
+  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });
@@ -1065,22 +1191,28 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'whole personal dashboard — to-dos, recurring items and daily habits, gym (workout program/sets, cardio, stretch '
   + 'routines, body weight), water/supplements, finances (net worth accounts, purchases, subscriptions, incoming '
   + 'orders, wishlist), side-hustle business (affiliate commitments/revenue, editing clients/deliveries/payments), '
-  + 'reading, and Peak (a morning check-in of wake time/resting heart rate/sleep hours/sleep quality, plus feeling/'
-  + 'stress check-ins logged any number of times through the day) — passed below as JSON from the same database the '
-  + 'dashboard itself reads and writes. You also have tools to actually change most of that: log a purchase, '
-  + 'add/complete a to-do, mark a habit done, log water/a supplement, log a workout set or mark an exercise/gym day/'
-  + 'stretch routine done, log a cardio session or body weight, log affiliate/editing business activity, log a '
-  + 'reading session or add a book, adjust a net worth account balance, add/cancel a subscription/order/wishlist '
-  + 'item, log a Peak morning check-in or a feeling/stress check-in (this one can happen several times a day — don\'t '
-  + 'treat it as already-done just because one happened earlier), and create a brand-new recurring item on the to-do '
-  + 'list\'s Recurring Items section (set auto_source to peak_morning/gym/reading/stretch_am/stretch_pm/business/'
-  + 'water/supplements when the new item corresponds to one of those, so it self-completes instead of needing a '
-  + 'manual checkbox). Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 '
-  + 'grocery run", "mark gym done", "sleep was a 5, stress at 1, just woke up", "add a recurring reminder for X"), '
-  + 'not just when they ask a question about their data. Names (exercises, clients, books, habits, accounts, '
-  + 'subscriptions) are matched loosely — exact or partial — so don\'t worry about getting a name exactly right '
-  + 'before calling a tool. Be direct, concise, and conversational — this is a text chat, not a report. If a tool '
-  + 'call fails or finds no match, say so plainly instead of pretending it worked. '
+  + 'reading, Peak (a morning check-in of wake time/resting heart rate/sleep hours/sleep quality, plus feeling/'
+  + 'stress check-ins logged any number of times through the day), the calorie/macro food log, caffeine/nicotine '
+  + 'intake, and free-form notes — passed below as JSON from the same database the dashboard itself reads and writes. '
+  + 'You also have tools to actually change most of that: log a purchase, add/complete a to-do, mark a habit done, '
+  + 'log water/a supplement, log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session '
+  + 'or body weight, log affiliate/editing business activity, log a reading session or add a book, adjust a net worth '
+  + 'account balance, add/cancel a subscription/order/wishlist item, log a Peak morning check-in or a feeling/stress '
+  + 'check-in (this one can happen several times a day — don\'t treat it as already-done just because one happened '
+  + 'earlier), create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
+  + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements when the new item corresponds to one '
+  + 'of those, so it self-completes instead of needing a manual checkbox), log a food/meal entry, log caffeine or '
+  + 'nicotine intake, and add a note. There is no hardcoded food or drink database behind any of those three — '
+  + 'estimate calories/macros/mg yourself from general knowledge (a careful, realistic estimate, the same way the '
+  + 'dashboard\'s own AI photo-estimate feature works) unless the user gives exact numbers; don\'t ask for numbers '
+  + 'they clearly expect you to just know or estimate (e.g. "a Red Bull" -> ~80mg caffeine for the 8.4oz can, "2 '
+  + 'scrambled eggs" -> a reasonable calorie/protein estimate) — only ask if the item is too ambiguous to estimate at '
+  + 'all. Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 grocery run", '
+  + '"mark gym done", "sleep was a 5, stress at 1, just woke up", "add a recurring reminder for X", "track this Red '
+  + 'Bull", "note that the landlord called"), not just when they ask a question about their data. Names (exercises, '
+  + 'clients, books, habits, accounts, subscriptions) are matched loosely — exact or partial — so don\'t worry about '
+  + 'getting a name exactly right before calling a tool. Be direct, concise, and conversational — this is a text '
+  + 'chat, not a report. If a tool call fails or finds no match, say so plainly instead of pretending it worked. '
   + 'If a "google" key is present in the data, it has today\'s Calendar events, Gmail unread count/subjects, and '
   + 'recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected or the tokens have '
   + 'expired — say so rather than guessing at calendar/email/file content. Google Calendar is read-only here (no '
