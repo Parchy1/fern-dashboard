@@ -64,11 +64,22 @@ function plainDateKey() {
   const d = tzNow();
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
-// 6am-boundary date — used by main.html (goals:<key>) and health.html (stack:taken:<key>).
+// 6am-boundary date — used by main.html (goals:<key>, habits:log) and health.html (stack:taken:<key>).
 function activeDateKey() {
   const d = tzNow();
   if (d.getHours() < 6) d.setDate(d.getDate() - 1);
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+// Plain UTC calendar-date slice — used by reading.html's session log
+// (new Date().toISOString().slice(0,10)), a third, distinct convention from
+// the two above. Deliberately NOT timezone-adjusted, to match exactly.
+function utcDateSlice() { return new Date().toISOString().slice(0, 10); }
+
+function fuzzyFind(list, needle, keyFn) {
+  const target = String(needle).toLowerCase();
+  let hit = list.find(x => String(keyFn(x)).toLowerCase() === target);
+  if (!hit) hit = list.find(x => String(keyFn(x)).toLowerCase().includes(target) || target.includes(String(keyFn(x)).toLowerCase()));
+  return hit || null;
 }
 
 // ---------- Supabase app_state row helpers ----------
@@ -157,6 +168,176 @@ const TOOLS = [
     name: 'mark_gym_done',
     description: 'Mark today\'s workout as done on the Gym tab.',
     input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'log_workout_set',
+    description: 'Log one set (weight + reps) for a specific exercise in the current workout program, matched by name.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        exercise: { type: 'string', description: 'Exercise name, e.g. "Bench Press"' },
+        weight: { type: 'number', description: 'Weight used (in whatever unit the program is configured for)' },
+        reps: { type: 'number' },
+      },
+      required: ['exercise', 'weight', 'reps'],
+    },
+  },
+  {
+    name: 'mark_exercise_done',
+    description: 'Mark a specific exercise as done for today\'s workout, without necessarily logging a set.',
+    input_schema: { type: 'object', properties: { exercise: { type: 'string' } }, required: ['exercise'] },
+  },
+  {
+    name: 'log_cardio_session',
+    description: 'Log a cardio session (treadmill, bike, run, etc.).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        duration_min: { type: 'number' },
+        speed_mph: { type: 'number' },
+        incline: { type: 'number' },
+        distance_mi: { type: 'number' },
+        avg_hr: { type: 'number' },
+        peak_hr: { type: 'number' },
+        notes: { type: 'string' },
+      },
+      required: ['duration_min'],
+    },
+  },
+  {
+    name: 'mark_stretch_done',
+    description: 'Mark a stretch routine (AM or PM) done for today — either one specific item, or the whole routine if no item is named.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        routine: { type: 'string', enum: ['am', 'pm'] },
+        item: { type: 'string', description: 'Optional: a specific stretch item name. Omit to mark the entire routine done.' },
+      },
+      required: ['routine'],
+    },
+  },
+  {
+    name: 'log_body_weight',
+    description: 'Log today\'s body weight on the Gym tab\'s weight tracker (updates today\'s entry if one already exists).',
+    input_schema: { type: 'object', properties: { weight: { type: 'number' } }, required: ['weight'] },
+  },
+  {
+    name: 'log_affiliate_commit',
+    description: 'Mark a side-hustle affiliate commitment as done for today, matched by its label.',
+    input_schema: { type: 'object', properties: { commitment: { type: 'string' } }, required: ['commitment'] },
+  },
+  {
+    name: 'log_affiliate_revenue',
+    description: 'Log affiliate revenue earned today on the Business tab.',
+    input_schema: {
+      type: 'object',
+      properties: { amount: { type: 'number' }, note: { type: 'string' } },
+      required: ['amount'],
+    },
+  },
+  {
+    name: 'log_editing_delivery',
+    description: 'Log one completed deliverable for an editing client today, matched by client name (capped at that client\'s daily target).',
+    input_schema: { type: 'object', properties: { client: { type: 'string' } }, required: ['client'] },
+  },
+  {
+    name: 'log_editing_payment',
+    description: 'Log a payment received from an editing client, matched by name — also marks that client as paid.',
+    input_schema: {
+      type: 'object',
+      properties: { client: { type: 'string' }, amount: { type: 'number' } },
+      required: ['client', 'amount'],
+    },
+  },
+  {
+    name: 'log_reading_session',
+    description: 'Update reading progress for a book/item (matched by title) and log today\'s session.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        current_page: { type: 'number', description: 'Optional: the page you\'re now on. Omit if not mentioned.' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'add_book',
+    description: 'Add a new book/course/article/video to the Reading tab.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        type: { type: 'string', enum: ['book', 'course', 'article', 'video'] },
+        author: { type: 'string' },
+        total_pages: { type: 'number' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'mark_habit_done',
+    description: 'Mark a daily habit (Main tab\'s Daily Habits list — separate from the to-do list) as done for today, matched by name.',
+    input_schema: { type: 'object', properties: { habit: { type: 'string' } }, required: ['habit'] },
+  },
+  {
+    name: 'adjust_net_worth_account',
+    description: 'Set or adjust the balance of a real Net Worth account. Creates the account if no account by that name exists yet in that category.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', enum: NW_CATS },
+        account: { type: 'string', description: 'Account name, e.g. "Checking"' },
+        amount: { type: 'number' },
+        mode: { type: 'string', enum: ['set', 'add'], description: '"set" replaces the balance outright; "add" adds (or, if negative, subtracts) amount to/from the current balance. Defaults to "add".' },
+      },
+      required: ['category', 'account', 'amount'],
+    },
+  },
+  {
+    name: 'add_subscription',
+    description: 'Add a recurring subscription to the Finance tab.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        amount: { type: 'number' },
+        currency: { type: 'string', enum: PUR_CCY_KEYS },
+        period: { type: 'string', enum: ['monthly', 'yearly', 'weekly'] },
+        renewal_date: { type: 'string', description: 'Optional, YYYY-MM-DD' },
+        from_account: { type: 'string', description: 'Optional: a real Net Worth account name to link for auto-deduction' },
+      },
+      required: ['name', 'amount'],
+    },
+  },
+  {
+    name: 'cancel_subscription',
+    description: 'Remove a subscription from the Finance tab, matched by name.',
+    input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+  {
+    name: 'add_wishlist_item',
+    description: 'Add an item to the Finance tab\'s wishlist.',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, amount: { type: 'number' }, currency: { type: 'string', enum: PUR_CCY_KEYS } },
+      required: ['name', 'amount'],
+    },
+  },
+  {
+    name: 'add_order',
+    description: 'Add an incoming order to the Finance tab. If from_account matches a real Net Worth account, it\'s deducted immediately (same as the dashboard\'s own add-with-account behavior); otherwise it\'s just tracked with no account link yet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        amount: { type: 'number' },
+        currency: { type: 'string', enum: PUR_CCY_KEYS },
+        from_account: { type: 'string' },
+        expected_date: { type: 'string', description: 'Optional, YYYY-MM-DD expected arrival date (cosmetic only)' },
+      },
+      required: ['name', 'amount'],
+    },
   },
 ];
 
@@ -262,6 +443,317 @@ async function execMarkGymDone() {
   });
 }
 
+// ---------- Gym: sets, per-exercise done, cardio, stretch, body weight ----------
+async function execLogWorkoutSet(args) {
+  return patchRow('po-coach', (pc) => {
+    const state = pc['po_coach_v1'];
+    const exercises = (state && state.exercises) || [];
+    const ex = fuzzyFind(exercises, args.exercise, e => e.name);
+    if (!ex) return { ok: false, reason: 'no exercise found matching "' + args.exercise + '"' };
+    state.logs = state.logs || {};
+    const arr = state.logs[ex.id] || [];
+    arr.push({ weight: Number(args.weight) || 0, reps: Number(args.reps) || 0, date: new Date().toISOString() });
+    state.logs[ex.id] = arr;
+    pc['po_coach_v1'] = state;
+    return { ok: true, matched: ex.name };
+  });
+}
+
+async function execMarkExerciseDone(args) {
+  return patchRow('po-coach', (pc) => {
+    const state = pc['po_coach_v1'];
+    const exercises = (state && state.exercises) || [];
+    const ex = fuzzyFind(exercises, args.exercise, e => e.name);
+    if (!ex) return { ok: false, reason: 'no exercise found matching "' + args.exercise + '"' };
+    const exDone = pc['po_coach_ex_done'] || {};
+    const key = plainDateKey();
+    exDone[key] = exDone[key] || {};
+    exDone[key][ex.id] = true;
+    pc['po_coach_ex_done'] = exDone;
+    return { ok: true, matched: ex.name };
+  });
+}
+
+async function execLogCardioSession(args) {
+  return patchRow('po-coach', (pc) => {
+    const sessions = pc['cardio:sessions'] || [];
+    sessions.push({
+      id: 'cd' + Date.now() + Math.floor(Math.random() * 1000),
+      ts: Date.now(),
+      dateKey: plainDateKey(),
+      durationMin: Number(args.duration_min) || 0,
+      speedMph: args.speed_mph != null ? Number(args.speed_mph) : null,
+      incline: args.incline != null ? Number(args.incline) : 0,
+      distanceMi: args.distance_mi != null ? Number(args.distance_mi) : null,
+      avgHr: args.avg_hr != null ? Number(args.avg_hr) : null,
+      peakHr: args.peak_hr != null ? Number(args.peak_hr) : null,
+      notes: args.notes || '',
+      // Calorie/zone estimation reuses gym.html's own formula, which this
+      // server-side tool doesn't replicate — left null rather than guessed;
+      // the dashboard's own UI still computes/displays these normally for
+      // sessions logged there.
+      calories: null, calorieMethod: null, zone: null,
+    });
+    pc['cardio:sessions'] = sessions;
+    return { ok: true };
+  });
+}
+
+async function execMarkStretchDone(args) {
+  const routineKey = args.routine === 'pm' ? 'stretch:pm:items' : 'stretch:am:items';
+  return patchRow('po-coach', (pc) => {
+    const items = pc[routineKey] || [];
+    if (!items.length) return { ok: false, reason: 'no stretch items configured for ' + (args.routine === 'pm' ? 'PM' : 'AM') };
+    const log = pc['stretch:log'] || {};
+    const key = plainDateKey();
+    const matched = [];
+    if (args.item) {
+      const item = fuzzyFind(items, args.item, i => i.name);
+      if (!item) return { ok: false, reason: 'no stretch item found matching "' + args.item + '"' };
+      log[item.id] = log[item.id] || {};
+      log[item.id][key] = true;
+      matched.push(item.name);
+    } else {
+      items.forEach(item => {
+        log[item.id] = log[item.id] || {};
+        log[item.id][key] = true;
+        matched.push(item.name);
+      });
+    }
+    pc['stretch:log'] = log;
+    return { ok: true, matched };
+  });
+}
+
+async function execLogBodyWeight(args) {
+  return patchRow('po-coach', (pc) => {
+    const entries = pc['po_coach_weights'] || [];
+    const key = plainDateKey();
+    const existing = entries.find(e => e.dateKey === key);
+    if (existing) existing.weight = Number(args.weight);
+    else {
+      entries.push({ dateKey: key, weight: Number(args.weight) });
+      entries.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    }
+    pc['po_coach_weights'] = entries;
+    return { ok: true };
+  });
+}
+
+// ---------- Business: affiliate commitments/revenue, editing deliveries/payments ----------
+async function execLogAffiliateCommit(args) {
+  return patchRow('business', (biz) => {
+    const commitments = biz['biz:affiliate:commitments'] || [];
+    const c = fuzzyFind(commitments, args.commitment, x => x.label);
+    if (!c) return { ok: false, reason: 'no affiliate commitment found matching "' + args.commitment + '"' };
+    const log = biz['biz:affiliate:commitLog'] || {};
+    log[c.id] = log[c.id] || {};
+    log[c.id][activeDateKey()] = true;
+    biz['biz:affiliate:commitLog'] = log;
+    return { ok: true, matched: c.label };
+  });
+}
+
+async function execLogAffiliateRevenue(args) {
+  return patchRow('business', (biz) => {
+    const arr = biz['biz:affiliate:revenue'] || [];
+    arr.push({
+      id: 'rev_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      date: activeDateKey(), amount: Number(args.amount) || 0, note: args.note || '', ts: Date.now(),
+    });
+    biz['biz:affiliate:revenue'] = arr;
+    return { ok: true };
+  });
+}
+
+async function execLogEditingDelivery(args) {
+  return patchRow('business', (biz) => {
+    const clients = biz['biz:editing:clients'] || [];
+    const client = fuzzyFind(clients, args.client, c => c.name);
+    if (!client) return { ok: false, reason: 'no editing client found matching "' + args.client + '"' };
+    const delivery = biz['biz:editing:deliveryLog'] || {};
+    const key = activeDateKey();
+    delivery[client.id] = delivery[client.id] || {};
+    const cap = client.dailyDeliverables || Infinity;
+    delivery[client.id][key] = Math.min(cap, (delivery[client.id][key] || 0) + 1);
+    biz['biz:editing:deliveryLog'] = delivery;
+    return { ok: true, matched: client.name, countToday: delivery[client.id][key] };
+  });
+}
+
+async function execLogEditingPayment(args) {
+  return patchRow('business', (biz) => {
+    const clients = biz['biz:editing:clients'] || [];
+    const client = fuzzyFind(clients, args.client, c => c.name);
+    if (!client) return { ok: false, reason: 'no editing client found matching "' + args.client + '"' };
+    const payments = biz['biz:editing:payments'] || [];
+    payments.push({
+      id: 'pay_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      clientId: client.id, date: activeDateKey(), amount: Number(args.amount) || 0, ts: Date.now(),
+    });
+    biz['biz:editing:payments'] = payments;
+    // Mirrors business.html's own "Log payment" button — marking a payment
+    // also flips that client's paymentStatus, in the same row.
+    client.paymentStatus = 'paid';
+    biz['biz:editing:clients'] = clients;
+    return { ok: true, matched: client.name };
+  });
+}
+
+// ---------- Reading ----------
+async function execLogReadingSession(args) {
+  return patchRow('reading', (reading) => {
+    const items = reading['reading:items'] || [];
+    const item = fuzzyFind(items, args.title, i => i.title);
+    if (!item) return { ok: false, reason: 'no book/item found matching "' + args.title + '"' };
+    if (args.current_page != null) {
+      item.currentPage = Number(args.current_page);
+      if (item.totalPages) item.progress = Math.round((item.currentPage / item.totalPages) * 100);
+    }
+    if (item.status === 'want') item.status = 'progress';
+    item.updatedAt = Date.now();
+    const todayKey = utcDateSlice();
+    const sessions = Array.isArray(item.sessions) ? item.sessions : [];
+    const idx = sessions.findIndex(s => s.date === todayKey);
+    const entry = { date: todayKey, page: item.currentPage || 0, ts: Date.now() };
+    if (idx >= 0) sessions[idx] = entry; else sessions.push(entry);
+    item.sessions = sessions;
+    reading['reading:items'] = items;
+    return { ok: true, matched: item.title, currentPage: item.currentPage };
+  });
+}
+
+async function execAddBook(args) {
+  return patchRow('reading', (reading) => {
+    const items = reading['reading:items'] || [];
+    items.push({
+      id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title: args.title,
+      type: ['book', 'course', 'article', 'video'].includes(args.type) ? args.type : 'book',
+      status: 'want', author: args.author || '', link: '', progress: 0, rating: 0, notes: '',
+      currentPage: 0, totalPages: Number(args.total_pages) || 0, sessions: [], updatedAt: Date.now(),
+    });
+    reading['reading:items'] = items;
+    return { ok: true };
+  });
+}
+
+// ---------- Daily habits (separate from the to-do/goals list) ----------
+async function execMarkHabitDone(args) {
+  return patchRow('goals', (goals) => {
+    const defs = goals['habits:defs'] || [];
+    const def = fuzzyFind(defs, args.habit, d => d.name);
+    if (!def) return { ok: false, reason: 'no habit found matching "' + args.habit + '"' };
+    const log = goals['habits:log'] || {};
+    log[def.id] = log[def.id] || {};
+    log[def.id][activeDateKey()] = true;
+    goals['habits:log'] = log;
+    return { ok: true, matched: def.name };
+  });
+}
+
+// ---------- Finance: net worth adjustments, subscriptions, orders, wishlist ----------
+async function execAdjustNetWorthAccount(args) {
+  if (!NW_CATS.includes(args.category)) return { ok: false, reason: 'category must be one of: ' + NW_CATS.join(', ') };
+  return patchRow('finance', (finance) => {
+    const items = finance['nw:' + args.category] || [];
+    let idx = items.findIndex(i => String(i.name).toLowerCase() === String(args.account).toLowerCase());
+    if (idx < 0) { items.push({ name: args.account, amount: 0 }); idx = items.length - 1; }
+    const prev = Number(items[idx].amount) || 0;
+    const next = args.mode === 'set' ? Number(args.amount) : prev + Number(args.amount);
+    items[idx].amount = next;
+    finance['nw:' + args.category] = items;
+    const activity = finance['nw:activity'] || [];
+    activity.push({ ts: Date.now(), cat: args.category, name: items[idx].name, delta: next - prev, kind: 'edit' });
+    if (activity.length > 50) activity.splice(0, activity.length - 50);
+    finance['nw:activity'] = activity;
+    return { ok: true, account: items[idx].name, newAmount: Math.round(next * 100) / 100 };
+  });
+}
+
+async function execAddSubscription(args) {
+  const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency] || 1;
+  const amountCHF = Number(args.amount) / rate;
+  return patchRow('finance', (finance) => {
+    let fromCat = null, fromAccount = null;
+    if (args.from_account) {
+      for (const cat of NW_CATS) {
+        const items = finance['nw:' + cat] || [];
+        const hit = fuzzyFind(items, args.from_account, i => i.name);
+        if (hit) { fromCat = cat; fromAccount = hit.name; break; }
+      }
+    }
+    const subs = finance['subs'] || [];
+    subs.push({
+      name: args.name, amount: amountCHF,
+      period: ['monthly', 'yearly', 'weekly'].includes(args.period) ? args.period : 'monthly',
+      renewal: args.renewal_date || null, entered_amount: Number(args.amount), entered_currency: currency,
+      fromCat, fromAccount, autoDeduct: !!(args.renewal_date && fromCat), lastDeductedAt: null,
+    });
+    finance['subs'] = subs;
+    return { ok: true, fromAccount };
+  });
+}
+
+async function execCancelSubscription(args) {
+  return patchRow('finance', (finance) => {
+    const subs = finance['subs'] || [];
+    const hit = fuzzyFind(subs, args.name, s => s.name);
+    if (!hit) return { ok: false, reason: 'no subscription found matching "' + args.name + '"' };
+    finance['subs'] = subs.filter(s => s !== hit);
+    return { ok: true, removed: hit.name };
+  });
+}
+
+async function execAddWishlistItem(args) {
+  const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency] || 1;
+  const amountCHF = Number(args.amount) / rate;
+  return patchRow('finance', (finance) => {
+    const list = finance['wishlist'] || [];
+    list.push({ name: args.name, amount: amountCHF, ts: Date.now(), entered_amount: Number(args.amount), entered_currency: currency });
+    finance['wishlist'] = list;
+    return { ok: true };
+  });
+}
+
+async function execAddOrder(args) {
+  const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency] || 1;
+  const amountCHF = Number(args.amount) / rate;
+  return patchRow('finance', (finance) => {
+    let fromCat = null, fromAccount = null, deductedAt = null;
+    if (args.from_account) {
+      for (const cat of NW_CATS) {
+        const items = finance['nw:' + cat] || [];
+        const idx = items.findIndex(i => String(i.name).toLowerCase() === String(args.from_account).toLowerCase());
+        if (idx >= 0) {
+          items[idx].amount = (Number(items[idx].amount) || 0) - amountCHF;
+          finance['nw:' + cat] = items;
+          fromCat = cat; fromAccount = items[idx].name; deductedAt = Date.now();
+          const activity = finance['nw:activity'] || [];
+          activity.push({ ts: Date.now(), cat, name: items[idx].name, delta: -amountCHF, kind: 'order' });
+          finance['nw:activity'] = activity;
+          break;
+        }
+      }
+    }
+    const orders = finance['incoming_orders'] || [];
+    orders.push({
+      id: 'o_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
+      name: args.name, amount: amountCHF, entered_amount: Number(args.amount), entered_currency: currency,
+      fromCat: fromCat || 'bank', fromAccount, date: args.expected_date || null, ts: Date.now(),
+      deductedAt, pctAtDeduction: null, deductedFrom: fromCat ? { cat: fromCat, name: fromAccount } : null,
+    });
+    finance['incoming_orders'] = orders;
+    return { ok: true, deducted: !!deductedAt };
+  });
+}
+
 const TOOL_EXECUTORS = {
   log_purchase: execLogPurchase,
   add_todo: execAddTodo,
@@ -269,6 +761,23 @@ const TOOL_EXECUTORS = {
   log_water: execLogWater,
   mark_supplement_taken: execMarkSupplementTaken,
   mark_gym_done: execMarkGymDone,
+  log_workout_set: execLogWorkoutSet,
+  mark_exercise_done: execMarkExerciseDone,
+  log_cardio_session: execLogCardioSession,
+  mark_stretch_done: execMarkStretchDone,
+  log_body_weight: execLogBodyWeight,
+  log_affiliate_commit: execLogAffiliateCommit,
+  log_affiliate_revenue: execLogAffiliateRevenue,
+  log_editing_delivery: execLogEditingDelivery,
+  log_editing_payment: execLogEditingPayment,
+  log_reading_session: execLogReadingSession,
+  add_book: execAddBook,
+  mark_habit_done: execMarkHabitDone,
+  adjust_net_worth_account: execAdjustNetWorthAccount,
+  add_subscription: execAddSubscription,
+  cancel_subscription: execCancelSubscription,
+  add_wishlist_item: execAddWishlistItem,
+  add_order: execAddOrder,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -386,17 +895,26 @@ async function buildContext() {
   return context;
 }
 
-const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wired directly into their personal dashboard. '
-  + 'You can see their to-dos/recurring habits, water/supplement tracking, gym workout status, finances (net worth, '
-  + 'purchases, subscriptions), side-hustle business data, and reading habit — passed below as JSON from the same '
-  + 'database the dashboard itself reads and writes. You also have tools to actually log a purchase, add/complete a '
-  + 'to-do, log water, mark a supplement taken, or mark today\'s workout done — use them whenever the user is clearly '
-  + 'asking you to DO one of those things (e.g. "log a $20 grocery run", "mark gym done", "I took my creatine"), not '
-  + 'just when they ask a question about their data. Be direct, concise, and conversational — this is a text chat, not '
-  + 'a report. If a tool call fails or finds no match, say so plainly instead of pretending it worked. '
+const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wired directly into essentially their '
+  + 'whole personal dashboard — to-dos, recurring items and daily habits, gym (workout program/sets, cardio, stretch '
+  + 'routines, body weight), water/supplements, finances (net worth accounts, purchases, subscriptions, incoming '
+  + 'orders, wishlist), side-hustle business (affiliate commitments/revenue, editing clients/deliveries/payments), and '
+  + 'reading — passed below as JSON from the same database the dashboard itself reads and writes. You also have tools '
+  + 'to actually change most of that: log a purchase, add/complete a to-do, mark a habit done, log water/a supplement, '
+  + 'log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session or body weight, log '
+  + 'affiliate/editing business activity, log a reading session or add a book, adjust a net worth account balance, '
+  + 'and add/cancel a subscription, order, or wishlist item. Use a tool whenever the user is clearly asking you to DO '
+  + 'one of those things (e.g. "log a $20 grocery run", "mark gym done", "I took my creatine", "log 3 sets of bench at '
+  + '135 for 8 reps", "add $50 to checking", "cancel my Hulu subscription"), not just when they ask a question about '
+  + 'their data. Names (exercises, clients, books, habits, accounts, subscriptions) are matched loosely — exact or '
+  + 'partial — so don\'t worry about getting a name exactly right before calling a tool. Be direct, concise, and '
+  + 'conversational — this is a text chat, not a report. If a tool call fails or finds no match, say so plainly '
+  + 'instead of pretending it worked. '
   + 'If a "google" key is present in the data, it has today\'s Calendar events, Gmail unread count/subjects, and '
   + 'recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected or the tokens have '
-  + 'expired — say so rather than guessing at calendar/email/file content.\n\nCurrent dashboard data:\n';
+  + 'expired — say so rather than guessing at calendar/email/file content. Google Calendar is read-only here (no '
+  + 'ability to create/edit real Google events from this chat) — say so if asked to schedule something there.'
+  + '\n\nCurrent dashboard data:\n';
 
 async function callClaude(apiKey, context, userText) {
   const messages = [{ role: 'user', content: userText }];
