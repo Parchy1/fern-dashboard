@@ -187,9 +187,11 @@ console.anthropic.com.
 whatever's still undone, a couple times a day. This runs entirely server-side on a schedule —
 it doesn't need the dashboard open in a browser. It reuses your existing Supabase
 `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed there. Pick **one** of
-the two delivery methods below (Twilio is preferred automatically if both happen to be set).
+the delivery methods below — if you've set up the **Telegram Assistant** (step 8), it's already
+covered and you can skip this whole section: Telegram is preferred automatically over Twilio,
+which is preferred over the email gateway, whenever more than one happens to be configured.
 
-**Option A — free, via your carrier's email-to-SMS gateway (recommended to start):**
+**Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called
 **Resend** sends that email on a schedule — no phone number to buy, no card required.
@@ -272,6 +274,48 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 
 ---
 
+## 8. Telegram Assistant (optional)
+
+A two-way personal assistant, reachable from the regular Telegram app on your phone — not
+just a one-way reminder text. It can see your to-dos, water/supplement tracking, gym status,
+finances, business, and reading data (same Supabase rows the dashboard itself reads/writes),
+answer questions about any of it, and actually log/change things when you ask
+("log a $20 grocery run", "mark gym done", "add call the dentist to my list"). It also takes
+over the recurring-item reminder texts from step 7 above once configured.
+
+**Note:** Calendar/Gmail/Drive (step 5) aren't visible to the assistant yet — those OAuth
+tokens live only in the browser's `localStorage`, never synced to Supabase, so a server-side
+function has no way to reach them. Everything else on the dashboard is fair game.
+
+1. In the Telegram app, message **@BotFather** → `/newbot` → give it a name, then a
+   username ending in `bot` (must be unique). It replies with a **bot token** —
+   `123456789:AAExampleTokenStringHere`. Treat this like a password.
+2. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | the token from BotFather |
+| `TELEGRAM_WEBHOOK_SECRET` | any random string you make up (20+ characters) — locks the webhook so only real Telegram requests get through |
+| `ANTHROPIC_API_KEY` | an Anthropic API key (**console.anthropic.com** → API Keys) — this runs server-side, separate from the key saved in Nova's browser `localStorage` |
+
+3. Redeploy so those env vars take effect.
+4. Visit `https://your-app.vercel.app/api/telegram-set-webhook?secret=<your TELEGRAM_WEBHOOK_SECRET>`
+   once, in your own browser — this registers the webhook with Telegram. You should get back a
+   small JSON blob with `"ok":true`.
+5. Open a chat with your bot in Telegram (search its username) and send it any message. Since
+   `TELEGRAM_CHAT_ID` isn't set yet, it'll reply with **your chat ID** instead of doing anything
+   else — copy that number.
+6. Back in Vercel env vars, add `TELEGRAM_CHAT_ID` = that number, and redeploy. From then on,
+   the bot only responds to messages from that chat — anyone else who finds its username gets
+   silently ignored.
+7. Message it again — it should now actually respond, using your real dashboard data.
+
+> Every write the assistant makes goes through the exact same Supabase rows and data shapes the
+> dashboard's own pages use, so anything it logs shows up in the normal UI immediately (and vice
+> versa) — there's no separate/shadow data store.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -279,5 +323,7 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 3. (Optional) WHOOP: Client ID in `health.html` + the two env vars in Vercel.
 4. (Optional) Apple Health: `APPLE_HEALTH_SECRET` env var + an iOS Shortcut, see step 4 above.
 5. (Optional) Google: Client ID in `google.html` + the two env vars in Vercel, see step 5 above.
-6. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 7 above.
-7. Change the password in `lock.js`. Done.
+6. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 7 above —
+   skip if using the Telegram Assistant, which covers this too.
+7. (Optional) Telegram Assistant: bot token + env vars in step 8 above.
+8. Change the password in `lock.js`. Done.

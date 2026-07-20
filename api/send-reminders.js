@@ -25,7 +25,12 @@
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
 //
-// Delivery — configure ONE of these two (Twilio is preferred if both are set):
+// Delivery — configure ONE of these three (checked in this priority order,
+// so Telegram wins over Twilio wins over the email gateway if more than
+// one happens to be configured):
+//   Telegram (free, preferred — see api/telegram-webhook.js for the
+//   two-way assistant this doubles up with):
+//     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 //   Twilio (paid, reliable):
 //     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
 //     TWILIO_FROM_NUMBER                your Twilio number, e.g. +15551234567
@@ -270,11 +275,23 @@ function sourceDoneToday(autoSource, ctx) {
   return false;
 }
 
-// ---------- Delivery: Twilio SMS, or free email-to-SMS carrier gateway ----------
-// Prefers Twilio if fully configured; otherwise falls back to emailing your
-// carrier's SMS gateway address (e.g. 5551234567@vtext.com) via Resend. Either
-// way this returns a small result object; the caller doesn't need to know which
-// path was used.
+// ---------- Delivery: Telegram, Twilio SMS, or free email-to-SMS carrier gateway ----------
+// Prefers Telegram if configured, then Twilio, then falls back to emailing
+// your carrier's SMS gateway address (e.g. 5551234567@vtext.com) via Resend.
+// Either way this returns a small result object; the caller doesn't need to
+// know which path was used.
+async function sendViaTelegram(body) {
+  const token = process.env.TELEGRAM_BOT_TOKEN, chatId = process.env.TELEGRAM_CHAT_ID;
+  const res = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: body }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.ok) throw new Error('telegram send failed: ' + JSON.stringify(json));
+  return { method: 'telegram', id: json.result && json.result.message_id };
+}
+
 async function sendViaTwilio(body) {
   const twSid = process.env.TWILIO_ACCOUNT_SID, twToken = process.env.TWILIO_AUTH_TOKEN;
   const twFrom = process.env.TWILIO_FROM_NUMBER, twTo = process.env.TWILIO_TO_NUMBER;
@@ -309,11 +326,13 @@ async function sendViaEmailGateway(body) {
 }
 
 export async function sendReminder(body) {
+  const tgConfigured = process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID;
   const twConfigured = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER && process.env.TWILIO_TO_NUMBER;
   const emailConfigured = process.env.RESEND_API_KEY && process.env.SMS_GATEWAY_TO;
+  if (tgConfigured) return sendViaTelegram(body);
   if (twConfigured) return sendViaTwilio(body);
   if (emailConfigured) return sendViaEmailGateway(body);
-  throw new Error('no delivery method configured — set either the TWILIO_* vars or RESEND_API_KEY + SMS_GATEWAY_TO');
+  throw new Error('no delivery method configured — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID, the TWILIO_* vars, or RESEND_API_KEY + SMS_GATEWAY_TO');
 }
 
 // Exported separately from the HTTP handler so it can be exercised
