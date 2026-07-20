@@ -588,57 +588,6 @@ body::after {
 }
 .recur-time-label .gm-time-input { display: block; margin-top: 6px; width: 100%; }
 
-.schedule-nav {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 4px;
-}
-.sched-nav-btn {
-  width: 32px; height: 32px;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text-primary);
-  font-size: 16px; line-height: 1;
-  cursor: pointer;
-}
-.sched-nav-btn:hover { background: rgba(255,255,255,0.08); }
-.sched-nav-btn:disabled { opacity: 0.3; cursor: default; }
-.sched-nav-btn:disabled:hover { background: rgba(255,255,255,0.04); }
-.schedule-date-label {
-  flex: 1;
-  font-size: 14px; font-weight: 700;
-  color: var(--text-primary);
-  text-align: center;
-}
-.sched-today-btn {
-  padding: 7px 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text-secondary);
-  font-family: inherit; font-size: 12px; font-weight: 600;
-  cursor: pointer;
-}
-.sched-today-btn:hover { background: rgba(255,255,255,0.08); }
-
-.schedule-timeline { display: flex; flex-direction: column; gap: 6px; }
-.sched-row {
-  display: flex; align-items: center; gap: 12px;
-}
-.sched-time {
-  flex: 0 0 auto;
-  width: 72px;
-  font-size: 12px; font-weight: 700;
-  color: var(--text-tertiary);
-  text-align: right;
-}
-.sched-row .gm-row { flex: 1; margin-bottom: 0; }
-.schedule-add-row { flex-wrap: nowrap; }
-@media (max-width: 420px) {
-  .schedule-add-row { flex-wrap: wrap; }
-  .sched-time { width: 56px; font-size: 11px; }
-}
-
 .gm-polish {
   padding: 11px 18px;
   border: 1px solid rgba(255,255,255,0.10);
@@ -843,37 +792,6 @@ body::after {
     </div>
   </div>
 
-  <!-- SCHEDULE — a time-blocked view of the exact same goals: data above
-       (any date's to-do list is stored under 'goals:<date>' regardless of
-       whether it's shown as a flat list or here). Items with no time show
-       up in "Anytime" instead of the timeline. Editing a row here (check,
-       edit text, retime, delete) uses the same buildGoalRow() as the flat
-       list, so both views always agree. -->
-  <div class="section">
-    <div class="section-title">Schedule</div>
-    <div class="gm-card" id="gmCardSchedule">
-      <div class="schedule-nav">
-        <button type="button" id="schedPrevBtn" class="sched-nav-btn" aria-label="Previous day">‹</button>
-        <div class="schedule-date-label" id="scheduleDateLabel">Today</div>
-        <button type="button" id="schedNextBtn" class="sched-nav-btn" aria-label="Next day">›</button>
-        <button type="button" id="schedTodayBtn" class="sched-today-btn">Today</button>
-      </div>
-
-      <div class="gm-eyebrow" style="margin:14px 0 6px">Anytime</div>
-      <ul id="scheduleAnytimeList" class="goal-list gm-list"></ul>
-      <div id="scheduleAnytimeEmpty" class="empty-state">Nothing unscheduled.</div>
-
-      <div class="gm-eyebrow" style="margin:14px 0 6px">Timeline</div>
-      <div id="scheduleTimeline" class="schedule-timeline"></div>
-
-      <div class="goal-input-wrap gm-input-wrap schedule-add-row">
-        <input id="scheduleGoalInput" class="gm-input" type="text" placeholder="Add an item…" autocomplete="off">
-        <input id="scheduleTimeInput" class="gm-time-input" type="time">
-        <button type="button" id="scheduleAddBtn" class="gm-add">+ Add</button>
-      </div>
-    </div>
-  </div>
-
   <!-- RECURRING ITEMS — auto-added to today's To Do List on their
        scheduled days, so you don't retype the same items every day.
        Items with an auto-check source mark themselves done once the
@@ -1013,10 +931,6 @@ body::after {
     return Array.isArray(g) ? g : [];
   }
   function setGoals(key, list) { storeSet(key, list); }
-
-  // Currently-viewed date on the Schedule view below — independent of
-  // today/tomorrow so you can page back/forward through any date's list.
-  let scheduleViewDate = getActiveDateString();
 
   // ---------- rollover: pull undone older goals into today ----------
   function rollover() {
@@ -1471,120 +1385,11 @@ body::after {
   function loadToday() {
     const goals = getGoals(todayKey());
     renderListInto(goals, document.getElementById('goalList'), document.getElementById('emptyState'), todayKey(), false);
-    if (scheduleViewDate === getActiveDateString()) renderSchedule();
   }
   function loadTomorrow() {
     const goals = getGoals(tomorrowKey());
     renderListInto(goals, document.getElementById('tomorrowList'), document.getElementById('tomorrowEmpty'), tomorrowKey(), true);
-    if (scheduleViewDate === getTomorrowDateString()) renderSchedule();
   }
-
-  // ---------- Schedule view — same goals:<date> data, shown as a timeline ----------
-  function formatTime12(hhmm) {
-    const parts = String(hhmm).split(':').map(Number);
-    const h = parts[0], m = parts[1] || 0;
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 === 0 ? 12 : h % 12;
-    return h12 + ':' + pad2(m) + ' ' + ampm;
-  }
-  // Tomorrow stays locked (same as the flat "Plan tomorrow" card) until 6 AM
-  // rolls it over — today and any date further ahead is fully editable,
-  // there's no equivalent lock defined for those elsewhere either.
-  function scheduleIsReadOnly(dateStr) { return dateStr === getTomorrowDateString(); }
-
-  function renderSchedule() {
-    const dateStr = scheduleViewDate;
-    const key = 'goals:' + dateStr;
-    const goals = getGoals(key);
-    const isToday = dateStr === getActiveDateString();
-    const isTomorrow = dateStr === getTomorrowDateString();
-    const readOnly = scheduleIsReadOnly(dateStr);
-    // Route through loadToday()/loadTomorrow() when this is the date they
-    // own, so an edit made here (check/retime/delete) also refreshes the
-    // flat To Do List card — otherwise that card would go stale until some
-    // unrelated action happened to re-render it.
-    const reload = () => {
-      if (dateStr === getActiveDateString()) loadToday();
-      else if (dateStr === getTomorrowDateString()) loadTomorrow();
-      else renderSchedule();
-    };
-
-    const label = document.getElementById('scheduleDateLabel');
-    label.textContent = (isToday ? 'Today — ' : isTomorrow ? 'Tomorrow — ' : '') + formatDate(dateStr);
-    // rollover() (runs on every load) consumes and deletes any goals:<date>
-    // key older than today, so there's never real history to page back
-    // into — only today and beyond persist. Block going earlier than today
-    // instead of silently showing an empty, misleading "yesterday".
-    document.getElementById('schedPrevBtn').disabled = dateStr <= getActiveDateString();
-
-    const withIdx = goals.map((g, i) => Object.assign({}, g, { _idx: i }));
-    const timed = withIdx.filter(g => g.time).sort((a, b) => a.time.localeCompare(b.time));
-    const untimed = withIdx.filter(g => !g.time);
-
-    const anytimeList = document.getElementById('scheduleAnytimeList');
-    anytimeList.innerHTML = '';
-    untimed.forEach(g => anytimeList.appendChild(buildGoalRow(g, g._idx, key, readOnly, reload, true)));
-    document.getElementById('scheduleAnytimeEmpty').style.display = untimed.length ? 'none' : 'block';
-
-    const timeline = document.getElementById('scheduleTimeline');
-    timeline.innerHTML = '';
-    if (!timed.length) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = 'Nothing scheduled with a time yet.';
-      timeline.appendChild(empty);
-    } else {
-      timed.forEach(g => {
-        const row = document.createElement('div');
-        row.className = 'sched-row';
-        const timeEl = document.createElement('div');
-        timeEl.className = 'sched-time';
-        timeEl.textContent = formatTime12(g.time);
-        row.appendChild(timeEl);
-        row.appendChild(buildGoalRow(g, g._idx, key, readOnly, reload, true));
-        timeline.appendChild(row);
-      });
-    }
-  }
-
-  document.getElementById('schedPrevBtn').addEventListener('click', () => {
-    if (scheduleViewDate <= getActiveDateString()) return; // no history before today, see renderSchedule()
-    const d = new Date(scheduleViewDate + 'T00:00:00');
-    d.setDate(d.getDate() - 1);
-    scheduleViewDate = dateToKey(d);
-    renderSchedule();
-  });
-  document.getElementById('schedNextBtn').addEventListener('click', () => {
-    const d = new Date(scheduleViewDate + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    scheduleViewDate = dateToKey(d);
-    renderSchedule();
-  });
-  document.getElementById('schedTodayBtn').addEventListener('click', () => {
-    scheduleViewDate = getActiveDateString();
-    renderSchedule();
-  });
-  function scheduleAddItem() {
-    const input = document.getElementById('scheduleGoalInput');
-    const timeInput = document.getElementById('scheduleTimeInput');
-    const text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    const key = 'goals:' + scheduleViewDate;
-    const list = getGoals(key);
-    const entry = { text, done: false };
-    if (timeInput.value) entry.time = timeInput.value;
-    list.push(entry);
-    setGoals(key, list);
-    input.value = '';
-    timeInput.value = '';
-    if (scheduleViewDate === getActiveDateString()) loadToday();
-    else if (scheduleViewDate === getTomorrowDateString()) loadTomorrow();
-    else renderSchedule();
-  }
-  document.getElementById('scheduleAddBtn').addEventListener('click', scheduleAddItem);
-  document.getElementById('scheduleGoalInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); scheduleAddItem(); }
-  });
 
   // ---------- Push remaining ----------
   document.getElementById('gmPushBtn').addEventListener('click', () => {
