@@ -291,10 +291,15 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 ## 8. Telegram Assistant (optional)
 
 A two-way personal assistant, reachable from the regular Telegram app on your phone — not
-just a one-way reminder text. It can see your to-dos, water/supplement tracking, gym status,
-finances, business, and reading data (same Supabase rows the dashboard itself reads/writes),
-answer questions about any of it, and actually log/change things when you ask
-("log a $20 grocery run", "mark gym done", "add call the dentist to my list"). It also takes
+just a one-way reminder text. It can see and act on essentially the whole dashboard (same
+Supabase rows the dashboard itself reads/writes): to-dos, recurring items, daily habits, gym
+(workout sets, exercises, cardio, stretch routines, body weight), water/supplements, finances
+(net worth accounts, purchases, subscriptions, orders, wishlist), side-hustle business
+(affiliate commitments/revenue, editing clients/deliveries/payments), and reading. Ask it
+questions about any of it, or tell it to log/change things directly — "log a $20 grocery run",
+"mark gym done", "log 3 sets of bench at 135 for 8 reps", "cancel my Hulu subscription", "add
+$50 to checking", "I finished chapter 3 of Atomic Habits" — names (exercises, clients, books,
+accounts, habits) are matched loosely, so it doesn't need to be word-for-word. It also takes
 over the recurring-item reminder texts from step 7 above once configured.
 
 Calendar/Gmail/Drive (step 5) can be included too — see the separate **"Connect Google to the
