@@ -31,6 +31,15 @@
 //                           for the same 6am-boundary / plain-date keys the
 //                           dashboard itself uses, so writes land under the
 //                           date the browser would compute.
+//   SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+//                           if all three are set (alongside a connected
+//                           Google account — see google.html / SETUP.md),
+//                           today's Calendar events, Gmail unread summary,
+//                           and recent Drive files are read from the
+//                           locked-down google_tokens table (see
+//                           api/google-token-sync.js) and added to context.
+//                           Missing/expired/disconnected Google just means
+//                           that context is silently omitted, never an error.
 //
 // Every write tool below follows the same pattern the dashboard's own
 // sync.js does: Supabase's app_state row is a full-object replace, not a
@@ -262,12 +271,118 @@ const TOOL_EXECUTORS = {
   mark_gym_done: execMarkGymDone,
 };
 
+// ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
+// Deliberately NOT using readRow/writeRow above — those hit the app_state
+// table with the public anon key, fine for to-do text but not for a live
+// Google credential. This table (google_tokens) has no anon-key policies
+// at all; only the service_role key (below) can touch it. See
+// api/google-token-sync.js for the write side and the one-time SQL setup.
+async function readGoogleTokens() {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey || !process.env.SUPABASE_URL) return null;
+  const url = process.env.SUPABASE_URL + '/rest/v1/google_tokens?id=eq.1&select=access,refresh,expires';
+  const r = await fetch(url, { headers: { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey } });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return (rows && rows[0]) || null;
+}
+async function writeGoogleTokens(tokens) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey || !process.env.SUPABASE_URL) return;
+  await fetch(process.env.SUPABASE_URL + '/rest/v1/google_tokens?on_conflict=id', {
+    method: 'POST',
+    headers: { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify(Object.assign({ id: 1 }, tokens, { updated_at: new Date().toISOString() })),
+  });
+}
+// Google doesn't re-issue a refresh_token on a plain refresh — the caller
+// keeps reusing the original one, same as google.html's own refreshTok().
+async function refreshGoogleToken(refresh) {
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: refresh,
+      grant_type: 'refresh_token',
+    }),
+  });
+  const json = await r.json();
+  if (!json.access_token) throw new Error('google refresh failed: ' + JSON.stringify(json));
+  return { access: json.access_token, expires: Date.now() + (json.expires_in || 3500) * 1000 };
+}
+async function gFetch(url, accessToken) {
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken, Accept: 'application/json' } });
+  if (!r.ok) throw new Error('Google ' + r.status + ': ' + (await r.text()));
+  return r.json();
+}
+// Mirrors google.html's loadCalendar/loadGmail/loadDrive, minus any DOM
+// rendering — same summarized shape (titles/subjects/filenames only, no
+// event descriptions, email bodies, or file contents) that already gets
+// cached into 'google:snapshot' for Nova.
+async function buildGoogleContext() {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return null;
+  try {
+    let tokens = await readGoogleTokens();
+    if (!tokens || !tokens.access) return null;
+    if (tokens.expires && Date.now() > Number(tokens.expires) - 60000) {
+      if (!tokens.refresh) return null;
+      const refreshed = await refreshGoogleToken(tokens.refresh);
+      tokens = { access: refreshed.access, refresh: tokens.refresh, expires: refreshed.expires };
+      await writeGoogleTokens(tokens);
+    }
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 86400000);
+    const calUrl = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+      + '?timeMin=' + encodeURIComponent(startOfDay.toISOString())
+      + '&timeMax=' + encodeURIComponent(endOfDay.toISOString())
+      + '&singleEvents=true&orderBy=startTime&maxResults=10';
+    const [calData, labelData, driveData] = await Promise.all([
+      gFetch(calUrl, tokens.access).catch(() => ({ items: [] })),
+      gFetch('https://gmail.googleapis.com/gmail/v1/users/me/labels/UNREAD', tokens.access).catch(() => ({ messagesUnread: 0 })),
+      gFetch('https://www.googleapis.com/drive/v3/files?orderBy=modifiedTime desc&pageSize=5&fields=' + encodeURIComponent('files(id,name,modifiedTime)'), tokens.access).catch(() => ({ files: [] })),
+    ]);
+
+    const calendarEventsToday = ((calData && calData.items) || []).map(ev => ({
+      title: ev.summary || '(no title)',
+      time: ev.start && ev.start.dateTime ? new Date(ev.start.dateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'All day',
+    }));
+
+    const gmailUnreadCount = (labelData && labelData.messagesUnread) || 0;
+    let gmailRecentSubjects = [];
+    if (gmailUnreadCount) {
+      const listData = await gFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5', tokens.access).catch(() => null);
+      const ids = ((listData && listData.messages) || []).map(m => m.id);
+      const metas = await Promise.all(ids.map(id =>
+        gFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From', tokens.access).catch(() => null)
+      ));
+      gmailRecentSubjects = metas.filter(Boolean).map(m => {
+        const headers = (m.payload && m.payload.headers) || [];
+        const subject = (headers.find(h => h.name === 'Subject') || {}).value || '(no subject)';
+        const from = (headers.find(h => h.name === 'From') || {}).value || '';
+        return { subject, from: from.replace(/<.*>/, '').trim() || from };
+      });
+    }
+
+    const driveRecentFiles = ((driveData && driveData.files) || []).map(f => ({ name: f.name || '(untitled)', modified: f.modifiedTime || null }));
+
+    return { calendarEventsToday, gmailUnreadCount, gmailRecentSubjects, driveRecentFiles };
+  } catch (e) {
+    return null;
+  }
+}
+
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
   const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });
+  const google = await buildGoogleContext();
+  if (google) context.google = google;
   return context;
 }
 
@@ -279,8 +394,9 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'asking you to DO one of those things (e.g. "log a $20 grocery run", "mark gym done", "I took my creatine"), not '
   + 'just when they ask a question about their data. Be direct, concise, and conversational — this is a text chat, not '
   + 'a report. If a tool call fails or finds no match, say so plainly instead of pretending it worked. '
-  + 'Note: Calendar/Gmail/Drive data isn\'t available here yet (those tokens live only in the browser, not synced) — '
-  + 'say so if asked about them rather than guessing.\n\nCurrent dashboard data:\n';
+  + 'If a "google" key is present in the data, it has today\'s Calendar events, Gmail unread count/subjects, and '
+  + 'recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected or the tokens have '
+  + 'expired — say so rather than guessing at calendar/email/file content.\n\nCurrent dashboard data:\n';
 
 async function callClaude(apiKey, context, userText) {
   const messages = [{ role: 'user', content: userText }];
@@ -385,4 +501,4 @@ export default async function handler(req, res) {
 }
 
 // Exported for direct testing without going through req/res.
-export { buildContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey };
+export { buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey };

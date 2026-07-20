@@ -283,9 +283,8 @@ answer questions about any of it, and actually log/change things when you ask
 ("log a $20 grocery run", "mark gym done", "add call the dentist to my list"). It also takes
 over the recurring-item reminder texts from step 7 above once configured.
 
-**Note:** Calendar/Gmail/Drive (step 5) aren't visible to the assistant yet — those OAuth
-tokens live only in the browser's `localStorage`, never synced to Supabase, so a server-side
-function has no way to reach them. Everything else on the dashboard is fair game.
+Calendar/Gmail/Drive (step 5) can be included too — see the separate **"Connect Google to the
+assistant"** steps further down, after the core setup below.
 
 1. In the Telegram app, message **@BotFather** → `/newbot` → give it a name, then a
    username ending in `bot` (must be unique). It replies with a **bot token** —
@@ -314,6 +313,45 @@ function has no way to reach them. Everything else on the dashboard is fair game
 > dashboard's own pages use, so anything it logs shows up in the normal UI immediately (and vice
 > versa) — there's no separate/shadow data store.
 
+### Connect Google to the assistant (optional, needs step 5 done first)
+
+Everything above works without this — the assistant just won't know about your Calendar,
+Gmail, or Drive. Adding it is a bit more setup than the rest of this guide, on purpose: a
+Google OAuth token is a real credential that can read your actual inbox/calendar, and it
+deserves better protection than the public key every other piece of dashboard data syncs
+through. So Google's tokens live in their **own** Supabase table, locked down so only this
+server-side function — never the browser, never the public key baked into the site's JS — can
+read it.
+
+1. In the **Supabase SQL Editor**, run once:
+   ```sql
+   create table if not exists google_tokens (
+     id int primary key default 1,
+     access text, refresh text, expires bigint,
+     updated_at timestamptz default now()
+   );
+   alter table google_tokens enable row level security;
+   -- No policies added on purpose — this blocks the public anon key entirely.
+   -- Only the service_role key (next step) can read or write this table.
+   ```
+2. In Supabase → **Settings → API**, copy the **`service_role`** secret key (different from
+   the `anon`/`publishable` key `sync.js` already uses — this one must never be pasted into
+   any HTML/JS file or exposed to a browser).
+3. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | the `service_role` key from step 2 — **server-side only** |
+| `GOOGLE_SYNC_SECRET` | any random string you make up — a basic gate on the token-sync endpoint (not what protects confidentiality; the table having no anon policies is what does that) |
+
+4. Redeploy. From then on, every time `google.html` saves a token (initial connect or a
+   background refresh), it also pushes a copy to `/api/google-token-sync`, which lands in the
+   locked-down table above. Nothing to do on your end beyond having Google connected (step 5) —
+   the next time you open `google.html`, or the assistant runs, it picks this up automatically.
+5. Message the assistant something like "what's on my calendar today" to confirm it's working.
+   If Google isn't connected yet, or the connection has lapsed, it'll say so rather than
+   guessing — reconnect via `google.html` in that case.
+
 ---
 
 ## TL;DR
@@ -326,4 +364,5 @@ function has no way to reach them. Everything else on the dashboard is fair game
 6. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 7 above —
    skip if using the Telegram Assistant, which covers this too.
 7. (Optional) Telegram Assistant: bot token + env vars in step 8 above.
-8. Change the password in `lock.js`. Done.
+8. (Optional) Connect Google to the assistant: the `google_tokens` SQL + `SUPABASE_SERVICE_ROLE_KEY`/`GOOGLE_SYNC_SECRET` env vars, see step 8 above.
+9. Change the password in `lock.js`. Done.

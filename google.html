@@ -177,7 +177,24 @@ body {
     + 'https://www.googleapis.com/auth/drive.metadata.readonly';
 
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
-  function save(t) { try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (e) {} }
+  // Also pushes the fresh token to the server (best-effort, never blocks
+  // or throws) so the Telegram assistant — which runs with no browser
+  // involved — has a copy to work with. See api/google-token-sync.js for
+  // where this lands and why it's a separate, locked-down table rather
+  // than the shared app_state one everything else syncs through.
+  function save(t) {
+    try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (e) {}
+    try {
+      const secret = window.DASH_GOOGLE_SYNC_SECRET;
+      if (secret) {
+        fetch('/api/google-token-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + secret },
+          body: JSON.stringify({ access: t.access, refresh: t.refresh, expires: t.expires }),
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  }
   function wipe() { try { localStorage.removeItem(KEY); } catch (e) {} }
 
   if (location.hash && location.hash.indexOf('google_access') !== -1) {
