@@ -71,6 +71,20 @@ function activeDateKey() {
   if (d.getHours() < 6) d.setDate(d.getDate() - 1);
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
+// Same 6am-boundary "today" as activeDateKey(), but as a Date — needed to
+// check a recurring item's weekday, matching main.html's getActiveDateObj().
+function activeDateObj() {
+  const d = tzNow();
+  if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+  return d;
+}
+// Mirrors main.html's isRecurScheduledToday() — whether a recur:defs entry
+// is scheduled for the active (6am-boundary) day.
+function isRecurScheduledToday(def) {
+  if (def.freq === 'daily') return true;
+  if (def.freq === 'days') return Array.isArray(def.days) && def.days.indexOf(activeDateObj().getDay()) !== -1;
+  return false;
+}
 // Plain UTC calendar-date slice — used by reading.html's session log
 // (new Date().toISOString().slice(0,10)), a third, distinct convention from
 // the two above. Deliberately NOT timezone-adjusted, to match exactly.
@@ -113,6 +127,23 @@ async function patchRow(key, mutate) {
   const result = await mutate(data);
   await writeRow(key, data);
   return result;
+}
+
+// ---------- conversation memory (its own row, separate from dashboard data) ----------
+// Keeps the last MAX_HISTORY_MESSAGES plain user/assistant text turns so the
+// assistant has real short-term memory across separate Telegram messages,
+// instead of starting from a blank slate every time. Deliberately stores
+// only the final human-readable text of each turn — not the intermediate
+// tool_use/tool_result scaffolding from callClaude()'s own internal loop,
+// which is only ever meaningful within a single request.
+const HISTORY_KEY = 'telegram-memory';
+const MAX_HISTORY_MESSAGES = 20;
+async function loadHistory() {
+  const data = await readRow(HISTORY_KEY);
+  return Array.isArray(data.history) ? data.history : [];
+}
+async function saveHistory(history) {
+  await writeRow(HISTORY_KEY, { history: history.slice(-MAX_HISTORY_MESSAGES) });
 }
 
 async function fetchExchangeRates() {
@@ -444,6 +475,25 @@ async function execMarkTodoDone(args) {
     const target = String(args.text).toLowerCase();
     let idx = list.findIndex(g => String(g.text).toLowerCase() === target);
     if (idx < 0) idx = list.findIndex(g => String(g.text).toLowerCase().includes(target) || target.includes(String(g.text).toLowerCase()));
+    if (idx < 0) {
+      // Not in today's materialized to-do list yet. Recurring items (Main
+      // tab's Recurring Items) normally only get added to this list
+      // client-side, by main.html's injectRecurringToday(), when the Main
+      // tab is opened — so if the user hasn't opened it yet today, a
+      // recurring item like "Skin care (AM)" won't be here at all even
+      // though it's scheduled for today. Fall back to matching against the
+      // recurring-item definitions directly and materialize it the same
+      // way main.html would, so this works regardless of whether the
+      // dashboard's been opened yet today.
+      const defs = goals['recur:defs'] || [];
+      const def = fuzzyFind(defs, args.text, d => d.name);
+      if (def && isRecurScheduledToday(def) && !list.some(g => g.text === def.name)) {
+        const entry = { text: def.name, done: false };
+        if (def.time) entry.time = def.time;
+        list.push(entry);
+        idx = list.length - 1;
+      }
+    }
     if (idx < 0) return { ok: false, reason: 'no matching to-do found today for "' + args.text + '"' };
     list[idx].done = true;
     list[idx].doneAt = Date.now();
@@ -1037,8 +1087,8 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'ability to create/edit real Google events from this chat) — say so if asked to schedule something there.'
   + '\n\nCurrent dashboard data:\n';
 
-async function callClaude(apiKey, context, userText) {
-  const messages = [{ role: 'user', content: userText }];
+async function callClaude(apiKey, context, userText, priorHistory) {
+  const messages = (priorHistory || []).concat([{ role: 'user', content: userText }]);
   let lastText = '';
   for (let iter = 0; iter < 4; iter++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1126,9 +1176,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, error: 'no supabase config' });
     }
 
-    const context = await buildContext();
-    const reply = await callClaude(anthropicKey, context, message.text);
+    const [context, history] = await Promise.all([buildContext(), loadHistory().catch(() => [])]);
+    const reply = await callClaude(anthropicKey, context, message.text, history);
     await tgSend(botToken, chatId, reply);
+    // Awaited (not fire-and-forget) — this function can be frozen the
+    // instant we respond, same reasoning as the comment above.
+    await saveHistory(history.concat([
+      { role: 'user', content: message.text },
+      { role: 'assistant', content: reply },
+    ])).catch(() => {});
     return res.status(200).json({ ok: true });
   } catch (e) {
     try {
