@@ -2058,20 +2058,22 @@ img, video, canvas, svg { max-width: 100%; }
       const d = new Date(l.date);
       const dStr = (d.getMonth() + 1) + '/' + d.getDate();
       const setStr = ex.bw ? (l.reps + ' reps') : (l.weight + unit() + ' × ' + l.reps);
-      const realIdx = logs.length - 1 - i; // since we reversed
+      // Index into the ORIGINAL (non-reversed) arr this displayed row came
+      // from — logs[i] === arr[logs.length - 1 - i] since logs is arr
+      // reversed, so this is already the correct arr index, not a reversed
+      // display position.
+      const origIdx = logs.length - 1 - i;
       return '<div class="po-hist-row">'
         + '<div class="po-hist-date">' + dStr + '</div>'
         + '<div class="po-hist-set">' + setStr + '</div>'
-        + '<button class="po-hist-del" data-idx="' + realIdx + '" aria-label="Delete">×</button>'
+        + '<button class="po-hist-del" data-idx="' + origIdx + '" aria-label="Delete">×</button>'
         + '</div>';
     }).join('');
     wrap.querySelectorAll('.po-hist-del').forEach(b => {
       b.addEventListener('click', () => {
         if (!confirm('Delete this log?')) return;
-        const realIdx = parseInt(b.dataset.idx, 10);
+        const origIdx = parseInt(b.dataset.idx, 10);
         const arr = state.logs[state.currentEx] || [];
-        // realIdx is index in REVERSED list; map back to original
-        const origIdx = arr.length - 1 - realIdx;
         arr.splice(origIdx, 1);
         if (!arr.length) delete state.logs[state.currentEx];
         else state.logs[state.currentEx] = arr;
