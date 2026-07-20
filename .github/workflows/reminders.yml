@@ -1,17 +1,19 @@
-name: Hourly dashboard reminders
+name: Dashboard reminders
 
 # Vercel Cron (Hobby plan) can't fire more than once a day per job, so this
 # lives here instead — GitHub Actions scheduled workflows are free at any
 # frequency on a public repo. All this does is ping the already-deployed
-# /api/send-reminders endpoint; that endpoint decides whether anything's
-# actually undone and worth texting about (see api/send-reminders.js).
+# /api/send-reminders endpoint every 15 minutes; that endpoint decides
+# whether anything's actually due right now (each item has its own
+# scheduled time, not one shared hourly gate — see api/send-reminders.js).
 #
-# Schedule is UTC 0,1,2,12-23, i.e. 8am-10pm America/New_York during EDT.
-# Drifts an hour for ~2 weeks around DST changes (mid-March, early
-# November) until nudged here — see SETUP.md.
+# Schedule is UTC */15 during hours 0-5,10-23, i.e. every 15 min from
+# 6am-1am America/New_York during EDT (skipping the 2am-6am dead zone
+# overnight). Drifts an hour for ~2 weeks around DST changes (mid-March,
+# early November) until nudged here — see SETUP.md.
 on:
   schedule:
-    - cron: '0 0,1,2,12,13,14,15,16,17,18,19,20,21,22,23 * * *'
+    - cron: '*/15 0,1,2,3,4,5,10,11,12,13,14,15,16,17,18,19,20,21,22,23 * * *'
   workflow_dispatch: {}
 
 jobs:

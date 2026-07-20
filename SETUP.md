@@ -183,13 +183,27 @@ console.anthropic.com.
 
 ## 7. Text reminders (optional)
 
-`main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) can text you a digest of
-whatever's still undone, a couple times a day. This runs entirely server-side on a schedule —
-it doesn't need the dashboard open in a browser. It reuses your existing Supabase
-`SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed there. Pick **one** of
-the delivery methods below — if you've set up the **Telegram Assistant** (step 8), it's already
-covered and you can skip this whole section: Telegram is preferred automatically over Twilio,
-which is preferred over the email gateway, whenever more than one happens to be configured.
+`main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) — and any one-off to-do you've
+given a time via the Schedule/Calendar time field — can text you individually, right around
+each item's own scheduled time, instead of one bundled digest of everything undone. This runs
+entirely server-side on a schedule — it doesn't need the dashboard open in a browser. It reuses
+your existing Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed
+there. Pick **one** of the delivery methods below — if you've set up the **Telegram Assistant**
+(step 8), it's already covered and you can skip this whole section: Telegram is preferred
+automatically over Twilio, which is preferred over the email gateway, whenever more than one
+happens to be configured.
+
+**How the timing works:** each recurring item can have a time set in the Recurring Items form
+(and a one-off to-do can have one via the Schedule/Calendar view). If it doesn't:
+- a name containing `(PM)` or "evening" defaults to shortly before your `BEDTIME_LOCAL` (below);
+- a name containing `(AM)` or "morning" defaults to 8:00am;
+- anything else with no time and no AM/PM hint has no single moment of its own — it's swept
+  into one combined "still open" digest sent once a day, ~30 minutes before bedtime.
+
+A small (±10 minute) deterministic jitter is applied per item per day, so reminders don't land
+at the exact same robotic minute every day. If something's still undone once its time arrives,
+it nags again every 90 minutes until you mark it done or until `BEDTIME_LOCAL` passes, after
+which it goes quiet for the day rather than pinging you overnight.
 
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
@@ -221,7 +235,7 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 | `RESEND_API_KEY` | from resend.com |
 | `SMS_GATEWAY_TO` | your gateway address from step 2, e.g. `5551234567@vtext.com` |
 | `REMINDER_TIMEZONE` | your IANA timezone, e.g. `America/New_York` (default if unset) |
-| `REMINDER_HOURS_LOCAL` | comma-separated 24h hours to check, e.g. `14,20` (default if unset) |
+| `BEDTIME_LOCAL` | 24h `HH:MM`, e.g. `23:00` (default if unset) — the cutoff for nagging, and the anchor for `(PM)`/evening items with no explicit time |
 | `CRON_SECRET` | any random string — **strongly recommended**, see below |
 
 > Carrier gateways aren't as instant or reliable as real SMS — texts can occasionally arrive
@@ -239,38 +253,38 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 | `TWILIO_AUTH_TOKEN` | from the Twilio console (**secret**) |
 | `TWILIO_FROM_NUMBER` | the Twilio number you bought, e.g. `+15551234567` |
 | `TWILIO_TO_NUMBER` | your real phone, e.g. `+15559876543` |
-| `REMINDER_TIMEZONE` / `REMINDER_HOURS_LOCAL` / `CRON_SECRET` | same as Option A above |
+| `REMINDER_TIMEZONE` / `BEDTIME_LOCAL` / `CRON_SECRET` | same as Option A above |
 
 **Either way:**
 
 3. Redeploy after adding the env vars above.
 4. Scheduling runs on **GitHub Actions**, not Vercel Cron — see
    [`.github/workflows/reminders.yml`](.github/workflows/reminders.yml). Vercel's free Hobby
-   plan only allows cron schedules that fire once a day each, which can't do hourly; a scheduled
+   plan only allows cron schedules that fire once a day each, which can't do this; a scheduled
    GitHub Actions workflow on a public repo is free at any frequency, so that's what pings
-   `/api/send-reminders` instead ([`vercel.json`](vercel.json) is intentionally empty). To turn
-   it on:
+   `/api/send-reminders` every 15 minutes instead ([`vercel.json`](vercel.json) is intentionally
+   empty). To turn it on:
    - Repo → **Settings → Secrets and variables → Actions → New repository secret** → name it
      `CRON_SECRET`, value = the **same** random string you set as the `CRON_SECRET` env var in
      Vercel (step 3 above). This is what lets the workflow call your endpoint without exposing
      it publicly.
-   - That's it — the workflow is already scheduled hourly (8am-10pm America/New_York during
-     EDT). It'll start firing on the next scheduled hour, or trigger it immediately yourself:
-     repo → **Actions** tab → **Hourly dashboard reminders** → **Run workflow**.
-   - The function itself is still the actual gate on *how often you get texted* — it only sends
-     if the current local hour is listed in `REMINDER_HOURS_LOCAL` and something's undone, so
-     set that env var to every hour you want covered, e.g.
-     `8,9,10,11,12,13,14,15,16,17,18,19,20,21,22` for hourly 8am-10pm — narrower than that (say,
-     just `14,20`) and the workflow keeps pinging every hour but only actually texts you twice.
+   - That's it — the workflow is already scheduled every 15 minutes, roughly 6am-1am
+     America/New_York during EDT (it skips a small 2am-6am dead zone overnight). It'll start
+     firing on the next tick, or trigger it immediately yourself: repo → **Actions** tab →
+     **Dashboard reminders** → **Run workflow**.
+   - The function itself decides *whether anything's actually due right now* on every tick —
+     each item's own scheduled time (or the bedtime-anchored default, or the once-daily
+     catch-all) is the real gate, not how often the workflow happens to ping the endpoint.
 
    > **Twice a year**, around DST changes (mid-March, early November), the workflow's fixed UTC
-   > cron times land an hour off from `REMINDER_HOURS_LOCAL` for about a week until manually
-   > nudged — texts just quietly pause for a few days rather than arrive at the wrong time. If
-   > that happens, edit the `cron:` line in `.github/workflows/reminders.yml` by ±1 hour (or
-   > shift `REMINDER_HOURS_LOCAL` to match whichever local hour it's currently landing on).
-5. Add whichever recurring items you want texted about via the **Recurring Items** panel on
-   the Main tab — anything with no `CRON_SECRET` set is reachable by anyone who finds the
-   URL, who could then spam your phone or burn through your quota, so set it.
+   > cron hours land an hour off from local time for about a week until manually nudged — ticks
+   > just happen an hour later/earlier than intended for a few days rather than at the wrong
+   > time entirely (15-minute granularity means it's a minor drift, not a missed day). If that
+   > bothers you, edit the `cron:` line in `.github/workflows/reminders.yml` by ±1 hour.
+5. Give your recurring items (Recurring Items panel, Main tab) and any one-off to-dos you want
+   reminders for (Schedule/Calendar time field) a time — anything with no `CRON_SECRET` set is
+   reachable by anyone who finds the URL, who could then spam your phone or burn through your
+   quota, so set it.
 
 ---
 

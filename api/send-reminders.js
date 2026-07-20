@@ -1,26 +1,38 @@
 // ============================================================
 // GET/POST /api/send-reminders
 //
-// Triggered by a scheduler hitting this URL (see .github/workflows/
-// reminders.yml — GitHub Actions, not Vercel Cron: Vercel's Hobby plan only
-// allows cron schedules that fire once a day each, which can't do true
-// hourly, and Actions on a public repo is free at any frequency). Checks
-// whether the current time, converted to REMINDER_TIMEZONE, matches one of
-// REMINDER_HOURS_LOCAL; if so, reads today's recurring items straight from
-// Supabase (the same rows the dashboard itself reads and writes — this
+// Triggered by a scheduler hitting this URL every ~15 minutes (see
+// .github/workflows/reminders.yml — GitHub Actions, not Vercel Cron:
+// Vercel's Hobby plan only allows once-a-day cron per job, which can't do
+// this; Actions is free at any frequency on a public repo). Each call reads
+// today's recurring items and any one-off to-dos with a time set straight
+// from Supabase (the same rows the dashboard itself reads and writes — this
 // function never talks to the browser, only to Supabase and the delivery
-// provider) and texts a digest of whatever's still undone. Each undone item
-// gets its own hand-written, deterministic-but-varied one-liner keyed off
-// the item's name (gym/water/reading/stretch/etc. each have their own
-// phrase pool, with a generic fallback for anything unmatched — see
-// categorizeItem/PHRASES/composeMessage below), on top of a rotating
-// opening line, so repeated sends through the day read like different
-// messages instead of the same template every time. Sends nothing if it's
-// not a configured hour, or if everything's already done.
+// provider), and sends an INDIVIDUAL message for whatever item's own
+// scheduled time has just arrived — not one big hourly bundle of
+// everything undone regardless of relevance.
 //
-// The workflow's schedule is fixed UTC clock times, so — same as any fixed-
-// UTC cron — it drifts an hour for ~2 weeks around DST changes (mid-March
-// and early November) until nudged; see SETUP.md.
+// Where an item's time comes from, in priority order:
+//   1. An explicit time set on the recurring item (Recurring Items form)
+//      or on a one-off goal (Schedule/Calendar time field).
+//   2. A name-based default: anything named/tagged "(PM)" or "evening"
+//      defaults to shortly before BEDTIME_LOCAL; anything "(AM)" or
+//      "morning" defaults to 8:00am.
+//   3. Anything left with no time at all (generic recurring items or
+//      one-off to-dos with no time) has no individual moment — it's swept
+//      into a single once-a-day "still open" digest, sent ~30 min before
+//      bedtime, so nothing silently never gets mentioned.
+//
+// A deterministic (not truly random, so a given day is reproducible)
+// +/-10 minute jitter is applied per item per day, so reminders don't land
+// at the exact same robotic minute every day.
+//
+// If something's still undone once its time has passed, it nags again
+// every RENAG_INTERVAL_MIN until it's done OR until BEDTIME_LOCAL, after
+// which it goes quiet for the day rather than pinging you at 2am. Which
+// items have been reminded about today (and how many times) is tracked in
+// a small Supabase row ('reminder_state') so this survives across the
+// stateless serverless calls between ticks.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
@@ -43,12 +55,10 @@
 //
 // Optional:
 //   REMINDER_TIMEZONE     IANA tz name, default 'America/New_York'
-//   REMINDER_HOURS_LOCAL  comma-separated 24h hours to check, default '14,20'.
-//                         Set this to every hour you want texts during (e.g.
-//                         '8,9,10,11,12,13,14,15,16,17,18,19,20,21,22' for
-//                         hourly 8am-10pm) — it's the actual gate on how
-//                         often you get texted, independent of how often
-//                         the workflow pings this endpoint.
+//   BEDTIME_LOCAL         24h HH:MM, default '23:00' — the cutoff after
+//                         which reminders stop for the day, and the anchor
+//                         "(PM)"/evening items with no explicit time default
+//                         shortly before.
 //   CRON_SECRET           if set, requests must carry
 //                         Authorization: Bearer <CRON_SECRET> — Vercel
 //                         sends this automatically on cron-triggered
@@ -57,14 +67,65 @@
 //                         hit by randoms to spam your phone / burn your quota.
 // ============================================================
 
-function currentHourInTz(tz) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(new Date());
-  const h = parts.find(p => p.type === 'hour').value;
-  return Number(h) % 24;
+const RENAG_INTERVAL_MIN = 90;       // how often to re-nag an undone item until it's done or bedtime
+const CATCHALL_OFFSET_MIN = 30;      // the once-daily "everything else" digest fires this many minutes before bedtime
+const PM_BEDTIME_OFFSET_MIN = 30;    // "(PM)"/evening items with no explicit time default to this many minutes before bedtime
+const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit time default to 8:00am
+const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per item per day
+
+function parseHM(hm) {
+  const parts = String(hm || '').split(':').map(Number);
+  const h = parts[0] || 0, m = parts[1] || 0;
+  return h * 60 + m;
 }
 
-// Varies the opening line across sends (same undone list otherwise reads
-// identically every time it repeats through the day) — deterministic by
+function minutesInTz(tz) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date());
+  const h = Number(parts.find(p => p.type === 'hour').value) % 24;
+  const m = Number(parts.find(p => p.type === 'minute').value);
+  return h * 60 + m;
+}
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+// Deterministic by (dateKey, name) rather than real randomness, so a given
+// day's schedule is stable across repeated ticks instead of jumping around.
+function jitterMinutes(seed) {
+  const h = hashStr(seed);
+  return (h % (JITTER_MAX_MIN * 2 + 1)) - JITTER_MAX_MIN;
+}
+
+// Returns null for a generic item with no assignable time — those go into
+// the once-daily catch-all digest instead of an individual reminder.
+export function effectiveTimeMinutes(name, explicitTime, bedtimeMin, dateKey) {
+  let base;
+  if (explicitTime) {
+    base = parseHM(explicitTime);
+  } else {
+    const n = String(name).toLowerCase();
+    if (/\(pm\)|\bevening\b/.test(n)) base = bedtimeMin - PM_BEDTIME_OFFSET_MIN;
+    else if (/\(am\)|\bmorning\b/.test(n)) base = DEFAULT_AM_MINUTES;
+    else return null;
+  }
+  return Math.max(0, base + jitterMinutes(dateKey + '|' + name));
+}
+
+// Pure decision function — no Date/network involved — so this is the one
+// most worth unit-testing thoroughly with synthetic values rather than
+// fighting the real clock.
+export function shouldSendNow(state, nowMin, effMin, bedtimeMin) {
+  if (nowMin < effMin) return false;       // its time hasn't arrived yet
+  if (nowMin >= bedtimeMin) return false;  // stop nagging for the day
+  if (!state) return true;                 // never reminded — due for the first nudge
+  return (nowMin - state.lastMinutes) >= RENAG_INTERVAL_MIN;
+}
+
+// Varies the opening line across catch-all sends (same undone list
+// otherwise reads identically every time it repeats) — deterministic by
 // date+hour rather than random, so a given run is reproducible if re-sent.
 const INTROS = [
   'Still todo today:',
@@ -85,10 +146,7 @@ function pickIntro(dateKey, hour) {
 // Recurring item names are whatever the user typed into main.html's
 // Recurring Items settings, not a fixed enum — so this matches on keywords
 // rather than exact names, with a generic pool as the fallback for anything
-// that doesn't match (custom items, one-off to-dos). Each item gets its own
-// deterministic-but-varied line instead of one flat comma list, so what
-// changes each send is tied to what's actually still undone, not just a
-// generic rotating header.
+// that doesn't match (custom items, one-off to-dos).
 function categorizeItem(name) {
   const n = String(name).toLowerCase();
   if (/side ?hustle|\bhustle\b|business|affiliate|editing client/.test(n)) return 'sideHustle';
@@ -182,15 +240,18 @@ const PHRASES = {
     n => 'Still open: ' + n.toLowerCase(),
   ],
 };
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
+
+// A single item's own reminder, not a bundled digest. `nagCount` (how many
+// times this item has already been reminded about today) shifts which
+// phrase gets picked, so a re-nag doesn't repeat the exact same line as the
+// first nudge.
+export function composeSingleMessage(name, dateKey, nagCount) {
+  const pool = PHRASES[categorizeItem(name)] || PHRASES.generic;
+  const seed = hashStr(dateKey + '|' + name + '|' + (nagCount || 0));
+  return pool[seed % pool.length](name);
 }
-// Exported for direct testing. dateKey/hour (not real randomness) drive the
-// phrase choice so the same undone list at the same date+hour always
-// composes the same message — a re-send after a transient failure won't
-// read as a different, confusing text.
+
+// The once-daily catch-all digest for items with no assignable time.
 export function composeMessage(undone, dateKey, hour) {
   const intro = pickIntro(dateKey, hour);
   const lines = undone.map(name => {
@@ -217,6 +278,16 @@ async function fetchRow(supabaseUrl, supabaseKey, key) {
   if (!r.ok) return null;
   const rows = await r.json();
   return (rows && rows[0] && rows[0].data) || null;
+}
+
+async function upsertRow(supabaseUrl, supabaseKey, key, data) {
+  const url = supabaseUrl + '/rest/v1/app_state?on_conflict=key';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key, data, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error('state write failed: ' + r.status + ' ' + (await r.text()));
 }
 
 function waterDoneToday(healthData, todayPlain) {
@@ -335,8 +406,10 @@ export async function sendReminder(body) {
   throw new Error('no delivery method configured — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID, the TWILIO_* vars, or RESEND_API_KEY + SMS_GATEWAY_TO');
 }
 
-// Exported separately from the HTTP handler so it can be exercised
-// directly in tests without going through req/res or real network calls.
+// Recurring items scheduled today and still undone — exported separately so
+// it can be exercised directly in tests without going through req/res or
+// real network calls. Returns bare names (unchanged shape from before);
+// the handler looks up each name's def.time itself.
 export async function computeUndone(fetchers) {
   const { goalsData, healthData, gymData, businessData, readingData, todayKey6am, todayPlain, dow, utcToday } = fetchers;
   const defs = (goalsData && goalsData['recur:defs']) || [];
@@ -356,6 +429,18 @@ export async function computeUndone(fetchers) {
   return undone;
 }
 
+// One-off (non-recurring) to-dos with a time set — added via the Schedule/
+// Calendar time field — that aren't already covered by a recurring def of
+// the same name. These get individually reminded the same as recurring
+// items with an explicit time.
+export function computeOneOffTimedUndone(goalsData, todayKey6am, defs) {
+  const existingGoals = (goalsData && goalsData['goals:' + todayKey6am]) || [];
+  const defNames = new Set((defs || []).map(d => d.name));
+  return existingGoals
+    .filter(g => g.time && !g.done && !defNames.has(g.text))
+    .map(g => ({ name: g.text, time: g.time }));
+}
+
 export default async function handler(req, res) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -365,43 +450,84 @@ export default async function handler(req, res) {
     }
 
     const tz = process.env.REMINDER_TIMEZONE || 'America/New_York';
-    const hours = (process.env.REMINDER_HOURS_LOCAL || '14,20').split(',').map(s => Number(s.trim())).filter(n => !isNaN(n));
-    const nowHour = currentHourInTz(tz);
-    if (hours.indexOf(nowHour) === -1) {
-      return res.status(200).json({ sent: false, skipped: true, reason: 'not a configured hour', nowHour, hours });
-    }
+    const bedtimeMin = parseHM(process.env.BEDTIME_LOCAL || '23:00');
+    const nowMin = minutesInTz(tz);
 
     const SUPABASE_URL = process.env.SUPABASE_URL;
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
-    const [goalsData, healthData, gymData, businessData, readingData] = await Promise.all([
+    const [goalsData, healthData, gymData, businessData, readingData, stateRow] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'po-coach'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'business'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reading'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state'),
     ]);
 
     const { key: todayKey6am, dow } = dateKeyInTz(tz, true);
     const { key: todayPlain } = dateKeyInTz(tz, false);
     const utcToday = new Date().toISOString().slice(0, 10);
 
-    const undone = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, todayKey6am, todayPlain, dow, utcToday });
+    const defs = (goalsData && goalsData['recur:defs']) || [];
+    const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, todayKey6am, todayPlain, dow, utcToday });
+    const recurItems = undoneRecurNames.map(name => ({ name, time: (defs.find(d => d.name === name) || {}).time || null }));
+    const oneOffItems = computeOneOffTimedUndone(goalsData, todayKey6am, defs);
+    const allItems = recurItems.concat(oneOffItems);
 
-    if (!undone.length) {
-      return res.status(200).json({ sent: false, reason: 'nothing undone' });
+    const todayState = (stateRow && stateRow[todayKey6am]) || {};
+    const dueIndividual = [];
+    const catchAllNames = [];
+
+    allItems.forEach(({ name, time }) => {
+      const eff = effectiveTimeMinutes(name, time, bedtimeMin, todayKey6am);
+      if (eff == null) { catchAllNames.push(name); return; }
+      const st = todayState[name];
+      if (shouldSendNow(st, nowMin, eff, bedtimeMin)) {
+        dueIndividual.push({ name, count: st ? st.count : 0 });
+      }
+    });
+
+    const catchAllEff = bedtimeMin - CATCHALL_OFFSET_MIN;
+    const catchAllDue = catchAllNames.length > 0 && nowMin >= catchAllEff && nowMin < bedtimeMin && !todayState.__catchall__;
+
+    if (!dueIndividual.length && !catchAllDue) {
+      return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
-    const body = composeMessage(undone, todayPlain, nowHour);
-    let result;
-    try {
-      result = await sendReminder(body);
-    } catch (e) {
-      return res.status(502).json({ error: 'send failed', detail: e && e.message ? e.message : String(e) });
+    const results = [];
+    let stateChanged = false;
+    for (const { name, count } of dueIndividual) {
+      const body = composeSingleMessage(name, todayKey6am, count);
+      try {
+        const result = await sendReminder(body);
+        todayState[name] = { count: count + 1, lastMinutes: nowMin };
+        stateChanged = true;
+        results.push({ name, method: result.method });
+      } catch (e) {
+        results.push({ name, error: e && e.message ? e.message : String(e) });
+      }
+    }
+    if (catchAllDue) {
+      const body = composeMessage(catchAllNames, todayPlain, Math.floor(nowMin / 60));
+      try {
+        const result = await sendReminder(body);
+        todayState.__catchall__ = true;
+        stateChanged = true;
+        results.push({ name: '__catchall__', items: catchAllNames, method: result.method });
+      } catch (e) {
+        results.push({ name: '__catchall__', items: catchAllNames, error: e && e.message ? e.message : String(e) });
+      }
     }
 
-    return res.status(200).json({ sent: true, undone, method: result.method, id: result.id });
+    if (stateChanged) {
+      // Only today's bucket is kept — older dateKeys are dropped rather
+      // than accumulating forever, since nothing ever reads them again.
+      await upsertRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state', { [todayKey6am]: todayState });
+    }
+
+    return res.status(200).json({ sent: results.some(r => !r.error), results, nowMin, bedtimeMin });
   } catch (e) {
     return res.status(500).json({ error: e && e.message ? e.message : String(e) });
   }

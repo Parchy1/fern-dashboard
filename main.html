@@ -1511,16 +1511,20 @@ body::after {
   // to those pages.
   // ============================================================
   const RECUR_KEY = 'recur:defs';
+  // `time` drives when api/send-reminders.js actually nudges you about each
+  // one — deliberately left unset on the "(PM)" items below, since their
+  // name matches the bedtime-anchor heuristic there (they default to
+  // shortly before BEDTIME_LOCAL rather than a fixed clock time).
   const RECUR_DEFAULTS = [
-    { id: 'rc1', name: 'Gym', freq: 'days', days: [1,2,3,4,5], autoSource: 'gym', note: '' },
-    { id: 'rc2', name: 'Work', freq: 'days', days: [1,2,3,4,5,6], autoSource: null, note: '3–6pm' },
-    { id: 'rc3', name: 'Read', freq: 'daily', days: null, autoSource: 'reading', note: '' },
-    { id: 'rc4', name: 'Stretch (AM)', freq: 'daily', days: null, autoSource: 'stretch_am', note: '' },
-    { id: 'rc5', name: 'Stretch (PM)', freq: 'daily', days: null, autoSource: 'stretch_pm', note: '' },
-    { id: 'rc6', name: 'Work on side hustles', freq: 'daily', days: null, autoSource: 'business', note: '' },
-    { id: 'rc7', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, note: 'morning' },
-    { id: 'rc8', name: 'Skin care (AM)', freq: 'daily', days: null, autoSource: null, note: '' },
-    { id: 'rc9', name: 'Skin care (PM)', freq: 'daily', days: null, autoSource: null, note: '' },
+    { id: 'rc1', name: 'Gym', freq: 'days', days: [1,2,3,4,5], autoSource: 'gym', note: '', time: '18:00' },
+    { id: 'rc2', name: 'Work', freq: 'days', days: [1,2,3,4,5,6], autoSource: null, note: '3–6pm', time: '15:00' },
+    { id: 'rc3', name: 'Read', freq: 'daily', days: null, autoSource: 'reading', note: '', time: '20:00' },
+    { id: 'rc4', name: 'Stretch (AM)', freq: 'daily', days: null, autoSource: 'stretch_am', note: '', time: '08:00' },
+    { id: 'rc5', name: 'Stretch (PM)', freq: 'daily', days: null, autoSource: 'stretch_pm', note: '', time: null },
+    { id: 'rc6', name: 'Work on side hustles', freq: 'daily', days: null, autoSource: 'business', note: '', time: '17:00' },
+    { id: 'rc7', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, note: 'morning', time: '09:00' },
+    { id: 'rc8', name: 'Skin care (AM)', freq: 'daily', days: null, autoSource: null, note: '', time: '08:15' },
+    { id: 'rc9', name: 'Skin care (PM)', freq: 'daily', days: null, autoSource: null, note: '', time: null },
   ];
   function getRecurDefs() {
     const v = storeGet(RECUR_KEY);
