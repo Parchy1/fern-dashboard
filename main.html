@@ -1525,6 +1525,7 @@ body::after {
     { id: 'rc7', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, note: 'morning', time: '09:00' },
     { id: 'rc8', name: 'Skin care (AM)', freq: 'daily', days: null, autoSource: null, note: '', time: '08:15' },
     { id: 'rc9', name: 'Skin care (PM)', freq: 'daily', days: null, autoSource: null, note: '', time: null },
+    { id: 'rc10', name: 'Morning Check-In', freq: 'daily', days: null, autoSource: 'peak_morning', note: '', time: '08:00' },
   ];
   function getRecurDefs() {
     const v = storeGet(RECUR_KEY);
@@ -1623,6 +1624,11 @@ body::after {
       const taken = storeGet('stack:taken:' + getActiveDateString()) || {};
       if (!Array.isArray(items) || !items.length) return false;
       return items.every(it => taken[it.id]);
+    }
+    if (autoSource === 'peak_morning') {
+      // peak.html's morning check-in uses a plain calendar date, same as plainToday here.
+      const morning = storeGet('peak:morning') || {};
+      return !!morning[plainToday];
     }
     return false;
   }

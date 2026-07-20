@@ -205,6 +205,13 @@ at the exact same robotic minute every day. If something's still undone once its
 it nags again every 90 minutes until you mark it done or until `BEDTIME_LOCAL` passes, after
 which it goes quiet for the day rather than pinging you overnight.
 
+**Feeling/stress check-ins (Peak tab) work differently on purpose:** unlike everything else
+above, these are meant to happen several times a day, so a single "done today" flag doesn't fit.
+Instead, starting at 9am, you get a prompt roughly every 4 hours whenever there hasn't been an
+actual logged check-in (spontaneous or via the assistant) in that window — logging one resets
+the 4-hour clock immediately, and it goes quiet once `BEDTIME_LOCAL` passes, same as everything
+else.
+
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called
@@ -295,12 +302,20 @@ just a one-way reminder text. It can see and act on essentially the whole dashbo
 Supabase rows the dashboard itself reads/writes): to-dos, recurring items, daily habits, gym
 (workout sets, exercises, cardio, stretch routines, body weight), water/supplements, finances
 (net worth accounts, purchases, subscriptions, orders, wishlist), side-hustle business
-(affiliate commitments/revenue, editing clients/deliveries/payments), and reading. Ask it
+(affiliate commitments/revenue, editing clients/deliveries/payments), reading, and Peak
+(morning check-in — wake time/resting heart rate/sleep hours/sleep quality — and feeling/stress
+check-ins, which it understands can happen several times a day rather than just once). Ask it
 questions about any of it, or tell it to log/change things directly — "log a $20 grocery run",
 "mark gym done", "log 3 sets of bench at 135 for 8 reps", "cancel my Hulu subscription", "add
-$50 to checking", "I finished chapter 3 of Atomic Habits" — names (exercises, clients, books,
-accounts, habits) are matched loosely, so it doesn't need to be word-for-word. It also takes
-over the recurring-item reminder texts from step 7 above once configured.
+$50 to checking", "I finished chapter 3 of Atomic Habits", "good morning, slept 7.5 hours, sleep
+was a 4", "feeling a 3, stress at 4 right now" — names (exercises, clients, books, accounts,
+habits) are matched loosely, so it doesn't need to be word-for-word. It also takes over the
+recurring-item reminder texts from step 7 above once configured, including the periodic
+feeling-check-in prompts described there.
+
+You can also ask it to set up new recurring reminders on the fly — e.g. "remind me to do a
+morning check-in every day at 8am" — which adds a new entry to the Recurring Items panel
+(Main tab) the same way filling out that form yourself would, without needing a redeploy.
 
 Calendar/Gmail/Drive (step 5) can be included too — see the separate **"Connect Google to the
 assistant"** steps further down, after the core setup below.
