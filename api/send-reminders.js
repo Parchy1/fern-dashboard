@@ -34,6 +34,15 @@
 // a small Supabase row ('reminder_state') so this survives across the
 // stateless serverless calls between ticks.
 //
+// Separately, if peak.html (morning check-in / feeling-stress check-ins)
+// is in use, this also sends a periodic "how are you feeling?" nudge every
+// FEELING_CHECKIN_INTERVAL_MIN during waking hours — deliberately NOT tied
+// to the once-a-day done/undone model above, since check-ins are meant to
+// happen several times a day, not just once. It looks at the actual
+// timestamps in peak:checkins (not just whether a reminder was sent), so a
+// spontaneous check-in you log on your own resets the interval same as a
+// prompted one would.
+//
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
 //
@@ -72,6 +81,32 @@ const CATCHALL_OFFSET_MIN = 30;      // the once-daily "everything else" digest 
 const PM_BEDTIME_OFFSET_MIN = 30;    // "(PM)"/evening items with no explicit time default to this many minutes before bedtime
 const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit time default to 8:00am
 const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per item per day
+const FEELING_CHECKIN_INTERVAL_MIN = 240; // how often to nudge for a feeling/stress check-in (4 hours)
+const FEELING_CHECKIN_START_MIN = 9 * 60;  // don't start nudging before 9am
+
+const FEELING_CHECKIN_PROMPTS = [
+  'Quick check-in — how are you feeling, and how\'s your stress? Just reply with a number 1-5 for each (or however you want to put it) and I\'ll log it.',
+  'How you doing right now? Feeling + stress, 1-5 each, whenever you\'ve got a sec.',
+  'Check-in time — mood and stress, 1-5. No rush, just curious how today\'s going.',
+  'How\'s the day treating you? Feeling/stress 1-5 and I\'ll get it logged.',
+];
+function pickFeelingPrompt(dateKey, nowMin) {
+  const seed = hashStr(dateKey + '|feeling|' + Math.floor(nowMin / FEELING_CHECKIN_INTERVAL_MIN));
+  return FEELING_CHECKIN_PROMPTS[seed % FEELING_CHECKIN_PROMPTS.length];
+}
+
+// Pure decision function, mirrors shouldSendNow's style — no Date/network
+// involved, so directly unit-testable with synthetic values.
+export function shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, feelingState) {
+  if (nowMin < FEELING_CHECKIN_START_MIN || nowMin >= bedtimeMin) return false;
+  const checkins = (peakData && peakData['peak:checkins']) || [];
+  const intervalMs = FEELING_CHECKIN_INTERVAL_MIN * 60 * 1000;
+  const nowMs = Date.now();
+  const hasRecentRealCheckin = checkins.some(c => typeof c.ts === 'number' && (nowMs - c.ts) < intervalMs);
+  if (hasRecentRealCheckin) return false;
+  if (feelingState && (nowMin - feelingState.lastMinutes) < FEELING_CHECKIN_INTERVAL_MIN) return false;
+  return true;
+}
 
 function parseHM(hm) {
   const parts = String(hm || '').split(':').map(Number);
@@ -343,6 +378,11 @@ function sourceDoneToday(autoSource, ctx) {
     if (!Array.isArray(items) || !items.length) return false;
     return items.every(it => taken[it.id]);
   }
+  if (autoSource === 'peak_morning') {
+    // peak.html's morning check-in uses a plain calendar date, same as todayPlain here.
+    const morning = (ctx.peakData && ctx.peakData['peak:morning']) || {};
+    return !!morning[todayPlain];
+  }
   return false;
 }
 
@@ -411,13 +451,13 @@ export async function sendReminder(body) {
 // real network calls. Returns bare names (unchanged shape from before);
 // the handler looks up each name's def.time itself.
 export async function computeUndone(fetchers) {
-  const { goalsData, healthData, gymData, businessData, readingData, todayKey6am, todayPlain, dow, utcToday } = fetchers;
+  const { goalsData, healthData, gymData, businessData, readingData, peakData, todayKey6am, todayPlain, dow, utcToday } = fetchers;
   const defs = (goalsData && goalsData['recur:defs']) || [];
   const existingGoals = (goalsData && goalsData['goals:' + todayKey6am]) || [];
   const existingByText = {};
   existingGoals.forEach(g => { existingByText[g.text] = g; });
 
-  const ctx = { gymData, readingData, businessData, healthData, todayPlain, todayKey6am, utcToday };
+  const ctx = { gymData, readingData, businessData, healthData, peakData, todayPlain, todayKey6am, utcToday };
   const undone = [];
   defs.forEach(def => {
     if (!isScheduledToday(def, dow)) return;
@@ -457,12 +497,13 @@ export default async function handler(req, res) {
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
-    const [goalsData, healthData, gymData, businessData, readingData, stateRow] = await Promise.all([
+    const [goalsData, healthData, gymData, businessData, readingData, peakData, stateRow] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'po-coach'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'business'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reading'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'peak'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state'),
     ]);
 
@@ -471,7 +512,7 @@ export default async function handler(req, res) {
     const utcToday = new Date().toISOString().slice(0, 10);
 
     const defs = (goalsData && goalsData['recur:defs']) || [];
-    const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, todayKey6am, todayPlain, dow, utcToday });
+    const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, peakData, todayKey6am, todayPlain, dow, utcToday });
     const recurItems = undoneRecurNames.map(name => ({ name, time: (defs.find(d => d.name === name) || {}).time || null }));
     const oneOffItems = computeOneOffTimedUndone(goalsData, todayKey6am, defs);
     const allItems = recurItems.concat(oneOffItems);
@@ -491,8 +532,9 @@ export default async function handler(req, res) {
 
     const catchAllEff = bedtimeMin - CATCHALL_OFFSET_MIN;
     const catchAllDue = catchAllNames.length > 0 && nowMin >= catchAllEff && nowMin < bedtimeMin && !todayState.__catchall__;
+    const feelingCheckinDue = shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, todayState.__feeling_checkin__);
 
-    if (!dueIndividual.length && !catchAllDue) {
+    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
@@ -518,6 +560,17 @@ export default async function handler(req, res) {
         results.push({ name: '__catchall__', items: catchAllNames, method: result.method });
       } catch (e) {
         results.push({ name: '__catchall__', items: catchAllNames, error: e && e.message ? e.message : String(e) });
+      }
+    }
+    if (feelingCheckinDue) {
+      const body = pickFeelingPrompt(todayKey6am, nowMin);
+      try {
+        const result = await sendReminder(body);
+        todayState.__feeling_checkin__ = { lastMinutes: nowMin };
+        stateChanged = true;
+        results.push({ name: '__feeling_checkin__', method: result.method });
+      } catch (e) {
+        results.push({ name: '__feeling_checkin__', error: e && e.message ? e.message : String(e) });
       }
     }
 

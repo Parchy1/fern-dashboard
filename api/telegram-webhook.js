@@ -55,6 +55,7 @@
 function tz() { return process.env.REMINDER_TIMEZONE || 'America/New_York'; }
 const NW_CATS = ['cash', 'bank', 'stocks', 'crypto', 'other'];
 const PUR_CCY_KEYS = ['CHF', 'USD', 'EUR', 'GBP', 'DOP'];
+const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'business', 'water', 'supplements', 'peak_morning'];
 
 // ---------- date helpers (must match the dashboard's own conventions) ----------
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -337,6 +338,49 @@ const TOOLS = [
         expected_date: { type: 'string', description: 'Optional, YYYY-MM-DD expected arrival date (cosmetic only)' },
       },
       required: ['name', 'amount'],
+    },
+  },
+  {
+    name: 'log_morning_checkin',
+    description: 'Log this morning\'s check-in on the Peak tab: wake time, resting heart rate, sleep hours, and/or sleep quality. Only include fields the user actually mentioned — omit the rest.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        wake_time: { type: 'string', description: '24h HH:MM the user woke up, if mentioned' },
+        rhr: { type: 'number', description: 'Resting heart rate, if mentioned' },
+        sleep_hours: { type: 'number' },
+        sleep_quality: { type: 'number', description: '1-5 rating of sleep quality, if mentioned (e.g. "sleep was a 5" -> 5)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'log_feeling_checkin',
+    description: 'Log a feeling/stress check-in on the Peak tab. Unlike most other logging tools, this is meant to be called MULTIPLE times a day — each check-in is its own entry, not a once-daily thing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        feeling: { type: 'number', description: '1-5 mood/energy rating (1=very low, 5=great), if mentioned' },
+        stress: { type: 'number', description: '1-5 stress rating (1=very calm, 5=very stressed), if mentioned' },
+        note: { type: 'string', description: 'Optional short context, e.g. "big deadline today"' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'add_recurring_item',
+    description: 'Create a new recurring item on the Main tab\'s Recurring Items list (e.g. a daily reminder to do something). If the item corresponds to something this assistant can auto-detect as done (a Peak morning check-in, a gym day, a reading session, water, supplements, AM/PM stretch routines, or side-hustle activity), set auto_source so it self-completes instead of needing a manual checkbox.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        freq: { type: 'string', enum: ['daily', 'days'], description: 'Defaults to "daily" if not specified' },
+        days: { type: 'array', items: { type: 'number' }, description: 'Only used when freq is "days" — 0=Sunday through 6=Saturday' },
+        time: { type: 'string', description: 'Optional 24h HH:MM this should be reminded about' },
+        auto_source: { type: 'string', enum: KNOWN_AUTO_SOURCES, description: 'Optional — see description above' },
+        note: { type: 'string' },
+      },
+      required: ['name'],
     },
   },
 ];
@@ -754,6 +798,64 @@ async function execAddOrder(args) {
   });
 }
 
+function clamp15(n) { return Math.max(1, Math.min(5, Math.round(Number(n)))); }
+
+// ---------- Peak (morning check-in, feeling/stress check-ins) ----------
+// peak.html uses a plain calendar date (no 6am boundary) for both stores —
+// same convention as plainDateKey().
+async function execLogMorningCheckin(args) {
+  return patchRow('peak', (peak) => {
+    const morning = peak['peak:morning'] || {};
+    const key = plainDateKey();
+    const existing = morning[key] || {};
+    const entry = {
+      wakeTime: args.wake_time != null ? args.wake_time : (existing.wakeTime || ''),
+      rhr: args.rhr != null ? Number(args.rhr) : (existing.rhr || null),
+      sleepHours: args.sleep_hours != null ? Number(args.sleep_hours) : (existing.sleepHours || null),
+      sleepQuality: args.sleep_quality != null ? clamp15(args.sleep_quality) : (existing.sleepQuality || null),
+      ts: Date.now(),
+    };
+    morning[key] = entry;
+    peak['peak:morning'] = morning;
+    return { ok: true, entry };
+  });
+}
+
+async function execLogFeelingCheckin(args) {
+  if (args.feeling == null && args.stress == null) return { ok: false, reason: 'need at least a feeling or stress rating to log a check-in' };
+  return patchRow('peak', (peak) => {
+    const list = peak['peak:checkins'] || [];
+    list.push({
+      id: 'ck' + Date.now() + Math.floor(Math.random() * 1000), ts: Date.now(), dateKey: plainDateKey(),
+      feeling: args.feeling != null ? clamp15(args.feeling) : null,
+      stress: args.stress != null ? clamp15(args.stress) : null,
+      note: args.note || '',
+    });
+    peak['peak:checkins'] = list;
+    return { ok: true };
+  });
+}
+
+// ---------- Generic recurring-item creation (Main tab's Recurring Items) ----------
+async function execAddRecurringItem(args) {
+  return patchRow('goals', (goals) => {
+    const defs = goals['recur:defs'] || [];
+    if (defs.some(d => String(d.name).toLowerCase() === String(args.name).toLowerCase())) {
+      return { ok: false, reason: 'a recurring item named "' + args.name + '" already exists' };
+    }
+    const freq = args.freq === 'days' ? 'days' : 'daily';
+    const days = freq === 'days' && Array.isArray(args.days) ? args.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : null;
+    defs.push({
+      id: 'rc' + Date.now() + Math.floor(Math.random() * 1000),
+      name: args.name, freq, days,
+      autoSource: KNOWN_AUTO_SOURCES.includes(args.auto_source) ? args.auto_source : null,
+      note: args.note || '', time: args.time || null,
+    });
+    goals['recur:defs'] = defs;
+    return { ok: true };
+  });
+}
+
 const TOOL_EXECUTORS = {
   log_purchase: execLogPurchase,
   add_todo: execAddTodo,
@@ -778,6 +880,9 @@ const TOOL_EXECUTORS = {
   cancel_subscription: execCancelSubscription,
   add_wishlist_item: execAddWishlistItem,
   add_order: execAddOrder,
+  log_morning_checkin: execLogMorningCheckin,
+  log_feeling_checkin: execLogFeelingCheckin,
+  add_recurring_item: execAddRecurringItem,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -886,7 +991,7 @@ async function buildGoogleContext() {
 
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
-  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading'];
+  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });
@@ -898,18 +1003,23 @@ async function buildContext() {
 const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wired directly into essentially their '
   + 'whole personal dashboard — to-dos, recurring items and daily habits, gym (workout program/sets, cardio, stretch '
   + 'routines, body weight), water/supplements, finances (net worth accounts, purchases, subscriptions, incoming '
-  + 'orders, wishlist), side-hustle business (affiliate commitments/revenue, editing clients/deliveries/payments), and '
-  + 'reading — passed below as JSON from the same database the dashboard itself reads and writes. You also have tools '
-  + 'to actually change most of that: log a purchase, add/complete a to-do, mark a habit done, log water/a supplement, '
-  + 'log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session or body weight, log '
-  + 'affiliate/editing business activity, log a reading session or add a book, adjust a net worth account balance, '
-  + 'and add/cancel a subscription, order, or wishlist item. Use a tool whenever the user is clearly asking you to DO '
-  + 'one of those things (e.g. "log a $20 grocery run", "mark gym done", "I took my creatine", "log 3 sets of bench at '
-  + '135 for 8 reps", "add $50 to checking", "cancel my Hulu subscription"), not just when they ask a question about '
-  + 'their data. Names (exercises, clients, books, habits, accounts, subscriptions) are matched loosely — exact or '
-  + 'partial — so don\'t worry about getting a name exactly right before calling a tool. Be direct, concise, and '
-  + 'conversational — this is a text chat, not a report. If a tool call fails or finds no match, say so plainly '
-  + 'instead of pretending it worked. '
+  + 'orders, wishlist), side-hustle business (affiliate commitments/revenue, editing clients/deliveries/payments), '
+  + 'reading, and Peak (a morning check-in of wake time/resting heart rate/sleep hours/sleep quality, plus feeling/'
+  + 'stress check-ins logged any number of times through the day) — passed below as JSON from the same database the '
+  + 'dashboard itself reads and writes. You also have tools to actually change most of that: log a purchase, '
+  + 'add/complete a to-do, mark a habit done, log water/a supplement, log a workout set or mark an exercise/gym day/'
+  + 'stretch routine done, log a cardio session or body weight, log affiliate/editing business activity, log a '
+  + 'reading session or add a book, adjust a net worth account balance, add/cancel a subscription/order/wishlist '
+  + 'item, log a Peak morning check-in or a feeling/stress check-in (this one can happen several times a day — don\'t '
+  + 'treat it as already-done just because one happened earlier), and create a brand-new recurring item on the to-do '
+  + 'list\'s Recurring Items section (set auto_source to peak_morning/gym/reading/stretch_am/stretch_pm/business/'
+  + 'water/supplements when the new item corresponds to one of those, so it self-completes instead of needing a '
+  + 'manual checkbox). Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 '
+  + 'grocery run", "mark gym done", "sleep was a 5, stress at 1, just woke up", "add a recurring reminder for X"), '
+  + 'not just when they ask a question about their data. Names (exercises, clients, books, habits, accounts, '
+  + 'subscriptions) are matched loosely — exact or partial — so don\'t worry about getting a name exactly right '
+  + 'before calling a tool. Be direct, concise, and conversational — this is a text chat, not a report. If a tool '
+  + 'call fails or finds no match, say so plainly instead of pretending it worked. '
   + 'If a "google" key is present in the data, it has today\'s Calendar events, Gmail unread count/subjects, and '
   + 'recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected or the tokens have '
   + 'expired — say so rather than guessing at calendar/email/file content. Google Calendar is read-only here (no '
