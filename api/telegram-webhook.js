@@ -172,13 +172,14 @@ const TOOLS = [
   },
   {
     name: 'log_workout_set',
-    description: 'Log one set (weight + reps) for a specific exercise in the current workout program, matched by name.',
+    description: 'Log one set (weight + reps) for a specific exercise in the current workout program, matched by name. Defaults to right now, but can backdate to fix a missed or accidentally-deleted log from an earlier day.',
     input_schema: {
       type: 'object',
       properties: {
         exercise: { type: 'string', description: 'Exercise name, e.g. "Bench Press"' },
         weight: { type: 'number', description: 'Weight used (in whatever unit the program is configured for)' },
         reps: { type: 'number' },
+        date: { type: 'string', description: 'Optional, YYYY-MM-DD — only set this if the user is logging/restoring a set for a past day (e.g. "put back the set I deleted from July 10th"). Omit entirely to log for right now.' },
       },
       required: ['exercise', 'weight', 'reps'],
     },
@@ -494,12 +495,22 @@ async function execLogWorkoutSet(args) {
     const exercises = (state && state.exercises) || [];
     const ex = fuzzyFind(exercises, args.exercise, e => e.name);
     if (!ex) return { ok: false, reason: 'no exercise found matching "' + args.exercise + '"' };
+    const when = args.date ? new Date(args.date + 'T12:00:00') : new Date();
+    if (isNaN(when.getTime())) return { ok: false, reason: 'could not understand date "' + args.date + '"' };
     state.logs = state.logs || {};
     const arr = state.logs[ex.id] || [];
-    arr.push({ weight: Number(args.weight) || 0, reps: Number(args.reps) || 0, date: new Date().toISOString() });
+    const entry = { weight: Number(args.weight) || 0, reps: Number(args.reps) || 0, date: when.toISOString() };
+    // gym.html's history/sparkline/best-set logic all assume this array is
+    // in chronological (push) order, so a backdated set must be inserted
+    // at its correct position rather than just appended at the end.
+    let insertAt = arr.length;
+    for (let i = 0; i < arr.length; i++) {
+      if (new Date(arr[i].date).getTime() > when.getTime()) { insertAt = i; break; }
+    }
+    arr.splice(insertAt, 0, entry);
     state.logs[ex.id] = arr;
     pc['po_coach_v1'] = state;
-    return { ok: true, matched: ex.name };
+    return { ok: true, matched: ex.name, date: when.toISOString().slice(0, 10) };
   });
 }
 
