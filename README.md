@@ -26,6 +26,12 @@ Open any `.html` file directly in your browser — no build step, no install.
 
 Each app stores its own state in browser `localStorage`. No accounts, no server.
 
+## Tests
+
+`npm test` runs the Node test suite in [tests/](tests/) (the serverless `api/*.js` functions,
+plus gym.html's config-migration logic) — no browser, no external services. Runs automatically
+on every push/PR via [.github/workflows/tests.yml](.github/workflows/tests.yml).
+
 ## Building from scratch
 
 [BUILD_DASHBOARD.md](BUILD_DASHBOARD.md) is the prompt I gave Claude to generate `index.html` — paste it into Claude if you want to rebuild that page yourself.
