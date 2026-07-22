@@ -249,6 +249,10 @@ body::after {
       loggedDays: entries.length, totalDays: days.length,
     };
   }
+  // Returns raw CHF-equivalent base values (matching finance.html's internal
+  // engine) — deliberately NOT converted here, so this stays a pure function
+  // of nw:history alone. Callers multiply by usdRate at display time instead
+  // (see renderRecap/statsSummaryText below).
   function netWorthChangeStat(windowStartMs) {
     const hist = storeGet('nw:history') || [];
     const pts = hist.filter(p => p.t >= windowStartMs);
@@ -256,6 +260,14 @@ body::after {
     const last = pts[pts.length - 1];
     if (pts.length < 2) return { current: last.v, change: null };
     return { current: last.v, change: Math.round((last.v - pts[0].v) * 100) / 100 };
+  }
+  let yrUsdRate = 1;
+  async function loadYrUsdRate() {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/CHF');
+      const data = await res.json();
+      if (data && data.rates && data.rates.USD) { yrUsdRate = data.rates.USD; renderRecap(); }
+    } catch (e) {}
   }
   // Longest UNBROKEN run within the window — a genuine "best streak of the
   // year" milestone, distinct from the CURRENT streak shown elsewhere.
@@ -322,8 +334,8 @@ body::after {
     if (pk) cards.push(card('Peak Score', pk.avg + ' · ' + peakTier(pk.avg), 'logged ' + pk.loggedDays + '/' + pk.totalDays + ' days'));
 
     const nw = netWorthChangeStat(windowStart.getTime());
-    if (nw) cards.push(card('Net Worth', 'CHF ' + Math.round(nw.current).toLocaleString('en-US'),
-      nw.change != null ? ((nw.change >= 0 ? '+' : '−') + 'CHF ' + Math.abs(Math.round(nw.change)).toLocaleString('en-US') + ' over the year') : 'not enough history yet for a year-over comparison'));
+    if (nw) cards.push(card('Net Worth', 'USD ' + Math.round(nw.current * yrUsdRate).toLocaleString('en-US'),
+      nw.change != null ? ((nw.change >= 0 ? '+' : '−') + 'USD ' + Math.abs(Math.round(nw.change * yrUsdRate)).toLocaleString('en-US') + ' over the year') : 'not enough history yet for a year-over comparison'));
 
     const b = businessStat(days);
     if (b) cards.push(card('Business', '$' + Math.round(b.revenue).toLocaleString(), b.rate != null ? (b.rate + '% of daily commitments met') : 'revenue over the year'));
@@ -351,7 +363,7 @@ body::after {
     const r = readingStat(days); if (r) push('Pages read', r.pages);
     const s = sleepStat(days); if (s) push('Avg sleep', s.avgHours + 'h' + (s.avgQuality != null ? (', quality ' + s.avgQuality + '/5') : '') + ' (logged ' + s.loggedDays + '/' + s.totalDays + ' nights)');
     const pk = peakStat(days); if (pk) push('Avg peak/energy score', pk.avg + ' (' + peakTier(pk.avg) + ')');
-    const nw = netWorthChangeStat(windowStart.getTime()); if (nw) push('Net worth', 'CHF ' + Math.round(nw.current) + (nw.change != null ? (', change over the year ' + (nw.change >= 0 ? '+' : '') + Math.round(nw.change)) : ''));
+    const nw = netWorthChangeStat(windowStart.getTime()); if (nw) push('Net worth', 'USD ' + Math.round(nw.current * yrUsdRate) + (nw.change != null ? (', change over the year ' + (nw.change >= 0 ? '+' : '') + Math.round(nw.change * yrUsdRate)) : ''));
     const b = businessStat(days); if (b) push('Business revenue', '$' + Math.round(b.revenue));
     return lines.join('\n');
   }
@@ -408,6 +420,7 @@ body::after {
     renderSummary();
   }
   renderAll();
+  loadYrUsdRate();
 
   /* ============ Cloud sync (only the cached narrative — every underlying
    * stat is read from data other pages already sync) ============ */

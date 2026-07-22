@@ -444,17 +444,29 @@ body::after {
     const slopePerDay = (n * sumXY - sumX * sumY) / denom;
     return { slopePerDay: slopePerDay, monthlyRate: slopePerDay * 30.44, currentValue: ys[ys.length - 1], samples: n, windowStartT: pts[0].t };
   }
+  // nw:history values are stored in CHF-equivalent base units (matching
+  // finance.html's internal engine, invisible to the user) — USD is the only
+  // default display currency now, so this card needs the real exchange rate
+  // applied rather than just swapping the label.
+  let mcUsdRate = 1;
+  async function loadMcUsdRate() {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/CHF');
+      const data = await res.json();
+      if (data && data.rates && data.rates.USD) { mcUsdRate = data.rates.USD; renderMoneyStat(); }
+    } catch (e) {}
+  }
   function renderMoneyStat() {
     const valEl = document.getElementById('mcMoneyValue'), subEl = document.getElementById('mcMoneySub');
     if (!valEl) return;
     const hist = storeGet('nw:history') || [];
     if (!hist.length) { valEl.textContent = '—'; subEl.textContent = 'Not tracked yet'; return; }
-    const current = hist[hist.length - 1].v;
-    valEl.textContent = 'CHF ' + Math.round(current).toLocaleString('en-US');
+    const current = hist[hist.length - 1].v * mcUsdRate;
+    valEl.textContent = 'USD ' + Math.round(current).toLocaleString('en-US');
     const trend = computeNetWorthTrend(hist, 180);
     if (trend && trend.monthlyRate) {
       const sign = trend.monthlyRate >= 0 ? '+' : '−';
-      subEl.textContent = sign + 'CHF ' + Math.round(Math.abs(trend.monthlyRate)).toLocaleString('en-US') + '/mo trending';
+      subEl.textContent = sign + 'USD ' + Math.round(Math.abs(trend.monthlyRate) * mcUsdRate).toLocaleString('en-US') + '/mo trending';
       subEl.style.color = trend.monthlyRate >= 0 ? '#6BE3A4' : '#FF6B6B';
     } else {
       subEl.textContent = 'Trend building…';
@@ -563,6 +575,7 @@ body::after {
   }
 
   renderSnapshot();
+  loadMcUsdRate();
   pullFreshSnapshotSources().then(renderSnapshot);
   window.addEventListener('pageshow', function () { pullFreshSnapshotSources().then(renderSnapshot); });
   document.addEventListener('visibilitychange', function () {

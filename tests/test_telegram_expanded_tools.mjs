@@ -235,7 +235,7 @@ function makeFakeSupabase(seed) {
     assertTrue(Math.abs(debt.minPayment - 220 / 1.1) < 0.001, 'minimum payment also converted to CHF base, matching the balance');
 
     // apr/min_payment are optional — a bare debt still logs cleanly.
-    const r2 = await TOOL_EXECUTORS.add_debt({ name: 'Family loan', balance: 500, currency: 'CHF' });
+    const r2 = await TOOL_EXECUTORS.add_debt({ name: 'Family loan', balance: 500, currency: 'DOP' });
     assertEq(r2.ok, true, 'add_debt succeeds with no APR or minimum payment given');
     const bareDebt = fake.rows.finance.debts[1];
     assertEq(bareDebt.apr, 0, 'APR defaults to 0 when not mentioned');

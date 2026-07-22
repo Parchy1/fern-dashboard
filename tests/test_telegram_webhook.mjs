@@ -63,15 +63,16 @@ function makeFakeSupabase(seed) {
   // ---- log_purchase: matching account -> deducts + logs activity, preserves sibling nw:* keys ----
   {
     const fake = makeFakeSupabase({
-      finance: { purchases: [], 'nw:bank': [{ name: 'Checking', amount: 1000 }], 'nw:cash': [{ name: 'Wallet', amount: 50 }], nw_currency: 'CHF' },
+      finance: { purchases: [], 'nw:bank': [{ name: 'Checking', amount: 1000 }], 'nw:cash': [{ name: 'Wallet', amount: 50 }], nw_currency: 'USD' },
     });
     global.fetch = fake.fetchStub;
-    const result = await TOOL_EXECUTORS.log_purchase({ name: 'Rent', amount: 100, currency: 'CHF', from_account: 'checking' });
+    const result = await TOOL_EXECUTORS.log_purchase({ name: 'Rent', amount: 100, currency: 'USD', from_account: 'checking' });
     assertEq(result.fromAccount, 'Checking', 'log_purchase matches account name case-insensitively');
-    assertEq(fake.rows.finance['nw:bank'][0].amount, 900, 'matched account correctly deducted');
+    const expectedDeducted = 1000 - 100 / 1.1;
+    assertTrue(Math.abs(fake.rows.finance['nw:bank'][0].amount - expectedDeducted) < 0.001, 'matched account correctly deducted using the fetched USD rate');
     assertEq(fake.rows.finance['nw:cash'][0].amount, 50, 'sibling nw:cash account left untouched');
-    assertEq(fake.rows.finance.nw_currency, 'CHF', 'unrelated sibling key (nw_currency) preserved through the read-merge-write');
-    assertTrue(fake.rows.finance['nw:activity'].length === 1 && fake.rows.finance['nw:activity'][0].delta === -100, 'activity log entry created with correct negative delta');
+    assertEq(fake.rows.finance.nw_currency, 'USD', 'unrelated sibling key (nw_currency) preserved through the read-merge-write');
+    assertTrue(fake.rows.finance['nw:activity'].length === 1 && Math.abs(fake.rows.finance['nw:activity'][0].delta - (-100 / 1.1)) < 0.001, 'activity log entry created with correct negative delta');
   }
 
   // ---- add_todo / mark_todo_done round-trip, preserving sibling goals:<key> data under 'goals' row ----
