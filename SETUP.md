@@ -212,6 +212,12 @@ actual logged check-in (spontaneous or via the assistant) in that window — log
 the 4-hour clock immediately, and it goes quiet once `BEDTIME_LOCAL` passes, same as everything
 else.
 
+**Subscription renewals (Finance tab) work differently too:** rather than a daily nag, you get a
+one-time heads-up 3 days before each subscription's renewal date (and again isn't sent for that
+same renewal once it's fired — the next one only fires ahead of the *following* cycle). Covers
+every subscription with a renewal date set, whether or not it's linked to an account for
+auto-deduct — a heads-up is still useful even for ones that charge automatically.
+
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called
