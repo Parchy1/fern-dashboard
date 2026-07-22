@@ -60,6 +60,35 @@ function computeSleepStressInsight(morning, checkins) {
   return { avgGood: avg(goodSleepStress), avgPoor: avg(poorSleepStress), nGood: goodSleepStress.length, nPoor: poorSleepStress.length };
 }
 
+// Generalizes the caffeine/sleep and sleep/stress pattern above to a
+// different life domain (gym days) — see the equivalent functions in
+// peak.html for the full rationale comment.
+function computeGymCheckinInsight(doneDays, checkins, checkinField) {
+  const byDay = {};
+  (checkins || []).forEach(c => {
+    if (!c[checkinField] || !c.dateKey) return;
+    (byDay[c.dateKey] = byDay[c.dateKey] || []).push(c[checkinField]);
+  });
+  const withGym = [], withoutGym = [];
+  Object.keys(byDay).forEach(dateKey => {
+    const dayAvg = avg(byDay[dateKey]);
+    ((doneDays || {})[dateKey] ? withGym : withoutGym).push(dayAvg);
+  });
+  if (withGym.length < INSIGHT_MIN_SAMPLES || withoutGym.length < INSIGHT_MIN_SAMPLES) return null;
+  return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
+}
+function computeGymSleepInsight(doneDays, morning) {
+  const withGym = [], withoutGym = [];
+  Object.keys(morning || {}).forEach(dateKey => {
+    const q = morning[dateKey] && morning[dateKey].sleepQuality;
+    if (!q) return;
+    const prevDay = shiftDateKey(dateKey, -1);
+    ((doneDays || {})[prevDay] ? withGym : withoutGym).push(q);
+  });
+  if (withGym.length < INSIGHT_MIN_SAMPLES || withoutGym.length < INSIGHT_MIN_SAMPLES) return null;
+  return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
+}
+
 // ---- helpers to build test fixtures ----
 function keyDaysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return dateToKey(d); }
 function tsAt(daysAgo, hour) { const d = new Date(); d.setDate(d.getDate() - daysAgo); d.setHours(hour, 0, 0, 0); return d.getTime(); }
@@ -130,6 +159,64 @@ function tsAt(daysAgo, hour) { const d = new Date(); d.setDate(d.getDate() - day
   [5, 6, 7, 8, 9].forEach(n => checkinsMulti.push({ dateKey: keyDaysAgo(n), stress: 1 }));
   const resultMulti = computeSleepStressInsight(morningMulti, checkinsMulti);
   assertEq(resultMulti.avgPoor, 5, 'multiple check-ins on the same day are averaged before being folded into the overall comparison');
+}
+
+// ==================== computeGymCheckinInsight ====================
+{
+  assertEq(computeGymCheckinInsight({}, [], 'feeling'), null, 'returns null with no data at all');
+
+  const doneDays = {};
+  [0, 1, 2, 3, 4].forEach(n => { doneDays[keyDaysAgo(n)] = true; });
+  const checkins = [];
+  [0, 1, 2, 3, 4].forEach(n => checkins.push({ dateKey: keyDaysAgo(n), feeling: 5, stress: 1 }));
+  [5, 6, 7, 8, 9].forEach(n => checkins.push({ dateKey: keyDaysAgo(n), feeling: 2, stress: 4 }));
+
+  const feelingResult = computeGymCheckinInsight(doneDays, checkins, 'feeling');
+  assertTrue(!!feelingResult, 'returns a result once both sides have >= 5 samples');
+  assertEq(feelingResult.avgWith, 5, 'average feeling on gym days is correct');
+  assertEq(feelingResult.avgWithout, 2, 'average feeling on rest days is correct');
+  assertEq(feelingResult.nWith, 5, 'sample count for gym days is correct');
+  assertEq(feelingResult.nWithout, 5, 'sample count for rest days is correct');
+
+  const stressResult = computeGymCheckinInsight(doneDays, checkins, 'stress');
+  assertEq(stressResult.avgWith, 1, 'average stress on gym days is correct, using the same bucketing with a different check-in field');
+  assertEq(stressResult.avgWithout, 4, 'average stress on rest days is correct');
+
+  // Below the minimum sample size on one side -> null.
+  const fewDoneDays = {};
+  [0, 1].forEach(n => { fewDoneDays[keyDaysAgo(n)] = true; });
+  const fewCheckins = [0, 1, 2, 3, 4, 5, 6].map(n => ({ dateKey: keyDaysAgo(n), feeling: 3 }));
+  assertEq(computeGymCheckinInsight(fewDoneDays, fewCheckins, 'feeling'), null, 'returns null when below the minimum sample size on the gym-days side (only 2 gym days)');
+
+  // A day with a workout logged but no check-in at all contributes to neither bucket.
+  const doneDaysExtra = Object.assign({}, doneDays);
+  doneDaysExtra[keyDaysAgo(20)] = true; // no matching check-in entry
+  const sameResult = computeGymCheckinInsight(doneDaysExtra, checkins, 'feeling');
+  assertEq(sameResult.nWith, 5, 'a gym day with no check-in logged does not inflate the sample count');
+}
+
+// ==================== computeGymSleepInsight ====================
+{
+  assertEq(computeGymSleepInsight({}, {}), null, 'returns null with no data at all');
+
+  // Gym on days 1-5 (yesterday relative to each morning entry on days 0-4); rest on days 6-10 (yesterday of mornings 5-9).
+  const doneDays = {};
+  [1, 2, 3, 4, 5].forEach(n => { doneDays[keyDaysAgo(n)] = true; });
+  const morning = {};
+  [0, 1, 2, 3, 4].forEach(n => { morning[keyDaysAgo(n)] = { sleepQuality: 5 }; }); // morning after a gym-day evening (prevDay = n+1, which is in doneDays)
+  [6, 7, 8, 9, 10].forEach(n => { morning[keyDaysAgo(n)] = { sleepQuality: 2 }; }); // morning after a rest-day evening
+
+  const result = computeGymSleepInsight(doneDays, morning);
+  assertTrue(!!result, 'returns a result once both sides have >= 5 samples');
+  assertEq(result.avgWith, 5, 'average sleep quality the morning after a gym day is correct');
+  assertEq(result.avgWithout, 2, 'average sleep quality the morning after a rest day is correct');
+  assertEq(result.nWith, 5, 'sample count for post-gym-day nights is correct');
+  assertEq(result.nWithout, 5, 'sample count for post-rest-day nights is correct');
+
+  // A morning entry with no sleepQuality logged is safely skipped.
+  const morningWithGap = Object.assign({}, morning);
+  morningWithGap[keyDaysAgo(20)] = { sleepQuality: null };
+  assertEq(computeGymSleepInsight(doneDays, morningWithGap).nWith + computeGymSleepInsight(doneDays, morningWithGap).nWithout, 10, 'a morning entry with no sleepQuality value does not get counted on either side');
 }
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');
