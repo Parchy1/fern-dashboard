@@ -983,6 +983,15 @@ img, video, canvas, svg { max-width: 100%; }
   border: 1px dashed var(--border);
   border-radius: 12px; margin-bottom: 4px;
 }
+.po-recovery-banner {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--warn);
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
 
 .wt-chart-wrap { position: relative; margin: 16px 0 8px; }
 .wt-chart-yaxis {
@@ -1665,6 +1674,7 @@ img, video, canvas, svg { max-width: 100%; }
           </div>
           <button class="po-tw-done-btn" id="poTwDoneBtn" type="button">Mark workout done</button>
         </div>
+        <div class="po-recovery-banner hidden" id="poRecoveryBanner"></div>
         <ul class="po-tw-list" id="poTwList"></ul>
         <div class="po-tw-empty" id="poTwEmpty">No sets logged today — log one above and it'll appear here.</div>
       </div>
@@ -2419,6 +2429,49 @@ img, video, canvas, svg { max-width: 100%; }
     }
   }
 
+  // ---------- recovery-adaptive suggestion (informational only — never
+  // changes the program itself, just a heads-up) ----------
+  // Prefers a live WHOOP recovery score (same /api/whoop-data proxy
+  // peak.html already uses, hit fresh here rather than shared — WHOOP's own
+  // fetched data lives only in peak.html's in-memory `whoop` variable, not
+  // persisted anywhere cross-page) when connected. Falls back to last
+  // night's manually-logged Peak sleep quality (1-5) otherwise — the same
+  // "poor sleep" signal that already delays the Telegram gym reminder (see
+  // SLEEP_POOR_THRESHOLD in api/send-reminders.js).
+  const RECOVERY_WHOOP_POOR_THRESHOLD = 33; // WHOOP's own published "red zone" recovery cutoff
+  const RECOVERY_SLEEP_QUALITY_POOR_THRESHOLD = 2;
+  function localGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  async function loadRecoverySignal() {
+    const tokens = localGet('whoop_tokens_v1');
+    if (tokens && tokens.access) {
+      try {
+        const params = new URLSearchParams({ path: '/recovery', limit: '1' });
+        const r = await fetch('/api/whoop-data?' + params.toString(), { headers: { Authorization: 'Bearer ' + tokens.access, Accept: 'application/json' } });
+        if (r.ok) {
+          const data = await r.json();
+          const rec = data && data.records && data.records[0];
+          const score = rec && rec.score && rec.score.recovery_score;
+          if (score != null) return { source: 'whoop', value: Math.round(score), poor: score < RECOVERY_WHOOP_POOR_THRESHOLD };
+        }
+      } catch (e) {}
+    }
+    const morning = localGet('peak:morning') || {};
+    const today = wtDateKey(new Date());
+    const q = morning[today] && morning[today].sleepQuality;
+    if (q != null) return { source: 'sleep', value: q, poor: q <= RECOVERY_SLEEP_QUALITY_POOR_THRESHOLD };
+    return null;
+  }
+  function renderRecoveryBanner(signal) {
+    const el = document.getElementById('poRecoveryBanner');
+    if (!el) return;
+    if (!signal || !signal.poor) { el.classList.add('hidden'); return; }
+    const label = signal.source === 'whoop'
+      ? ('WHOOP recovery is ' + signal.value + '% today')
+      : ("last night's sleep was rough (" + signal.value + '/5)');
+    el.textContent = '⚠️ ' + label + ' — maybe trim volume/intensity today, or take it easy.';
+    el.classList.remove('hidden');
+  }
+
   function renderTodaysWorkout() {
     const todayKey = wtDateKey(new Date());
     const all = logsByDay();
@@ -2426,6 +2479,7 @@ img, video, canvas, svg { max-width: 100%; }
     const sum = summarizeDay(todaySets);
     const u = state.units;
     renderWorkoutStreak();
+    loadRecoverySignal().then(renderRecoveryBanner).catch(() => {});
 
     const eyebrow = $('poTwDateLabel');
     const dows = ['SUN','MON','TUE','WED','THU','FRI','SAT'];

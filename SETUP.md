@@ -96,6 +96,12 @@ Replace the old URL/key in these files:
 
 > The callback auto-detects the domain, so you do **not** need a `WHOOP_REDIRECT_URI` env var.
 
+> **Recovery-adaptive gym suggestions:** with WHOOP connected, the Gym tab shows a heads-up banner
+> on days your recovery score is in WHOOP's own "red zone" (below 33%) — a suggestion to trim
+> volume/intensity, never an automatic change to your actual program. Without WHOOP connected, it
+> falls back to last night's manually-logged Peak sleep quality (2/5 or below) as the signal
+> instead — the same "poor sleep" threshold that already delays the Telegram gym reminder.
+
 ---
 
 ## 4. Apple Health (optional)
