@@ -98,16 +98,36 @@ function fuzzyFind(list, needle, keyFn) {
 }
 
 // ---------- Supabase app_state row helpers ----------
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+// Retries a transient failure (network blip, 429 rate limit, 5xx) up to
+// maxRetries extra times with a short linear backoff, since this previously
+// had zero resilience — a single dropped connection mid-chat would surface
+// as "something broke on my end" instead of quietly succeeding on retry.
+// Does NOT retry other 4xx statuses (bad request/auth/etc.) — retrying those
+// can't help and would only delay a real error from surfacing.
+async function fetchWithRetry(url, opts, maxRetries) {
+  maxRetries = maxRetries == null ? 3 : maxRetries;
+  for (let attempt = 0; ; attempt++) {
+    let res, err;
+    try { res = await fetch(url, opts); } catch (e) { err = e; }
+    const retryable = err || (res && (res.status === 429 || res.status >= 500));
+    if (!retryable || attempt >= maxRetries) {
+      if (err) throw err;
+      return res;
+    }
+    await sleep(300 * (attempt + 1));
+  }
+}
 async function readRow(key) {
   const url = process.env.SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(key) + '&select=data';
-  const r = await fetch(url, { headers: { apikey: process.env.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY } });
+  const r = await fetchWithRetry(url, { headers: { apikey: process.env.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY } });
   if (!r.ok) throw new Error('Supabase read failed for "' + key + '": ' + r.status);
   const rows = await r.json();
   return (rows && rows[0] && rows[0].data) || {};
 }
 async function writeRow(key, data) {
   const url = process.env.SUPABASE_URL + '/rest/v1/app_state?on_conflict=key';
-  const r = await fetch(url, {
+  const r = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       apikey: process.env.SUPABASE_ANON_KEY,

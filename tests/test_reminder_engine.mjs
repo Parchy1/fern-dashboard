@@ -18,6 +18,26 @@ function mockRes() {
   return res;
 }
 function minToHM(min) { return String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0'); }
+// Freezes new Date()/Date.now() to a fixed instant (real args still parse
+// normally — only the no-arg "current time" form is overridden). The
+// "full handler integration" section below builds several scenarios
+// relative to "now" (an overdue item's time, a bedtime 3h out, a bedtime
+// already passed, etc.) — those all assumed a comfortably-midday real time
+// and broke twice near real UTC midnight (a margin clamped to 0 lost its
+// safety buffer against jitter, and a wrapped-past-midnight bedtime looked
+// like it had already passed hours ago). Freezing removes this whole class
+// of flakiness instead of chasing more margin edge cases.
+function freezeClockAt(hour, minute) {
+  const OrigDate = global.Date;
+  const real = new OrigDate();
+  const fixedMs = OrigDate.UTC(real.getUTCFullYear(), real.getUTCMonth(), real.getUTCDate(), hour, minute, 0, 0);
+  class FrozenDate extends OrigDate {
+    constructor(...args) { if (args.length === 0) super(fixedMs); else super(...args); }
+    static now() { return fixedMs; }
+  }
+  global.Date = FrozenDate;
+  return () => { global.Date = OrigDate; };
+}
 function nowMinUtc() {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date());
   const h = Number(parts.find(p => p.type === 'hour').value) % 24;
@@ -103,6 +123,12 @@ function nowMinUtc() {
   // ============================================================
   // Full handler integration
   // ============================================================
+  // Frozen at a comfortably-midday UTC time so every scenario below (an
+  // overdue item, a bedtime hours out, a bedtime already passed, the
+  // catch-all window, the 9am-bedtime feeling-checkin window) is always
+  // constructible and always deterministic, regardless of the real time
+  // this suite happens to run at.
+  const unfreeze = freezeClockAt(14, 0);
   const nowMin = nowMinUtc();
   const pastTime = minToHM(Math.max(0, nowMin - 45));
   const bedtimeFuture = minToHM(Math.min(1439, nowMin + 180));
@@ -314,15 +340,15 @@ function nowMinUtc() {
     };
     const res = mockRes();
     await handler({ headers: {} }, res);
-    // Only assert this if the real current time is within the 9am-bedtime window —
-    // otherwise (e.g. a test run at 3am) it's correctly not due, which is fine.
-    if (nowMin >= 9 * 60 && nowMin < parseInt(bedtimeFuture.slice(0, 2), 10) * 60 + parseInt(bedtimeFuture.slice(3), 10)) {
-      assertEq(res._body.sent, true, 'a feeling check-in prompt sends when nothing has been logged today and it is past 9am');
-      assertTrue(!!sentBody && sentBody.length > 0, 'the feeling check-in message actually has content');
-      assertTrue(res._body.results.some(r => r.name === '__feeling_checkin__'), 'the result is tagged distinctly as the feeling check-in');
-    }
+    // The clock is frozen at 14:00 UTC (see freezeClockAt above), always
+    // within the 9am-bedtime window, so this is now unconditional rather
+    // than dependent on whatever real time this suite happens to run at.
+    assertEq(res._body.sent, true, 'a feeling check-in prompt sends when nothing has been logged today and it is past 9am');
+    assertTrue(!!sentBody && sentBody.length > 0, 'the feeling check-in message actually has content');
+    assertTrue(res._body.results.some(r => r.name === '__feeling_checkin__'), 'the result is tagged distinctly as the feeling check-in');
   }
 
+  unfreeze();
   global.fetch = origFetch;
   console.log('\n---', pass, 'passed,', fail, 'failed ---');
   process.exit(fail > 0 ? 1 : 0);
