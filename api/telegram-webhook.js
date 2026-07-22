@@ -1305,7 +1305,11 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'dashboard\'s own AI photo-estimate feature works) unless the user gives exact numbers; don\'t ask for numbers '
   + 'they clearly expect you to just know or estimate (e.g. "a Red Bull" -> ~80mg caffeine for the 8.4oz can, "2 '
   + 'scrambled eggs" -> a reasonable calorie/protein estimate) — only ask if the item is too ambiguous to estimate at '
-  + 'all. mark_gym_done, mark_habit_done, and mark_stretch_done each return a streak (consecutive days), matching the '
+  + 'all. The user can also just send a photo of food or a drink instead of typing it — identify what\'s in the '
+  + 'photo yourself and log it with log_food_entry (or log_caffeine/log_nicotine if that\'s clearly what it is) the '
+  + 'same estimate-don\'t-ask-for-exact-numbers way, mentioning what you logged in your reply so they can correct you '
+  + 'if the estimate\'s off. Only ask a follow-up question first if the photo genuinely doesn\'t show a food/drink '
+  + 'item or is too unclear to identify at all. mark_gym_done, mark_habit_done, and mark_stretch_done each return a streak (consecutive days), matching the '
   + '🔥 streak counters already shown on the Main/Gym tabs — mention it in your reply when it\'s genuinely notable '
   + '(2+ days), but don\'t bother calling it out for a 0 or 1. Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 grocery run", '
   + '"mark gym done", "sleep was a 5, stress at 1, just woke up", "add a recurring reminder for X", "track this Red '
@@ -1319,8 +1323,12 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'ability to create/edit real Google events from this chat) — say so if asked to schedule something there.'
   + '\n\nCurrent dashboard data:\n';
 
-async function callClaude(apiKey, context, userText, priorHistory) {
-  const messages = (priorHistory || []).concat([{ role: 'user', content: userText }]);
+// userContent is either a plain string (a normal text message) or an array
+// of Anthropic content blocks (an image block + a text block, for a photo
+// message) — Claude's Messages API accepts either shape for a turn's
+// content, so no branching is needed here beyond passing it straight through.
+async function callClaude(apiKey, context, userContent, priorHistory) {
+  const messages = (priorHistory || []).concat([{ role: 'user', content: userContent }]);
   let lastText = '';
   for (let iter = 0; iter < 4; iter++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1365,6 +1373,29 @@ async function tgSend(token, chatId, text) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) }),
   });
+}
+
+// Telegram sends a compressed photo as `photo`: the same image at several
+// resolutions (ascending by size), not a single file — picking the largest
+// gives Claude's vision model the most detail, and Telegram's own
+// compression keeps even that well under Anthropic's per-image size limits.
+// A two-step fetch: getFile resolves the file_id to a file_path, which then
+// has to be downloaded from a *different* Telegram host (api.telegram.org/
+// file/..., not .../bot...) to get the actual bytes.
+async function downloadTelegramPhoto(token, photoSizes) {
+  const largest = photoSizes.reduce((a, b) => ((b.file_size || 0) > (a.file_size || 0) ? b : a), photoSizes[0]);
+  const fileRes = await fetch('https://api.telegram.org/bot' + token + '/getFile?file_id=' + encodeURIComponent(largest.file_id));
+  const fileJson = await fileRes.json();
+  if (!fileRes.ok || !fileJson.ok || !fileJson.result || !fileJson.result.file_path) {
+    throw new Error('Telegram getFile failed: ' + JSON.stringify(fileJson));
+  }
+  const filePath = fileJson.result.file_path;
+  const bytesRes = await fetch('https://api.telegram.org/file/bot' + token + '/' + filePath);
+  if (!bytesRes.ok) throw new Error('Telegram file download failed: HTTP ' + bytesRes.status);
+  const base64 = Buffer.from(await bytesRes.arrayBuffer()).toString('base64');
+  const ext = (filePath.split('.').pop() || '').toLowerCase();
+  const mediaType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+  return { base64, mediaType };
 }
 
 // Answers a callback_query — required so Telegram clears the tappable
@@ -1460,7 +1491,8 @@ export default async function handler(req, res) {
     }
 
     const message = update.message;
-    if (!message || typeof message.text !== 'string') return res.status(200).json({ ok: true, skipped: 'no text message' });
+    const hasPhoto = !!(message && Array.isArray(message.photo) && message.photo.length);
+    if (!message || (typeof message.text !== 'string' && !hasPhoto)) return res.status(200).json({ ok: true, skipped: 'no text message' });
 
     const chatId = message.chat && message.chat.id;
 
@@ -1484,12 +1516,41 @@ export default async function handler(req, res) {
     }
 
     const [context, history] = await Promise.all([buildContext(), loadHistory().catch(() => [])]);
-    const reply = await callClaude(anthropicKey, context, message.text, history);
+
+    // A photo (e.g. a plate of food) is sent to Claude as a vision content
+    // block instead of plain text — same "estimate from general knowledge,
+    // no hardcoded food database" approach the SYS prompt already directs
+    // for typed food descriptions, just fed an image instead of words.
+    // History only ever stores a short placeholder for the turn, never the
+    // image itself — keeps the memory row small and avoids re-sending a
+    // multi-hundred-KB base64 blob (and re-spending the tokens on it) on
+    // every subsequent, unrelated message for the rest of the conversation.
+    let userContent, historyUserEntry;
+    if (hasPhoto) {
+      let image;
+      try {
+        image = await downloadTelegramPhoto(botToken, message.photo);
+      } catch (e) {
+        await tgSend(botToken, chatId, "Couldn't download that photo from Telegram: " + (e && e.message ? e.message : String(e)));
+        return res.status(200).json({ ok: true, error: 'photo download failed' });
+      }
+      const caption = typeof message.caption === 'string' ? message.caption : '';
+      userContent = [
+        { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.base64 } },
+        { type: 'text', text: caption || 'What food/drink is this? Log it.' },
+      ];
+      historyUserEntry = '(sent a photo' + (caption ? ': ' + caption : '') + ')';
+    } else {
+      userContent = message.text;
+      historyUserEntry = message.text;
+    }
+
+    const reply = await callClaude(anthropicKey, context, userContent, history);
     await tgSend(botToken, chatId, reply);
     // Awaited (not fire-and-forget) — this function can be frozen the
     // instant we respond, same reasoning as the comment above.
     await saveHistory(history.concat([
-      { role: 'user', content: message.text },
+      { role: 'user', content: historyUserEntry },
       { role: 'assistant', content: reply },
     ])).catch(() => {});
     return res.status(200).json({ ok: true });

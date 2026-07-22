@@ -337,6 +337,12 @@ feature works), so you don't need to give it exact numbers for common items. It 
 the recurring-item reminder texts from step 7 above once configured, including the periodic
 feeling-check-in prompts described there.
 
+You can also just send a **photo** of food or a drink instead of typing it out — with or without
+a caption — and it identifies what's in the photo and logs it the same estimate-from-general-
+knowledge way. Add a caption if you want to steer the estimate (portion size, what's mixed in,
+etc.); without one it just describes what it logged in its reply so you can correct it if the
+guess is off.
+
 Marking gym day, a habit, or a stretch routine done tells you the current streak too (matching
 the 🔥 counters already on the Main and Gym tabs) when it's more than a day or two — same
 "today counts, or falls back to yesterday if today's not done yet" rule as those counters, so an
