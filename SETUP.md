@@ -327,6 +327,11 @@ You can also ask it to set up new recurring reminders on the fly — e.g. "remin
 morning check-in every day at 8am" — which adds a new entry to the Recurring Items panel
 (Main tab) the same way filling out that form yourself would, without needing a redeploy.
 
+For a **one-off** reminder on a specific day instead of something recurring — "remind me to
+renew my passport in 3 months," "remind me to call the dentist next Tuesday at 2pm" — it adds a
+to-do to that day's Schedule/Calendar entry directly (same as picking that date in the Calendar
+tab and typing it in yourself), and it'll get reminded on its own once that day arrives.
+
 Calendar/Gmail/Drive (step 5) can be included too — see the separate **"Connect Google to the
 assistant"** steps further down, after the core setup below.
 

@@ -198,8 +198,16 @@ const TOOLS = [
   },
   {
     name: 'add_todo',
-    description: 'Add a new to-do to today\'s list on the Main tab.',
-    input_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    description: 'Add a new to-do. Defaults to today\'s list on the Main tab. For a one-off future reminder — e.g. "remind me to renew my passport in 3 months" or "remind me to call the dentist next Tuesday" — set date to that day instead (compute the actual calendar date yourself from what the user said); it\'ll show up on the Schedule/Calendar view for that day and get reminded on its own, exactly like something added there directly. Do NOT use add_recurring_item for a single future reminder — that\'s only for things that repeat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' },
+        date: { type: 'string', description: 'Optional, YYYY-MM-DD. Omit for today. Set this for a one-off reminder on a specific future (or past) day.' },
+        time: { type: 'string', description: 'Optional 24h HH:MM — only set this if the user wants a reminder at a specific time that day.' },
+      },
+      required: ['text'],
+    },
   },
   {
     name: 'mark_todo_done',
@@ -530,12 +538,24 @@ async function execLogPurchase(args) {
 }
 
 async function execAddTodo(args) {
-  const key = 'goals:' + activeDateKey();
+  let dateKey = activeDateKey();
+  if (args.date != null) {
+    // A plain calendar date, same convention as calendar.html's cursorDate —
+    // deliberately NOT run through the 6am-boundary activeDateKey() logic,
+    // since that's only meant to define "today," not an arbitrary target day.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date) || isNaN(new Date(args.date + 'T00:00:00').getTime())) {
+      return { ok: false, reason: 'could not understand date "' + args.date + '"' };
+    }
+    dateKey = args.date;
+  }
+  const key = 'goals:' + dateKey;
   return patchRow('goals', (goals) => {
     const list = goals[key] || [];
-    list.push({ text: args.text, done: false });
+    const entry = { text: args.text, done: false };
+    if (args.time) entry.time = args.time;
+    list.push(entry);
     goals[key] = list;
-    return { ok: true };
+    return { ok: true, date: dateKey };
   });
 }
 
@@ -1214,7 +1234,10 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'reading, Peak (a morning check-in of wake time/resting heart rate/sleep hours/sleep quality, plus feeling/'
   + 'stress check-ins logged any number of times through the day), the calorie/macro food log, caffeine/nicotine '
   + 'intake, and free-form notes — passed below as JSON from the same database the dashboard itself reads and writes. '
-  + 'You also have tools to actually change most of that: log a purchase, add/complete a to-do, mark a habit done, '
+  + 'You also have tools to actually change most of that: log a purchase, add/complete a to-do (add_todo can also set '
+  + 'a one-off reminder for a specific future day — e.g. "remind me to renew my passport in 3 months" — by computing '
+  + 'the actual calendar date yourself and passing it as date; that\'s different from add_recurring_item, which is '
+  + 'only for things that repeat), mark a habit done, '
   + 'log water/a supplement, log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session '
   + 'or body weight, log affiliate/editing business activity, log a reading session or add a book, adjust a net worth '
   + 'account balance, add/cancel a subscription/order/wishlist item, log a Peak morning check-in or a feeling/stress '
