@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
+<script src="gamify.js" defer></script>
 <style>
 :root {
   --text-primary: #FAFAFA;
@@ -1231,6 +1232,9 @@ body::after {
       if (cb.checked) list[idx].doneAt = Date.now();
       else delete list[idx].doneAt;
       setGoals(key, list);
+      // Only on check (not uncheck) — same reasoning as any other one-way
+      // "you did the thing" award elsewhere in the dashboard.
+      if (cb.checked && window.Gamify) window.Gamify.awardXP('complete_todo');
       reload();
     });
     li.appendChild(cb);

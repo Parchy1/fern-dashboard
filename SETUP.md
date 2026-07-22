@@ -367,6 +367,16 @@ cost my timeline" quick check for a hypothetical purchase. Needs a few days of r
 history before it has enough to fit a trend line — it says so plainly rather than guessing from
 too little data.
 
+Marking things done across the dashboard (to-dos, habits, gym days, stretch routines, logging
+body weight) now also earns **XP** — a small toast pops up, levels climb on a steepening curve
+(level 2 at 100 XP, level 5 at 1,500, level 10 at 5,500), and badges unlock for milestones (first
+action logged, 100/500/1,000 total XP, 10/50 gym days, 25 habits/to-dos, reaching level 5/10,
+etc.). It's a no-setup, always-on layer — nothing to configure, and it only fires on the
+transition into "done," so unchecking and rechecking something can't farm XP. One honest
+limitation: this state lives in `localStorage` only (not synced through Supabase like the rest of
+the dashboard), so XP/levels/badges are currently per-device rather than shared between your
+phone and laptop.
+
 Marking gym day, a habit, or a stretch routine done tells you the current streak too (matching
 the 🔥 counters already on the Main and Gym tabs) when it's more than a day or two — same
 "today counts, or falls back to yesterday if today's not done yet" rule as those counters, so an

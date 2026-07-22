@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#0a0a0b">
 <title>Progressive Overload Coach</title>
 <script src="topbar.js" defer></script>
+<script src="gamify.js" defer></script>
 
 <!-- =============================================================
      EDIT THIS BLOCK TO MAKE THE APP YOURS.
@@ -2564,6 +2565,7 @@ img, video, canvas, svg { max-width: 100%; }
       delete doneDays[todayKey];
     } else {
       doneDays[todayKey] = new Date().toISOString();
+      if (window.Gamify) window.Gamify.awardXP('mark_gym_done');
     }
     saveDoneDays(doneDays);
     renderTodaysWorkout();
@@ -3019,8 +3021,14 @@ img, video, canvas, svg { max-width: 100%; }
   function wtSaveEntry(weight) {
     const key = wtDateKey(new Date());
     const existing = wtEntries.find(e => e.dateKey === key);
-    if (existing) existing.weight = weight;
-    else { wtEntries.push({ dateKey: key, weight }); wtEntries.sort((a,b) => a.dateKey.localeCompare(b.dateKey)); }
+    if (existing) {
+      existing.weight = weight;
+    } else {
+      wtEntries.push({ dateKey: key, weight });
+      wtEntries.sort((a,b) => a.dateKey.localeCompare(b.dateKey));
+      // Only for a genuinely NEW day's entry — editing today's already-logged weight again shouldn't re-earn XP.
+      if (window.Gamify) window.Gamify.awardXP('log_body_weight');
+    }
     wtSave(wtEntries);
     wtRender();
   }
@@ -4563,11 +4571,19 @@ img, video, canvas, svg { max-width: 100%; }
   function getLog() { return storeGet(LOG_KEY) || {}; }
   function setLog(l) { storeSet(LOG_KEY, l); }
   function isDone(log, id, dk) { return !!(log[id] && log[id][dk]); }
-  function toggleItem(id) {
+  function toggleItem(id, routineItems) {
     const log = getLog(); const dk = todayKey();
+    const wasRoutineDone = routineItems && routineDoneOnDay(routineItems, log, dk);
     log[id] = log[id] || {};
     if (log[id][dk]) delete log[id][dk]; else log[id][dk] = true;
     setLog(log);
+    // Award once per routine per day, on the transition into "fully done" —
+    // not per individual stretch checked (that would let repeatedly
+    // checking/unchecking a single item farm XP), matching the same
+    // whole-routine-must-be-done rule the streak counter already uses.
+    if (routineItems && !wasRoutineDone && routineDoneOnDay(routineItems, log, dk) && window.Gamify) {
+      window.Gamify.awardXP('mark_stretch_done');
+    }
     renderStAll();
   }
   function routineDoneOnDay(items, log, dk) { return items.length > 0 && items.every(it => isDone(log, it.id, dk)); }
@@ -4593,7 +4609,7 @@ img, video, canvas, svg { max-width: 100%; }
       li.innerHTML = '<input class="st-check" type="checkbox" ' + (done ? 'checked' : '') + '>'
         + '<div class="st-row-main"><div class="st-row-name">' + escapeHtml(it.name) + tagHtml + '</div><div class="st-row-rx">' + escapeHtml(it.rx || '') + '</div></div>'
         + '<button class="st-row-del" type="button" aria-label="Delete">×</button>';
-      li.querySelector('.st-check').addEventListener('change', () => toggleItem(it.id));
+      li.querySelector('.st-check').addEventListener('change', () => toggleItem(it.id, items));
       li.querySelector('.st-row-del').addEventListener('click', () => {
         setItems(key, getItems(key, defaults).filter(x => x.id !== it.id));
         renderStAll();
