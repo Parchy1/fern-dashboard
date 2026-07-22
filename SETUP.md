@@ -549,6 +549,60 @@ fetch.
 
 ---
 
+## 9. Voice logging & location Shortcuts (optional)
+
+A voice/automation front door onto the exact same assistant the Telegram bot uses —
+`api/shortcuts-webhook.js` calls the identical `buildContext()`/`callClaude()` logic, so
+anything you can text the bot, you can also say out loud or trigger by location. This adds
+no new AI logic of its own; it's purely a different way in.
+
+1. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `SHORTCUTS_WEBHOOK_SECRET` | any long random string — this is your shared secret |
+
+   `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` are the same ones the Telegram
+   assistant already needs — nothing new there if that's already set up. Redeploy after adding
+   the secret.
+
+2. **Voice logging Shortcut** — say anything out loud and have it logged, same as texting the
+   bot:
+   - On your iPhone, **Shortcuts** → **+** → build a new shortcut:
+     - Add **Dictate Text** (or **Ask for Input** → Text, if you'd rather type when Siri
+       misfires).
+     - Add **Get Contents of URL**:
+       - URL: `https://your-app.vercel.app/api/shortcuts-webhook`
+       - Method: **POST**
+       - Headers: `Authorization` → `Bearer <your SHORTCUTS_WEBHOOK_SECRET>`, `Content-Type` →
+         `application/json`
+       - Request Body: **JSON** → one field, `text` → the Dictate Text result
+     - Add **Get Dictionary Value** → key `reply`, from the previous action's result.
+     - Add **Speak Text** → the dictionary value, so Siri actually says the confirmation back
+       to you.
+   - Name it something Siri recognizes well (e.g. "Log it") and you're done — "Hey Siri, log
+     it" → say what happened → hear it confirmed, hands-free.
+3. **Location-triggered logging** (no interaction needed) — e.g. auto-logging that a workout
+   started the moment you walk into the gym:
+   - Build a second, simpler shortcut: just **Get Contents of URL** as above, but with a fixed
+     `text` value instead of a dictation step — e.g. `"I just arrived at the gym, starting my
+     workout"`. Skip the Speak Text step if you don't want it announcing itself.
+   - **Automation** tab → **+** → **Personal Automation** → **Arrive** → pick the location →
+     **Run Shortcut** → your shortcut → turn off "Ask Before Running" so it fires silently.
+   - For something time-conditional (e.g. only log "heading to bed" if you get home after a
+     certain hour), add an **If** action before the URL call: "Current Date" → "is after" →
+     your cutoff time, wrapping the request inside the `If` block.
+   - There's no fixed list of supported location triggers — it's genuinely just a sentence
+     through the same assistant that already understands free-form logging, so anything it can
+     already parse from a Telegram message works the same way here.
+
+> Deliberately stateless: each Shortcut run is a one-off utterance, not a back-and-forth
+> conversation, so it doesn't share the Telegram bot's own conversation memory. Two channels
+> racing to update the same short-term memory at once wasn't worth the complexity for what's
+> meant to be quick, one-line logging.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -560,4 +614,5 @@ fetch.
    skip if using the Telegram Assistant, which covers this too.
 7. (Optional) Telegram Assistant: bot token + env vars in step 8 above.
 8. (Optional) Connect Google to the assistant: the `google_tokens` SQL + `SUPABASE_SERVICE_ROLE_KEY`/`GOOGLE_SYNC_SECRET` env vars, see step 8 above.
-9. Change the password in `lock.js`. Done.
+9. (Optional) Voice/location Shortcuts: `SHORTCUTS_WEBHOOK_SECRET` env var + iOS Shortcuts, see step 9 above.
+10. Change the password in `lock.js`. Done.
