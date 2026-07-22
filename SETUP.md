@@ -205,6 +205,13 @@ at the exact same robotic minute every day. If something's still undone once its
 it nags again every 90 minutes until you mark it done or until `BEDTIME_LOCAL` passes, after
 which it goes quiet for the day rather than pinging you overnight.
 
+**Gym reminders are pushed back after a bad night's sleep:** if last night's Peak morning
+check-in logged a sleep quality of 2 or lower, any recurring item that looks like a gym/workout
+reminder (matching "gym", "workout", or "lift" in its name) has its effective time delayed by 90
+minutes that day. The idea is to not nag you to hit the gym at your usual time when you're
+clearly running on too little sleep — everything else on your list still reminds you at its
+normal time.
+
 **Feeling/stress check-ins (Peak tab) work differently on purpose:** unlike everything else
 above, these are meant to happen several times a day, so a single "done today" flag doesn't fit.
 Instead, starting at 9am, you get a prompt roughly every 4 hours whenever there hasn't been an

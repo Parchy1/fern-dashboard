@@ -71,6 +71,32 @@ function nowMinUtc() {
 
     const effDifferentDay = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-21');
     assertTrue(Math.abs(effDifferentDay - 18 * 60) <= 10, 'a different date still stays within jitter bounds (may differ from another day, still bounded): got ' + effDifferentDay);
+
+    // ---- sleep-quality gating: a poor night's sleep pushes a gym reminder later ----
+    const gymNormal = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20', null);
+    const gymPoorSleep = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20', 1);
+    // Same name+date -> identical jitter component on both sides, so the
+    // delay itself should come out to exactly 90, not just "roughly".
+    assertEq(gymPoorSleep - gymNormal, 90, 'a poor-sleep night (quality 1) delays the gym reminder by exactly 90 minutes: normal=' + gymNormal + ' delayed=' + gymPoorSleep);
+
+    const gymSleepQuality2 = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20', 2);
+    assertEq(gymSleepQuality2 - gymNormal, 90, 'sleep quality exactly at the poor threshold (2) still delays the reminder by exactly 90 minutes');
+
+    const gymOkSleep = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20', 3);
+    assertEq(gymOkSleep, gymNormal, 'sleep quality above the poor threshold (3) does not delay the gym reminder at all');
+
+    const gymGreatSleep = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20', 5);
+    assertEq(gymGreatSleep, gymNormal, 'great sleep (5) does not delay the gym reminder');
+
+    // Non-gym items must be completely unaffected by sleep quality, even when poor.
+    const readingNormal = effectiveTimeMinutes('Read', '20:00', BEDTIME, '2026-07-20', null);
+    const readingPoorSleep = effectiveTimeMinutes('Read', '20:00', BEDTIME, '2026-07-20', 1);
+    assertEq(readingPoorSleep, readingNormal, 'a non-gym item (Read) is completely unaffected by poor sleep quality');
+
+    // "workout"/"lift" keywords also count as gym items, not just the literal word "gym".
+    const workoutPoorSleep = effectiveTimeMinutes('Evening workout', '18:00', BEDTIME, '2026-07-20', 1);
+    const workoutNormal = effectiveTimeMinutes('Evening workout', '18:00', BEDTIME, '2026-07-20', null);
+    assertTrue(workoutPoorSleep > workoutNormal, '"workout" in the name is recognized as a gym item too, not just the literal word "gym"');
   }
 
   // ============================================================
@@ -191,6 +217,46 @@ function nowMinUtc() {
     assertEq(res._body.results[0].name, 'Gym', 'correct item named in the result');
     const written = getWrittenState();
     assertTrue(!!written && !!written[todayKey6amActual] && written[todayKey6amActual].Gym && written[todayKey6amActual].Gym.count === 1, 'reminder state persisted with count=1 after the first send: ' + JSON.stringify(written));
+  }
+
+  // ---- a poor night's sleep delays the gym reminder past "now", so it's not due yet even though it normally would be ----
+  {
+    const todayKey6amActual = (() => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+      if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    const todayPlainNow = (() => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    // Gym at 13:00, "now" frozen at 14:00 -> normally overdue by an hour. A
+    // poor-sleep night (+90min delay) pushes its effective time to ~14:30-
+    // 14:40, which is still in the future, so it must NOT fire yet.
+    global.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
+      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }], 'peak:morning': { [todayPlainNow]: { sleepQuality: 1 } } } }] };
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
+      if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+      throw new Error('unexpected fetch: ' + u);
+    };
+    const res = mockRes();
+    await handler({ headers: {} }, res);
+    assertEq(res._body.sent, false, 'a gym reminder that would normally be overdue is correctly held back after a poor-sleep night');
+
+    // Sanity check: the SAME setup without the poor sleepQuality DOES fire, proving the delay (not some other bug) is what suppressed it above.
+    global.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
+      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] }; // no morning check-in logged
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
+      if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+      throw new Error('unexpected fetch: ' + u);
+    };
+    const resWithoutSleepData = mockRes();
+    await handler({ headers: {} }, resWithoutSleepData);
+    assertEq(resWithoutSleepData._body.sent, true, 'the same overdue gym reminder DOES fire when there\'s no sleep-quality data to gate on, confirming the earlier suppression was really the sleep-delay logic');
   }
 
   // ---- same item, reminded again immediately (before renag interval): does NOT re-send ----
