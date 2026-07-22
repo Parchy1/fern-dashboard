@@ -415,6 +415,16 @@ assistant"** steps further down, after the core setup below.
 > opened the Main tab yet today — the assistant matches it against the Recurring Items list
 > directly rather than only searching today's already-generated to-do list.
 
+> **Real sleep tracking instead of an estimate:** text it "going to bed" (or "heading to sleep",
+> "night") right when you're about to fall asleep, and it marks the moment. The next time you
+> text it anything that sounds like waking up — "good morning" alone is enough, no other details
+> needed — it computes your actual sleep duration and wake time from the real elapsed time and
+> logs them on the Peak tab's morning check-in, same as if you'd typed the numbers in yourself.
+> Mention resting heart rate or a sleep-quality rating in that same wake-up message and those get
+> logged too. If you explicitly state a sleep-hours number yourself ("slept about 6"), that wins
+> over the tracked time. Skipping `log_bedtime` entirely still works exactly like before — this is
+> purely additive, not a requirement.
+
 > **API cost tracking:** ask "how much have I spent on you this month" (or today, or all-time)
 > and it'll answer from a running tally of every Anthropic call it's made — token counts in, an
 > estimated USD cost out. The cost is only an ESTIMATE from configurable per-token prices

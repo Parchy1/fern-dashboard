@@ -60,6 +60,7 @@ const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'busin
 // ---------- date helpers (must match the dashboard's own conventions) ----------
 function pad2(n) { return String(n).padStart(2, '0'); }
 function tzNow() { return new Date(new Date().toLocaleString('en-US', { timeZone: tz() })); }
+function nowHM() { const d = tzNow(); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
 // Plain calendar date — used by po-water.html (water logs) and gym.html (workout-done).
 function plainDateKey() {
   const d = tzNow();
@@ -506,14 +507,25 @@ const TOOLS = [
     },
   },
   {
-    name: 'log_morning_checkin',
-    description: 'Log this morning\'s check-in on the Peak tab: wake time, resting heart rate, sleep hours, and/or sleep quality. Only include fields the user actually mentioned — omit the rest.',
+    name: 'log_bedtime',
+    description: 'Marks that the user is going to bed right now, so the next morning check-in can compute REAL sleep duration automatically instead of the user having to remember/estimate a number. Call this whenever the user says something like "going to bed", "heading to sleep", "night" — no other fields needed. Only pass `at` when backfilling a specific past time the user mentioned (e.g. "I went to bed at 11:30 last night, forgot to tell you") — compute the actual ISO datetime yourself, same as add_todo\'s date field; omit it for "right now".',
     input_schema: {
       type: 'object',
       properties: {
-        wake_time: { type: 'string', description: '24h HH:MM the user woke up, if mentioned' },
+        at: { type: 'string', description: 'ISO 8601 datetime, only for backfilling a specific past bedtime. Omit to use the current moment.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'log_morning_checkin',
+    description: 'Log this morning\'s check-in on the Peak tab: wake time, resting heart rate, sleep hours, and/or sleep quality. Only include fields the user actually mentioned — omit the rest. If a bedtime was tracked earlier via log_bedtime and sleep_hours isn\'t explicitly given, sleep hours (and wake time) are computed automatically from the real elapsed time — more accurate than an estimate, so DON\'T pass sleep_hours yourself in that case unless the user states an exact number that should override it. Call this on any wake-up signal — "good morning", "just woke up", "I\'m up" — even with zero other details, since that alone is enough to close out a tracked night\'s sleep.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        wake_time: { type: 'string', description: '24h HH:MM the user woke up, if explicitly mentioned. Omit to use the current moment when a bedtime was being tracked.' },
         rhr: { type: 'number', description: 'Resting heart rate, if mentioned' },
-        sleep_hours: { type: 'number' },
+        sleep_hours: { type: 'number', description: 'Only pass this if the user stated an exact number themselves — otherwise omit and let a tracked bedtime compute it.' },
         sleep_quality: { type: 'number', description: '1-5 rating of sleep quality, if mentioned (e.g. "sleep was a 5" -> 5)' },
       },
       required: [],
@@ -1120,21 +1132,60 @@ function clamp15(n) { return Math.max(1, Math.min(5, Math.round(Number(n)))); }
 // ---------- Peak (morning check-in, feeling/stress check-ins) ----------
 // peak.html uses a plain calendar date (no 6am boundary) for both stores —
 // same convention as plainDateKey().
+
+// A single flat "pending bedtime" marker (not date-keyed — you can only be
+// in bed once at a time) rather than a per-night row, so log_bedtime doesn't
+// need to guess which morning it belongs to; that's resolved later, whenever
+// log_morning_checkin actually closes it out.
+async function execLogBedtime(args) {
+  return patchRow('peak', (peak) => {
+    let ts = Date.now();
+    if (args.at != null) {
+      const parsed = new Date(args.at).getTime();
+      if (isNaN(parsed)) return { ok: false, reason: 'could not understand the time "' + args.at + '"' };
+      ts = parsed;
+    }
+    peak['peak:pendingBedtime'] = { ts };
+    return { ok: true, ts };
+  });
+}
+
+// Beyond this many tracked hours, a pending bedtime is almost certainly
+// stale (a wake-up was never logged — a nap that got interrupted, a night
+// the user forgot to text back) rather than a real night's sleep. Ignored
+// rather than silently logging a bogus 30-hour "sleep".
+const MAX_TRACKED_SLEEP_HOURS = 16;
+
 async function execLogMorningCheckin(args) {
   return patchRow('peak', (peak) => {
     const morning = peak['peak:morning'] || {};
     const key = plainDateKey();
     const existing = morning[key] || {};
+    const pending = peak['peak:pendingBedtime'];
+    let sleepHours = args.sleep_hours != null ? Number(args.sleep_hours) : null;
+    let trackedFromBedtime = false;
+    if (sleepHours == null && pending && pending.ts) {
+      const elapsedHours = (Date.now() - pending.ts) / 3600000;
+      if (elapsedHours > 0 && elapsedHours <= MAX_TRACKED_SLEEP_HOURS) {
+        sleepHours = Math.round(elapsedHours * 10) / 10;
+        trackedFromBedtime = true;
+      }
+    }
+    if (sleepHours == null) sleepHours = existing.sleepHours || null;
     const entry = {
-      wakeTime: args.wake_time != null ? args.wake_time : (existing.wakeTime || ''),
+      wakeTime: args.wake_time != null ? args.wake_time : (trackedFromBedtime ? nowHM() : (existing.wakeTime || '')),
       rhr: args.rhr != null ? Number(args.rhr) : (existing.rhr || null),
-      sleepHours: args.sleep_hours != null ? Number(args.sleep_hours) : (existing.sleepHours || null),
+      sleepHours,
       sleepQuality: args.sleep_quality != null ? clamp15(args.sleep_quality) : (existing.sleepQuality || null),
       ts: Date.now(),
     };
     morning[key] = entry;
     peak['peak:morning'] = morning;
-    return { ok: true, entry };
+    // Cleared whenever a check-in is logged, whether or not it was actually
+    // used above — a stale/rejected pending bedtime shouldn't linger and
+    // confuse a LATER night's tracking.
+    if (pending) delete peak['peak:pendingBedtime'];
+    return { ok: true, entry, trackedFromBedtime };
   });
 }
 
@@ -1333,6 +1384,7 @@ const TOOL_EXECUTORS = {
   cancel_subscription: execCancelSubscription,
   add_wishlist_item: execAddWishlistItem,
   add_order: execAddOrder,
+  log_bedtime: execLogBedtime,
   log_morning_checkin: execLogMorningCheckin,
   log_feeling_checkin: execLogFeelingCheckin,
   add_recurring_item: execAddRecurringItem,
@@ -1501,7 +1553,10 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'or body weight, log affiliate/editing business activity, log a reading session or add a book, adjust a net worth '
   + 'account balance, add/cancel a subscription/order/wishlist item, log a Peak morning check-in or a feeling/stress '
   + 'check-in (this one can happen several times a day — don\'t treat it as already-done just because one happened '
-  + 'earlier), create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
+  + 'earlier), track real sleep with log_bedtime (call it the moment the user says "going to bed"/"heading to '
+  + 'sleep") so the next log_morning_checkin — triggered by any wake-up signal, even a bare "good morning", no '
+  + 'other details needed — computes actual sleep hours/wake time from that instead of an estimate, '
+  + 'create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
   + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements when the new item corresponds to one '
   + 'of those, so it self-completes instead of needing a manual checkbox), log a food/meal entry, log caffeine or '
   + 'nicotine intake, add a note, and undo the single most recent change any tool made (e.g. "undo that", "oops, '
