@@ -194,6 +194,14 @@ real cross-tab stats — explicitly a starting point to rewrite, not a finished 
 asks for confirmation before overwriting anything you've already written by hand. Nothing new to
 configure — if Nova already works, this does too.
 
+There's also a **Your Year** page (`year-review.html`, linked from the Reflect hub) — a rolling
+365-days-back retrospective (not tied to the calendar year, so it's meaningful any day you open
+it): gym sessions and longest workout streak, habit/to-do completion and longest habit streak,
+pages read, average sleep, average Peak/energy score, net worth change, and business revenue,
+each card computed straight from data the rest of the dashboard already tracks — nothing new to
+log. It also has its own "🧠 Generate Year Summary" button using the same saved Nova key, cached
+so you're not re-spending an API call every time you revisit.
+
 ---
 
 ## 7. Text reminders (optional)
