@@ -366,6 +366,14 @@ knowledge way. Add a caption if you want to steer the estimate (portion size, wh
 etc.); without one it just describes what it logged in its reply so you can correct it if the
 guess is off.
 
+You can also just send a **voice message** (the mic button in Telegram, not Siri) instead of
+typing — it's transcribed via OpenAI's Whisper, then the transcript goes through the exact same
+logic as if you'd typed it. The reply always starts with `🎤 "<what it heard>"` before the actual
+answer, so a mishearing is immediately visible rather than silently acted on. Needs
+`OPENAI_API_KEY` set on the server (same key as semantic note search below, if you set that up
+too — one key covers both). Without it, voice messages get a clear "not configured" reply instead
+of silently failing.
+
 The Finance tab's currency pickers (net worth display, and every account/subscription/purchase/
 order/wishlist/debt entry) now only offer **USD** (the default) and **DOP** — CHF/EUR/GBP were
 removed as choices everywhere. Nothing about your already-saved data changed: every stored amount
@@ -444,6 +452,7 @@ assistant"** steps further down, after the core setup below.
 | `TELEGRAM_BOT_TOKEN` | the token from BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | any random string you make up (20+ characters) — locks the webhook so only real Telegram requests get through |
 | `ANTHROPIC_API_KEY` | an Anthropic API key (**console.anthropic.com** → API Keys) — this runs server-side, separate from the key saved in Nova's browser `localStorage` |
+| `OPENAI_API_KEY` | optional — only needed for voice messages (see below); same key as semantic note search if you set that up too |
 
 3. Redeploy so those env vars take effect.
 4. Visit `https://your-app.vercel.app/api/telegram-set-webhook?secret=<your TELEGRAM_WEBHOOK_SECRET>`
