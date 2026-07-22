@@ -70,10 +70,13 @@ function clearEnv() {
   assertEq(!!threw && threw.includes('resend send failed'), true, 'Resend failure surfaces a clear error');
 
   // --- Full handler end-to-end with email gateway configured ---
-  // Uses an explicit recur-def time set safely in the past (relative to
-  // whenever this test actually runs) and a bedtime safely in the future,
-  // so the individual-reminder path fires deterministically regardless of
-  // real time-of-day, without relying on any fixed-hour gate (removed).
+  // Uses an explicit recur-def time set safely in the past and a bedtime
+  // safely in the future, so the individual-reminder path fires
+  // deterministically without relying on any fixed-hour gate (removed).
+  // The clock is frozen at a comfortably-midday UTC time first — otherwise
+  // "safely in the past" (nowMinUtc - 60, clamped to 0 near midnight) can
+  // lose its safety margin against the reminder engine's own ±10min jitter
+  // whenever this suite happens to run close to real UTC midnight.
   clearEnv();
   process.env.RESEND_API_KEY = 're_test_key';
   process.env.SMS_GATEWAY_TO = '5551234567@vtext.com';
@@ -81,6 +84,14 @@ function clearEnv() {
   process.env.SUPABASE_ANON_KEY = 'fake-anon-key';
   process.env.CRON_SECRET = 'secret123';
   process.env.REMINDER_TIMEZONE = 'UTC';
+  const OrigDate = global.Date;
+  const realNow = new OrigDate();
+  const frozenMs = OrigDate.UTC(realNow.getUTCFullYear(), realNow.getUTCMonth(), realNow.getUTCDate(), 14, 0, 0, 0);
+  class FrozenDate extends OrigDate {
+    constructor(...args) { if (args.length === 0) super(frozenMs); else super(...args); }
+    static now() { return frozenMs; }
+  }
+  global.Date = FrozenDate;
   const nowMinUtc = (() => {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date());
     const h = Number(parts.find(p => p.type === 'hour').value) % 24;
@@ -117,6 +128,7 @@ function clearEnv() {
   assertEq(res._body.results[0].name, 'Gym', 'full handler reports the correct item name');
   assertEq(res._body.results[0].method, 'email-gateway', 'full handler reports email-gateway as the method used');
 
+  global.Date = OrigDate;
   global.fetch = origFetch;
   console.log('\n---', pass, 'passed,', fail, 'failed ---');
   process.exit(fail > 0 ? 1 : 0);
