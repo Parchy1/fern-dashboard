@@ -116,6 +116,8 @@ body::after {
 .recap-empty { font-size: 12px; font-style: italic; color: var(--text-tertiary); margin-top: 10px; }
 
 /* ===== Reflection ===== */
+.refl-draft-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
+.refl-draft-hint { font-size: 11.5px; color: var(--text-tertiary); line-height: 1.4; flex: 1; min-width: 180px; }
 .refl-label { font-size: 12px; font-weight: 700; color: var(--text-primary); margin: 0 0 8px; }
 .refl-label:not(:first-child) { margin-top: 18px; }
 .refl-input {
@@ -177,6 +179,11 @@ body::after {
   <div class="section">
     <div class="section-title">Reflection</div>
     <div class="gm-card">
+      <div class="refl-draft-row">
+        <button class="gm-ghost" id="draftBtn" type="button">✍️ Draft a starting point</button>
+        <span class="refl-draft-hint">Stuck on a blank page? Nova can rough out a first draft from this period's stats — rewrite anything, it's just a starting point, not the reflection itself.</span>
+      </div>
+      <div class="refl-status" id="reflDraftStatus"></div>
       <p class="refl-label">What went well?</p>
       <textarea class="refl-input" id="reflWell" placeholder="Anything you're glad you did this period…"></textarea>
       <p class="refl-label">What do you want to change?</p>
@@ -475,6 +482,56 @@ body::after {
       btn.disabled = false; btn.textContent = '🧠 Regenerate Insight';
     }
   }
+
+  // ---- Reflection draft (same Nova Lite key as the insight above, a
+  // separate call because this returns structured JSON for two fields
+  // rather than one free-text blob) ----
+  function parseJsonLoose(raw) {
+    const s = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
+    return JSON.parse(s);
+  }
+  const REFLECTION_DRAFT_SYS = "You help someone draft a REFLECTION starting point for a personal weekly/monthly review, from a compact cross-domain stats summary (health, fitness, nutrition, learning, business). "
+    + "This is explicitly a rough FIRST DRAFT the person will read and rewrite in their own words before it counts as their real reflection — not a finished, final reflection. Write in first person (\"I\"), plain and honest, referencing specific numbers from the summary where relevant rather than generic encouragement. "
+    + "Respond with ONLY a JSON object (no markdown fences, no commentary) matching exactly this shape: {\"well\":string,\"change\":string}\n"
+    + "- well: 2-3 sentences on what went well this period, grounded in the actual stats given.\n"
+    + "- change: 2-3 sentences on what to change or focus on next period, grounded in the actual stats given.\n"
+    + "If the stats summary is too thin to say anything specific and honest, write a short honest one-liner noting that instead of inventing detail. Output raw JSON only.";
+
+  async function draftReflection() {
+    const ctx = renderAll._ctx; if (!ctx) return;
+    const btn = $('draftBtn'), status = $('reflDraftStatus');
+    const key = savedKey();
+    if (!key) {
+      status.textContent = "Paste your Anthropic API key on the Nova page first (the 🧠 tile on the home screen) — it's saved in this browser and I'll use it here too.";
+      return;
+    }
+    const hasExisting = $('reflWell').value.trim() || $('reflChange').value.trim();
+    if (hasExisting && !confirm('This replaces the text currently in both reflection fields with a drafted starting point — continue?')) return;
+    btn.disabled = true; btn.textContent = 'Drafting…'; status.textContent = '';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8', max_tokens: 400,
+          system: REFLECTION_DRAFT_SYS,
+          messages: [{ role: 'user', content: statsSummaryText(ctx.mode, ctx.label, ctx.curDays, ctx.priorDays) }],
+        }),
+      });
+      const data = await res.json();
+      const raw = (data && data.content && data.content[0] && data.content[0].text) || '';
+      const parsed = parseJsonLoose(raw);
+      if (parsed && typeof parsed.well === 'string') $('reflWell').value = parsed.well;
+      if (parsed && typeof parsed.change === 'string') $('reflChange').value = parsed.change;
+      flushReflection();
+      status.textContent = 'Drafted — edit freely, this is just a starting point.';
+    } catch (e) {
+      status.textContent = "Couldn't draft a reflection just now — check your API key or connection and try again.";
+    } finally {
+      btn.disabled = false; btn.textContent = '✍️ Draft a starting point';
+    }
+  }
+  $('draftBtn').addEventListener('click', draftReflection);
 
   function renderInsight(periodK) {
     const body = $('insightBody'), meta = $('insightMeta'), btn = $('insightBtn');

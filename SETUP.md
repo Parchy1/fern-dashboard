@@ -187,6 +187,13 @@ No setup or key in the repo. Each user **pastes their own Anthropic API key** on
 **Nova** tile; it's stored only in their browser and sent straight to Anthropic. Get a key at
 console.anthropic.com.
 
+The same saved key also powers two things on the **Review** tab: the existing "🧠 Generate
+Insight" card, and a **"✍️ Draft a starting point"** button next to the What went well/What do you
+want to change reflection fields. It drafts two rough first-person paragraphs from that period's
+real cross-tab stats — explicitly a starting point to rewrite, not a finished reflection, and it
+asks for confirmation before overwriting anything you've already written by hand. Nothing new to
+configure — if Nova already works, this does too.
+
 ---
 
 ## 7. Text reminders (optional)
