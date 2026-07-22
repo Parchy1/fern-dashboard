@@ -285,6 +285,15 @@ body::after {
     </div>
   </div>
 
+  <!-- INSIGHTS -->
+  <div class="section">
+    <div class="section-title">Insights</div>
+    <div class="gm-card">
+      <ul class="factor-list" id="insightList"></ul>
+      <div class="empty-state" id="insightEmpty" style="display:none">Not enough history yet — insights need at least a handful of days of both morning check-ins and check-ins/caffeine logs to compare, so this fills in as you keep using Peak.</div>
+    </div>
+  </div>
+
   <!-- TREND -->
   <div class="section">
     <div class="section-title">Trend</div>
@@ -965,6 +974,96 @@ body::after {
     $('factorList').innerHTML = rows.join('');
   }
 
+  // ============================================================
+  // INSIGHTS — a couple of specific, pre-defined correlations mined from
+  // history, rather than a general-purpose stats engine. Each needs a
+  // minimum sample size per side of the comparison before showing
+  // anything, so a handful of days doesn't get over-read as a real pattern.
+  // ============================================================
+  const INSIGHT_MIN_SAMPLES = 5;
+  function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+  function shiftDateKey(dateKey, days) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + days);
+    return dateToKey(dt);
+  }
+
+  // Late-afternoon/evening caffeine (>=2pm) the day before, vs. that
+  // night's logged sleep quality the following morning.
+  function computeCaffeineSleepInsight() {
+    const cafLogs = storeGet('caf:logs') || [];
+    const lateCaffeineDays = new Set();
+    cafLogs.forEach(l => {
+      if (!l.ts) return;
+      const d = new Date(l.ts);
+      if (d.getHours() >= 14) lateCaffeineDays.add(dateToKey(d));
+    });
+    const morning = getMorning();
+    const withLate = [], withoutLate = [];
+    Object.keys(morning).forEach(dateKey => {
+      const q = morning[dateKey] && morning[dateKey].sleepQuality;
+      if (!q) return;
+      const prevDay = shiftDateKey(dateKey, -1);
+      (lateCaffeineDays.has(prevDay) ? withLate : withoutLate).push(q);
+    });
+    if (withLate.length < INSIGHT_MIN_SAMPLES || withoutLate.length < INSIGHT_MIN_SAMPLES) return null;
+    return { avgWith: avg(withLate), avgWithout: avg(withoutLate), nWith: withLate.length, nWithout: withoutLate.length };
+  }
+
+  // Morning-logged sleep quality vs. that SAME day's average check-in stress.
+  function computeSleepStressInsight() {
+    const morning = getMorning();
+    const checkins = getCheckins();
+    const stressByDay = {};
+    checkins.forEach(c => {
+      if (!c.stress || !c.dateKey) return;
+      (stressByDay[c.dateKey] = stressByDay[c.dateKey] || []).push(c.stress);
+    });
+    const goodSleepStress = [], poorSleepStress = [];
+    Object.keys(morning).forEach(dateKey => {
+      const q = morning[dateKey] && morning[dateKey].sleepQuality;
+      const dayStress = stressByDay[dateKey];
+      if (!q || !dayStress || !dayStress.length) return;
+      const dayAvgStress = avg(dayStress);
+      if (q >= 4) goodSleepStress.push(dayAvgStress);
+      else if (q <= 2) poorSleepStress.push(dayAvgStress);
+    });
+    if (goodSleepStress.length < INSIGHT_MIN_SAMPLES || poorSleepStress.length < INSIGHT_MIN_SAMPLES) return null;
+    return { avgGood: avg(goodSleepStress), avgPoor: avg(poorSleepStress), nGood: goodSleepStress.length, nPoor: poorSleepStress.length };
+  }
+
+  function renderInsights() {
+    const list = $('insightList'), empty = $('insightEmpty');
+    const rows = [];
+
+    const caf = computeCaffeineSleepInsight();
+    if (caf) {
+      const diff = caf.avgWithout - caf.avgWith;
+      const meaningful = Math.abs(diff) >= 0.4;
+      const text = 'On nights with caffeine at/after 2pm, sleep quality averaged <b>' + caf.avgWith.toFixed(1) + '/5</b> vs <b>'
+        + caf.avgWithout.toFixed(1) + '/5</b> without (' + caf.nWith + ' vs ' + caf.nWithout + ' days)';
+      rows.push(factorRow('☕', text, meaningful && diff > 0 ? 'worse sleep' : meaningful ? 'better sleep' : 'no difference', meaningful && diff > 0 ? 'neg' : meaningful ? 'pos' : 'flat'));
+    }
+
+    const sleepStress = computeSleepStressInsight();
+    if (sleepStress) {
+      const diff = sleepStress.avgPoor - sleepStress.avgGood;
+      const meaningful = Math.abs(diff) >= 0.4;
+      const text = 'On good-sleep days (4-5/5), average stress was <b>' + sleepStress.avgGood.toFixed(1) + '/5</b> vs <b>'
+        + sleepStress.avgPoor.toFixed(1) + '/5</b> on poor-sleep days (1-2/5) (' + sleepStress.nGood + ' vs ' + sleepStress.nPoor + ' days)';
+      rows.push(factorRow('😴', text, meaningful && diff > 0 ? 'more stress' : meaningful ? 'less stress' : 'no difference', meaningful && diff > 0 ? 'neg' : meaningful ? 'pos' : 'flat'));
+    }
+
+    if (!rows.length) {
+      list.innerHTML = '';
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      list.innerHTML = rows.join('');
+    }
+  }
+
   let trendMode = 'day'; // 'day' | 'week' | 'month'
   function renderTrend() {
     const svg = $('trendChart'), emptyEl = $('trendEmpty');
@@ -1020,7 +1119,7 @@ body::after {
     renderCheckinLog();
     renderActivityLog();
     persistDailyScore();
-    renderRing(); renderChart(); renderGradeBand(); renderFactors(); renderTrend();
+    renderRing(); renderChart(); renderGradeBand(); renderFactors(); renderInsights(); renderTrend();
   }
 
   /* ============ Scrub interaction ============ */
