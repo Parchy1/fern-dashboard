@@ -1721,6 +1721,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       </div>
     </div>
 
+    <!-- Forecast — trend-based projection from nw:history, a custom goal, and a "what would this purchase cost me" impact preview -->
+    <div class="card nw-subcard" id="nwForecastCard">
+      <div class="label">📈 Forecast</div>
+      <div id="nwForecastTrend" style="font-size:12px;color:var(--text-tertiary);margin-top:6px"></div>
+      <div id="nwForecastMilestone" style="font-size:13px;color:var(--text-primary);margin-top:6px;font-weight:600"></div>
+      <div class="quick-add" style="flex-wrap:wrap;margin-top:10px">
+        <input type="number" placeholder="Goal amount" id="nwGoalAmount" step="0.01" style="flex:1;min-width:110px" />
+        <button class="quick-add-btn" id="nwGoalCalcBtn" onclick="window.__calcGoal && window.__calcGoal()">Project</button>
+      </div>
+      <div id="nwGoalResult" style="font-size:13px;color:var(--text-primary);margin-top:8px"></div>
+      <div style="border-top:1px solid var(--border);margin:12px 0 10px;padding-top:10px">
+        <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:6px">What would spending this cost your timeline?</div>
+        <div class="quick-add" style="flex-wrap:wrap">
+          <input type="number" placeholder="Purchase amount" id="nwImpactAmount" step="0.01" style="flex:1;min-width:110px" />
+          <button class="quick-add-btn" id="nwImpactCalcBtn" onclick="window.__calcImpact && window.__calcImpact()">Check impact</button>
+        </div>
+        <div id="nwImpactResult" style="font-size:12px;color:var(--text-tertiary);margin-top:8px"></div>
+      </div>
+      <div class="empty-state" id="nwForecastEmpty" style="margin-top:10px">Not enough history yet — the forecast needs at least a few days of tracked net worth changes.</div>
+    </div>
+
     <!-- Add income / salary — quick deposit into any existing account -->
     <div class="card nw-subcard" id="nwIncomeCard">
       <div class="label" style="display:flex;justify-content:space-between;align-items:center">
@@ -2772,6 +2793,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       areaPath.setAttribute('d', '');
       if (deltaEl) { deltaEl.textContent = '—'; deltaEl.classList.remove('up', 'down'); }
       renderChartStats([]);
+      if (typeof renderNetWorthForecast === 'function') renderNetWorthForecast();
       return;
     }
     wrap.classList.add('has-data');
@@ -2822,6 +2844,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const firstPt = points[0];
     areaPath.setAttribute('d', lineD + ' L' + lastPt.x + ',' + H + ' L' + firstPt.x + ',' + H + ' Z');
     renderChartStats(hist);
+    if (typeof renderNetWorthForecast === 'function') renderNetWorthForecast();
   }
 
   // Stats overlay — what 1% is worth, all-time high/low, snapshot count.
@@ -2847,6 +2870,118 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     highEl.textContent  = fmtMoney(high);
     lowEl.textContent   = fmtMoney(low);
     countEl.textContent = String(hist.length);
+  }
+
+  // ============================================================
+  // FORECAST — trend-based projection from nw:history (already recorded by
+  // logNetWorthSnapshot on every real change), a custom goal amount, and a
+  // "what would this purchase cost my timeline" impact preview.
+  // ============================================================
+  const FORECAST_WINDOW_DAYS = 180; // only recent history drives "current trend" — a multi-year-old pattern shouldn't dominate a fresh projection
+  // Simple least-squares linear regression over {t, v} points restricted to
+  // the trailing window. Returns null (rather than a misleading number) when
+  // there isn't enough data to fit a line.
+  function computeNetWorthTrend(history, windowDays) {
+    if (!Array.isArray(history) || history.length < 2) return null;
+    const cutoff = windowDays ? Date.now() - windowDays * 86400000 : -Infinity;
+    const pts = history.filter(p => p.t >= cutoff);
+    if (pts.length < 2) return null;
+    const t0 = pts[0].t;
+    const xs = pts.map(p => (p.t - t0) / 86400000);
+    const ys = pts.map(p => p.v);
+    const n = xs.length;
+    const sumX = xs.reduce((a, b) => a + b, 0), sumY = ys.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0), sumXX = xs.reduce((a, x) => a + x * x, 0);
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null; // all sample points landed at the same x (e.g. duplicate timestamps) — can't fit a slope
+    const slopePerDay = (n * sumXY - sumX * sumY) / denom;
+    return { slopePerDay, monthlyRate: slopePerDay * 30.44, currentValue: ys[ys.length - 1], samples: n, windowStartT: pts[0].t };
+  }
+  function projectDateToReach(currentValue, monthlyRate, targetValue) {
+    if (!(monthlyRate > 0)) return null;
+    if (targetValue <= currentValue) return { months: 0, date: new Date() };
+    const monthsNeeded = (targetValue - currentValue) / monthlyRate;
+    const d = new Date();
+    d.setDate(d.getDate() + Math.round(monthsNeeded * 30.44));
+    return { months: monthsNeeded, date: d };
+  }
+  // Picks a "nice" round number just above the current value, scaled to its
+  // own magnitude (so 47,000 suggests 50,000; 470,000 suggests 500,000).
+  function nextRoundMilestone(currentValue) {
+    if (!(currentValue > 0)) return 10000;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(currentValue)));
+    const step = magnitude / 2;
+    return Math.ceil((currentValue + 1) / step) * step;
+  }
+  function purchaseImpactDays(amount, monthlyRate) {
+    if (!(monthlyRate > 0) || !(amount > 0)) return null;
+    const dailyRate = monthlyRate / 30.44;
+    return Math.round(amount / dailyRate);
+  }
+
+  // Auto-updating summary — called from renderNetWorthChart() every time
+  // net worth actually changes. DOM refs are looked up fresh each call
+  // (not cached at module scope) — this function is invoked from
+  // renderNetWorthChart(), which itself fires as part of the very first
+  // renderAllNetWorth() call, well before a script-position-based const
+  // declared down here would have been evaluated. Same caution already
+  // documented for ORD_FROM_META/the Debts section above.
+  function renderNetWorthForecast() {
+    const trendEl = document.getElementById('nwForecastTrend');
+    const milestoneEl = document.getElementById('nwForecastMilestone');
+    const emptyEl = document.getElementById('nwForecastEmpty');
+    if (!trendEl) return;
+    const history = storeGet(NW_HISTORY_KEY) || [];
+    const trend = computeNetWorthTrend(history, FORECAST_WINDOW_DAYS);
+    if (!trend) {
+      trendEl.textContent = '';
+      if (milestoneEl) milestoneEl.textContent = '';
+      if (emptyEl) emptyEl.style.display = 'block';
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    const spanDays = Math.max(1, Math.round((Date.now() - trend.windowStartT) / 86400000));
+    const rateLabel = trend.monthlyRate >= 0
+      ? '+' + fmtMoney(trend.monthlyRate) + '/mo'
+      : '−' + fmtMoney(Math.abs(trend.monthlyRate)) + '/mo';
+    trendEl.textContent = 'Trending ' + rateLabel + ' over the last ' + spanDays + ' day' + (spanDays === 1 ? '' : 's') + ' (' + trend.samples + ' data points)';
+    if (milestoneEl) {
+      if (trend.monthlyRate > 0) {
+        const milestone = nextRoundMilestone(trend.currentValue);
+        const proj = projectDateToReach(trend.currentValue, trend.monthlyRate, milestone);
+        milestoneEl.textContent = proj ? ('At this rate: ' + fmtMoney(milestone) + ' by ' + proj.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })) : '';
+      } else {
+        milestoneEl.textContent = 'Net worth is flat or declining recently — no forward projection.';
+      }
+    }
+  }
+
+  function renderGoalProjection() {
+    const resultEl = document.getElementById('nwGoalResult');
+    const goalEl = document.getElementById('nwGoalAmount');
+    if (!resultEl || !goalEl) return;
+    const target = parseFloat(goalEl.value);
+    if (isNaN(target)) { resultEl.textContent = ''; return; }
+    const history = storeGet(NW_HISTORY_KEY) || [];
+    const trend = computeNetWorthTrend(history, FORECAST_WINDOW_DAYS);
+    if (!trend) { resultEl.textContent = 'Not enough tracked history yet to project — add or edit a few net worth entries over a few days first.'; return; }
+    if (target <= trend.currentValue) { resultEl.textContent = 'Already past that — nice.'; return; }
+    if (!(trend.monthlyRate > 0)) { resultEl.textContent = 'Net worth isn\'t currently trending upward, so this can\'t be projected forward.'; return; }
+    const proj = projectDateToReach(trend.currentValue, trend.monthlyRate, target);
+    resultEl.textContent = 'At the current rate, you\'d hit ' + fmtMoney(target) + ' around ' + proj.date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + ' (~' + Math.round(proj.months) + ' months).';
+  }
+
+  function renderPurchaseImpact() {
+    const resultEl = document.getElementById('nwImpactResult');
+    const amtEl = document.getElementById('nwImpactAmount');
+    if (!resultEl || !amtEl) return;
+    const amount = parseFloat(amtEl.value);
+    if (isNaN(amount) || amount <= 0) { resultEl.textContent = ''; return; }
+    const history = storeGet(NW_HISTORY_KEY) || [];
+    const trend = computeNetWorthTrend(history, FORECAST_WINDOW_DAYS);
+    if (!trend || !(trend.monthlyRate > 0)) { resultEl.textContent = 'Net worth isn\'t currently trending upward, so a delay can\'t be estimated.'; return; }
+    const days = purchaseImpactDays(amount, trend.monthlyRate);
+    resultEl.textContent = 'Spending ' + fmtMoney(amount) + ' would set your trajectory back roughly ' + days + ' day' + (days === 1 ? '' : 's') + ' at your current savings rate.';
   }
 
   NW_CATS.forEach(cat => {
@@ -3779,6 +3914,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   window.__addWish = doWishAdd;
   window.__addDebt = doDebtAdd;
   window.__calcPayoff = renderPayoffCalculator;
+  window.__calcGoal = renderGoalProjection;
+  window.__calcImpact = renderPurchaseImpact;
   document.addEventListener('click', (e) => {
     const t = e.target.closest('button');
     if (!t) return;
@@ -3788,7 +3925,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (t.id === 'wishAddBtn') { e.preventDefault(); doWishAdd(); }
     if (t.id === 'debtAddBtn') { e.preventDefault(); doDebtAdd(); }
     if (t.id === 'debtCalcBtn') { e.preventDefault(); renderPayoffCalculator(); }
+    if (t.id === 'nwGoalCalcBtn') { e.preventDefault(); renderGoalProjection(); }
+    if (t.id === 'nwImpactCalcBtn') { e.preventDefault(); renderPurchaseImpact(); }
   });
+  const _nwGoalAmount = document.getElementById('nwGoalAmount');
+  const _nwImpactAmount = document.getElementById('nwImpactAmount');
+  if (_nwGoalAmount)   _nwGoalAmount.addEventListener('keydown', (e) => { if (e.key === 'Enter') renderGoalProjection(); });
+  if (_nwImpactAmount) _nwImpactAmount.addEventListener('keydown', (e) => { if (e.key === 'Enter') renderPurchaseImpact(); });
 
   // ============================================================
   // INCOMING ORDERS — full-spec: name, cost (CHF base), currency,

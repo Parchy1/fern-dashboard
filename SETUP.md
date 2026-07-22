@@ -353,6 +353,14 @@ a badge shows up once a subscription's price has genuinely risen since you first
 tracking it, plus a running total of how much of your monthly subscription burn is drift rather
 than the price you originally signed up for.
 
+The Net Worth tab also has a **Forecast** card: it fits a trend line to your existing net-worth
+history (the same data already behind the trend chart — no new setup needed) and projects
+forward — a running "trending +$X/mo" readout, a milestone ("at this rate: $X by &lt;month&gt;"),
+a custom goal amount you can type in for its own projected date, and a "what would spending this
+cost my timeline" quick check for a hypothetical purchase. Needs a few days of real tracked
+history before it has enough to fit a trend line — it says so plainly rather than guessing from
+too little data.
+
 Marking gym day, a habit, or a stretch routine done tells you the current streak too (matching
 the 🔥 counters already on the Main and Gym tabs) when it's more than a day or two — same
 "today counts, or falls back to yesterday if today's not done yet" rule as those counters, so an
