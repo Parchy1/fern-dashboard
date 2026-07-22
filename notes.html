@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="lock.js"></script>
+<script src="/api/config"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050506">
@@ -224,8 +225,10 @@ body::after {
     <div class="gm-card">
       <div class="notes-search-row gm-input-wrap">
         <input class="gm-input" id="notesSearch" type="text" placeholder="Search notes…" autocomplete="off">
+        <button class="gm-ghost" id="notesSemanticBtn" type="button" title="Search by meaning, not just exact words">🧠 Semantic</button>
         <button class="gm-add" id="notesNewBtn" type="button">+ New Note</button>
       </div>
+      <div class="editor-meta" id="notesSemanticStatus" style="display:none;margin-bottom:10px"></div>
       <ul class="notes-list" id="notesList"></ul>
       <div class="empty-state" id="notesEmpty" style="display:none">No notes yet — start one above.</div>
     </div>
@@ -266,6 +269,43 @@ body::after {
   const metaEl      = document.getElementById('editorMeta');
   const deleteBtn   = document.getElementById('editorDeleteBtn');
   const backBtn     = document.getElementById('editorBackBtn');
+  const semanticBtn    = document.getElementById('notesSemanticBtn');
+  const semanticStatus = document.getElementById('notesSemanticStatus');
+
+  // ---- Semantic search (optional — degrades silently if not configured) ----
+  // Note CONTENT never leaves localStorage/the normal sync row for this;
+  // /api/notes-embed only ever sees text transiently to turn it into a
+  // vector, and only stores the vector itself (see api/notes-embed.js).
+  let semanticRankedIds = null; // null = not in semantic mode, use the normal keyword filter instead
+  function notesEmbedConfigured() {
+    return !!(window.DASH_NOTES_EMBED_SECRET);
+  }
+  async function notesEmbedCall(action, payload) {
+    if (!notesEmbedConfigured()) return null;
+    try {
+      const res = await fetch('/api/notes-embed', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + window.DASH_NOTES_EMBED_SECRET },
+        body: JSON.stringify(Object.assign({ action: action }, payload)),
+      });
+      const json = await res.json();
+      return json && json.ok ? json : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  // Fire-and-forget — a note must always save locally regardless of whether
+  // embedding succeeds, fails, or isn't configured at all.
+  function scheduleEmbed(note) {
+    if (!notesEmbedConfigured()) return;
+    const text = ((note.title || '') + '\n' + (note.body || '')).trim();
+    if (!text) return;
+    notesEmbedCall('upsert', { noteId: note.id, text: text }).catch(() => {});
+  }
+  function scheduleEmbedDelete(noteId) {
+    if (!notesEmbedConfigured()) return;
+    notesEmbedCall('delete', { noteId: noteId }).catch(() => {});
+  }
 
   let openId = null;
 
@@ -289,7 +329,15 @@ body::after {
   function render() {
     const q = searchEl.value.trim().toLowerCase();
     let notes = load().slice().sort((a, b) => b.updatedAt - a.updatedAt);
-    if (q) {
+    if (semanticRankedIds) {
+      // Semantic mode: order by the ranked ids the server returned, dropping
+      // anything without a match (e.g. a note that predates this feature or
+      // hasn't finished embedding yet) rather than padding with unrelated
+      // notes — a shorter, genuinely-relevant list beats a complete but
+      // misleading one.
+      const byId = new Map(notes.map(n => [n.id, n]));
+      notes = semanticRankedIds.map(id => byId.get(id)).filter(Boolean);
+    } else if (q) {
       notes = notes.filter(n =>
         (n.title || '').toLowerCase().includes(q) ||
         (n.body || '').toLowerCase().includes(q)
@@ -328,6 +376,7 @@ body::after {
         e.stopPropagation();
         if (!confirm('Delete "' + (note.title || 'Untitled') + '"?')) return;
         save(load().filter(n => n.id !== note.id));
+        scheduleEmbedDelete(note.id);
         render();
       });
 
@@ -357,14 +406,17 @@ body::after {
       // The note vanished from storage out from under an open editor (e.g. a
       // sync race with a delete on another device). Re-add it instead of
       // silently discarding whatever the user has typed here.
-      notes.push({ id: openId, title: titleEl.value.trim(), body: bodyEl.value, updatedAt: Date.now() });
+      const note = { id: openId, title: titleEl.value.trim(), body: bodyEl.value, updatedAt: Date.now() };
+      notes.push(note);
       save(notes);
+      scheduleEmbed(note);
       return;
     }
     notes[idx].title = titleEl.value.trim();
     notes[idx].body = bodyEl.value;
     notes[idx].updatedAt = Date.now();
     save(notes);
+    scheduleEmbed(notes[idx]);
   }
 
   function closeEditor() {
@@ -412,13 +464,50 @@ body::after {
     const note = load().find(n => n.id === openId);
     if (!confirm('Delete "' + (note && note.title ? note.title : 'Untitled') + '"?')) return;
     save(load().filter(n => n.id !== openId));
+    scheduleEmbedDelete(openId);
     openId = null;
     editorView.style.display = 'none';
     listView.style.display = 'block';
     render();
   });
 
-  searchEl.addEventListener('input', render);
+  searchEl.addEventListener('input', () => {
+    // Typing anything new invalidates the last semantic result set — back to
+    // the normal live keyword filter until Semantic is explicitly hit again.
+    semanticRankedIds = null;
+    semanticStatus.style.display = 'none';
+    render();
+  });
+
+  if (semanticBtn) {
+    if (!notesEmbedConfigured()) {
+      // Not set up (no NOTES_EMBED_SECRET) — hide rather than show a button
+      // that would just fail every time.
+      semanticBtn.style.display = 'none';
+    } else {
+      semanticBtn.addEventListener('click', async () => {
+        const query = searchEl.value.trim();
+        if (!query) { searchEl.focus(); return; }
+        semanticBtn.disabled = true;
+        const origLabel = semanticBtn.textContent;
+        semanticBtn.textContent = 'Searching…';
+        semanticStatus.style.display = 'block';
+        semanticStatus.textContent = '';
+        const result = await notesEmbedCall('search', { query: query });
+        semanticBtn.disabled = false;
+        semanticBtn.textContent = origLabel;
+        if (!result) {
+          semanticStatus.textContent = "Couldn't search just now — check the server config or your connection.";
+          return;
+        }
+        semanticRankedIds = result.results.map(r => r.noteId);
+        semanticStatus.textContent = semanticRankedIds.length
+          ? 'Showing ' + semanticRankedIds.length + ' result' + (semanticRankedIds.length === 1 ? '' : 's') + ' ranked by meaning, not exact words.'
+          : 'No semantically similar notes found.';
+        render();
+      });
+    }
+  }
 
   render();
 
