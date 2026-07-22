@@ -1728,6 +1728,43 @@ async function downloadTelegramPhoto(token, photoSizes) {
   return { base64, mediaType };
 }
 
+// Same two-step file download as downloadTelegramPhoto (getFile resolves
+// file_id to a file_path, then a second host serves the actual bytes) —
+// kept as its own separate function rather than a shared helper since a
+// voice message is a single file_id, not an array of resolutions to pick
+// the largest from.
+async function downloadTelegramVoice(token, voice) {
+  const fileRes = await fetch('https://api.telegram.org/bot' + token + '/getFile?file_id=' + encodeURIComponent(voice.file_id));
+  const fileJson = await fileRes.json();
+  if (!fileRes.ok || !fileJson.ok || !fileJson.result || !fileJson.result.file_path) {
+    throw new Error('Telegram getFile failed: ' + JSON.stringify(fileJson));
+  }
+  const filePath = fileJson.result.file_path;
+  const bytesRes = await fetch('https://api.telegram.org/file/bot' + token + '/' + filePath);
+  if (!bytesRes.ok) throw new Error('Telegram file download failed: HTTP ' + bytesRes.status);
+  const buffer = Buffer.from(await bytesRes.arrayBuffer());
+  return { buffer, mimeType: voice.mime_type || 'audio/ogg' };
+}
+
+// Telegram voice messages are OGG/Opus, which Whisper accepts directly — no
+// transcoding needed. Uses the same OPENAI_API_KEY as the (separate,
+// optional) semantic note search feature, since both just need "an OpenAI
+// key," not two.
+async function transcribeAudio(apiKey, buffer, mimeType) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mimeType }), 'voice.ogg');
+  form.append('model', 'whisper-1');
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + apiKey },
+    body: form,
+  });
+  if (!res.ok) throw new Error('OpenAI transcription error: ' + res.status + ' ' + (await res.text()));
+  const json = await res.json();
+  if (typeof json.text !== 'string') throw new Error('OpenAI transcription response missing text');
+  return json.text;
+}
+
 // Answers a callback_query — required so Telegram clears the tappable
 // button's loading spinner on the user's client. `text` (optional, shows as
 // a small toast) is capped well under Telegram's 200-char limit.
@@ -1822,7 +1859,8 @@ export default async function handler(req, res) {
 
     const message = update.message;
     const hasPhoto = !!(message && Array.isArray(message.photo) && message.photo.length);
-    if (!message || (typeof message.text !== 'string' && !hasPhoto)) return res.status(200).json({ ok: true, skipped: 'no text message' });
+    const hasVoice = !!(message && message.voice && message.voice.file_id);
+    if (!message || (typeof message.text !== 'string' && !hasPhoto && !hasVoice)) return res.status(200).json({ ok: true, skipped: 'no text message' });
 
     const chatId = message.chat && message.chat.id;
 
@@ -1844,6 +1882,10 @@ export default async function handler(req, res) {
       await tgSend(botToken, chatId, "SUPABASE_URL / SUPABASE_ANON_KEY aren't set on the server yet.");
       return res.status(200).json({ ok: true, error: 'no supabase config' });
     }
+    if (hasVoice && !process.env.OPENAI_API_KEY) {
+      await tgSend(botToken, chatId, "Voice messages need OPENAI_API_KEY set on the server (same key used for semantic note search) — add it in Vercel's environment variables.");
+      return res.status(200).json({ ok: true, error: 'no openai key' });
+    }
 
     const [context, history] = await Promise.all([buildContext(), loadHistory().catch(() => [])]);
 
@@ -1855,7 +1897,7 @@ export default async function handler(req, res) {
     // image itself — keeps the memory row small and avoids re-sending a
     // multi-hundred-KB base64 blob (and re-spending the tokens on it) on
     // every subsequent, unrelated message for the rest of the conversation.
-    let userContent, historyUserEntry;
+    let userContent, historyUserEntry, replyPrefix = '';
     if (hasPhoto) {
       let image;
       try {
@@ -1870,13 +1912,32 @@ export default async function handler(req, res) {
         { type: 'text', text: caption || 'What food/drink is this? Log it.' },
       ];
       historyUserEntry = '(sent a photo' + (caption ? ': ' + caption : '') + ')';
+    } else if (hasVoice) {
+      let transcript;
+      try {
+        const audio = await downloadTelegramVoice(botToken, message.voice);
+        transcript = (await transcribeAudio(process.env.OPENAI_API_KEY, audio.buffer, audio.mimeType)).trim();
+      } catch (e) {
+        await tgSend(botToken, chatId, "Couldn't transcribe that voice message: " + (e && e.message ? e.message : String(e)));
+        return res.status(200).json({ ok: true, error: 'voice transcription failed' });
+      }
+      if (!transcript) {
+        await tgSend(botToken, chatId, "Didn't catch anything in that voice message — try again?");
+        return res.status(200).json({ ok: true, error: 'empty transcript' });
+      }
+      // Shown back so a Whisper mishearing is immediately visible rather than
+      // silently acted on — same "don't hide what you might need to correct"
+      // reasoning as the food-photo quick-log confirming what it logged.
+      replyPrefix = '🎤 "' + transcript + '"\n\n';
+      userContent = transcript;
+      historyUserEntry = transcript;
     } else {
       userContent = message.text;
       historyUserEntry = message.text;
     }
 
     const { text: reply, usage } = await callClaude(anthropicKey, context, userContent, history);
-    await tgSend(botToken, chatId, reply);
+    await tgSend(botToken, chatId, replyPrefix + reply);
     // Awaited (not fire-and-forget) — this function can be frozen the
     // instant we respond, same reasoning as the comment above.
     await saveHistory(history.concat([
