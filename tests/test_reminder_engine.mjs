@@ -158,6 +158,11 @@ function nowMinUtc() {
   const nowMin = nowMinUtc();
   const pastTime = minToHM(Math.max(0, nowMin - 45));
   const bedtimeFuture = minToHM(Math.min(1439, nowMin + 180));
+  // Pin the morning briefing's fire time safely past every "now" used in
+  // this block (the clock is frozen, so this stays out of range for all of
+  // the full-handler tests below) — otherwise it fires unprompted alongside
+  // whatever single message each test is actually checking for.
+  process.env.MORNING_BRIEFING_TIME = '23:59';
 
   // peakData defaults to a just-now check-in so the independent periodic
   // feeling-check-in reminder (tested separately below) never fires inside
