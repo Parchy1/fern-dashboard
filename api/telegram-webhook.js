@@ -205,6 +205,72 @@ async function saveHistory(history) {
   await writeRow(HISTORY_KEY, { history: history.slice(-MAX_HISTORY_MESSAGES) });
 }
 
+// ---------- API usage/cost tracking (its own row, separate from dashboard data) ----------
+// Anthropic's per-call `usage` (input/output token counts) is cheap to read
+// off every response but otherwise invisible unless you're watching the
+// console.anthropic.com dashboard — this persists a running total plus a
+// day-bucketed breakdown so the assistant can just answer "how much have I
+// spent on you this month" from context, same as any other read-only data.
+// Cost is an ESTIMATE from configurable per-token prices, not a real billing
+// figure — Anthropic's actual pricing can change, and this has no way to
+// know that on its own, so the defaults below may drift out of date.
+const USAGE_KEY = 'telegram-usage';
+const USAGE_HISTORY_DAYS = 90; // days of daily breakdown kept before pruning — plenty for "this month"-scale questions without the row growing forever
+// Read fresh from process.env on every call, same reasoning as tz() above —
+// these are USD per 1M tokens, configurable since Anthropic's real pricing
+// can change and this has no way to know that on its own.
+function inputPricePerMTok() { return Number(process.env.ANTHROPIC_INPUT_PRICE_PER_MTOK) || 3; }
+function outputPricePerMTok() { return Number(process.env.ANTHROPIC_OUTPUT_PRICE_PER_MTOK) || 15; }
+
+function estimateCostUSD(inputTokens, outputTokens) {
+  return (inputTokens / 1e6) * inputPricePerMTok() + (outputTokens / 1e6) * outputPricePerMTok();
+}
+function round2(n) { return Math.round(n * 100) / 100; }
+
+async function recordApiUsage(usage) {
+  if (!usage || (!usage.inputTokens && !usage.outputTokens)) return;
+  const data = await readRow(USAGE_KEY);
+  const byDate = data.byDate || {};
+  const today = plainDateKey();
+  const day = byDate[today] || { inputTokens: 0, outputTokens: 0, calls: 0 };
+  day.inputTokens += usage.inputTokens;
+  day.outputTokens += usage.outputTokens;
+  day.calls += 1;
+  byDate[today] = day;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - USAGE_HISTORY_DAYS);
+  Object.keys(byDate).forEach((k) => { if (new Date(k + 'T00:00:00') < cutoff) delete byDate[k]; });
+  await writeRow(USAGE_KEY, {
+    byDate,
+    totalInputTokens: (data.totalInputTokens || 0) + usage.inputTokens,
+    totalOutputTokens: (data.totalOutputTokens || 0) + usage.outputTokens,
+    totalCalls: (data.totalCalls || 0) + 1,
+  });
+}
+
+// Summarizes the persisted usage row into the shape handed to Claude as
+// context — today / last 30 days / all-time, each as a call count plus an
+// estimated USD cost, rather than exposing raw token counts the model would
+// have to do its own arithmetic on.
+function summarizeApiUsage(data) {
+  if (!data || !data.totalCalls) return null;
+  const byDate = data.byDate || {};
+  const today = byDate[plainDateKey()] || { inputTokens: 0, outputTokens: 0, calls: 0 };
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const last30 = Object.keys(byDate).reduce((acc, k) => {
+    if (new Date(k + 'T00:00:00') >= cutoff) {
+      acc.inputTokens += byDate[k].inputTokens; acc.outputTokens += byDate[k].outputTokens; acc.calls += byDate[k].calls;
+    }
+    return acc;
+  }, { inputTokens: 0, outputTokens: 0, calls: 0 });
+  return {
+    today: { calls: today.calls, estimatedCostUSD: round2(estimateCostUSD(today.inputTokens, today.outputTokens)) },
+    last30Days: { calls: last30.calls, estimatedCostUSD: round2(estimateCostUSD(last30.inputTokens, last30.outputTokens)) },
+    allTime: { calls: data.totalCalls, estimatedCostUSD: round2(estimateCostUSD(data.totalInputTokens || 0, data.totalOutputTokens || 0)) },
+  };
+}
+
 async function fetchExchangeRates() {
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/CHF');
@@ -1415,6 +1481,8 @@ async function buildContext() {
   keys.forEach((k, i) => { context[k] = rows[i]; });
   const google = await buildGoogleContext();
   if (google) context.google = google;
+  const usage = summarizeApiUsage(await readRow(USAGE_KEY).catch(() => null));
+  if (usage) context.apiUsage = usage;
   return context;
 }
 
@@ -1466,16 +1534,25 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'for add_todo\'s date field, and if it\'s not clear which real event the user means (update/delete need an '
   + 'event_id — pull it from today\'s Calendar context, or call list_calendar_events to search a wider range), ask '
   + 'rather than guess, since a wrong delete/update can\'t be undone the way dashboard changes can via '
-  + 'undo_last_action.'
+  + 'undo_last_action. If an "apiUsage" key is present, it\'s YOUR OWN estimated Anthropic API cost/call count — '
+  + 'today, last 30 days, and all-time — answer questions like "how much have I spent on you this month" directly '
+  + 'from it; the cost figures are estimates from configured per-token prices, not a real invoice, so say "roughly" '
+  + 'rather than stating them as exact.'
   + '\n\nCurrent dashboard data:\n';
 
 // userContent is either a plain string (a normal text message) or an array
 // of Anthropic content blocks (an image block + a text block, for a photo
 // message) — Claude's Messages API accepts either shape for a turn's
 // content, so no branching is needed here beyond passing it straight through.
+// Returns { text, usage } rather than a bare string — usage accumulates
+// input/output tokens across every iteration of the loop below (a single
+// user message can cost several Anthropic calls when tool use is involved),
+// so the caller gets one true total for the whole exchange, not just the
+// final round-trip.
 async function callClaude(apiKey, context, userContent, priorHistory) {
   const messages = (priorHistory || []).concat([{ role: 'user', content: userContent }]);
   let lastText = '';
+  const usage = { inputTokens: 0, outputTokens: 0 };
   for (let iter = 0; iter < 4; iter++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1490,11 +1567,15 @@ async function callClaude(apiKey, context, userContent, priorHistory) {
     });
     if (!res.ok) throw new Error('Anthropic API error: ' + res.status + ' ' + (await res.text()));
     const json = await res.json();
+    if (json.usage) {
+      usage.inputTokens += json.usage.input_tokens || 0;
+      usage.outputTokens += json.usage.output_tokens || 0;
+    }
     const textBlocks = json.content.filter(b => b.type === 'text').map(b => b.text);
     lastText = textBlocks.join('\n') || lastText;
     const toolUses = json.content.filter(b => b.type === 'tool_use');
     if (json.stop_reason !== 'tool_use' || toolUses.length === 0) {
-      return lastText || '(no response)';
+      return { text: lastText || '(no response)', usage };
     }
     messages.push({ role: 'assistant', content: json.content });
     const toolResults = [];
@@ -1510,7 +1591,7 @@ async function callClaude(apiKey, context, userContent, priorHistory) {
     }
     messages.push({ role: 'user', content: toolResults });
   }
-  return lastText || "Something went wrong — I looped too many times without finishing. Try rephrasing?";
+  return { text: lastText || "Something went wrong — I looped too many times without finishing. Try rephrasing?", usage };
 }
 
 async function tgSend(token, chatId, text) {
@@ -1691,7 +1772,7 @@ export default async function handler(req, res) {
       historyUserEntry = message.text;
     }
 
-    const reply = await callClaude(anthropicKey, context, userContent, history);
+    const { text: reply, usage } = await callClaude(anthropicKey, context, userContent, history);
     await tgSend(botToken, chatId, reply);
     // Awaited (not fire-and-forget) — this function can be frozen the
     // instant we respond, same reasoning as the comment above.
@@ -1699,6 +1780,7 @@ export default async function handler(req, res) {
       { role: 'user', content: historyUserEntry },
       { role: 'assistant', content: reply },
     ])).catch(() => {});
+    await recordApiUsage(usage).catch(() => {});
     return res.status(200).json({ ok: true });
   } catch (e) {
     try {

@@ -415,6 +415,14 @@ assistant"** steps further down, after the core setup below.
 > opened the Main tab yet today — the assistant matches it against the Recurring Items list
 > directly rather than only searching today's already-generated to-do list.
 
+> **API cost tracking:** ask "how much have I spent on you this month" (or today, or all-time)
+> and it'll answer from a running tally of every Anthropic call it's made — token counts in, an
+> estimated USD cost out. The cost is only an ESTIMATE from configurable per-token prices
+> (`ANTHROPIC_INPUT_PRICE_PER_MTOK` / `ANTHROPIC_OUTPUT_PRICE_PER_MTOK` env vars, default $3 / $15
+> per million tokens), not a real invoice figure — Anthropic's actual pricing can change and this
+> has no way to know that on its own, so update those env vars if it drifts. Check
+> **console.anthropic.com**'s usage dashboard for the authoritative number.
+
 ### Connect Google to the assistant (optional, needs step 5 done first)
 
 Everything above works without this — the assistant just won't know about your Calendar,
