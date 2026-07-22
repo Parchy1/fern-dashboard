@@ -84,6 +84,8 @@ const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per ite
 const FEELING_CHECKIN_INTERVAL_MIN = 240; // how often to nudge for a feeling/stress check-in (4 hours)
 const FEELING_CHECKIN_START_MIN = 9 * 60;  // don't start nudging before 9am
 const SUBS_REMIND_DAYS_BEFORE = 3;   // heads-up window before a subscription's renewal date
+const SLEEP_POOR_THRESHOLD = 2;      // a logged sleepQuality at/below this counts as "slept poorly last night"
+const SLEEP_POOR_GYM_DELAY_MIN = 90; // push the gym reminder back this much after a poor-sleep night — no benefit nagging first thing when recovery is what's actually needed
 
 const FEELING_CHECKIN_PROMPTS = [
   'Quick check-in — how are you feeling, and how\'s your stress? Just reply with a number 1-5 for each (or however you want to put it) and I\'ll log it.',
@@ -178,9 +180,16 @@ function jitterMinutes(seed) {
   return (h % (JITTER_MAX_MIN * 2 + 1)) - JITTER_MAX_MIN;
 }
 
+function isGymItemName(name) { return /\bgym\b|workout|\blift/i.test(String(name)); }
+
 // Returns null for a generic item with no assignable time — those go into
 // the once-daily catch-all digest instead of an individual reminder.
-export function effectiveTimeMinutes(name, explicitTime, bedtimeMin, dateKey) {
+// sleepQuality (1-5, optional — last night's Peak morning check-in) pushes a
+// gym reminder later on a poor-sleep night rather than nagging first thing
+// when the more useful thing might be extra recovery. Doesn't touch
+// anything else — a to-do or a reading reminder doesn't have the same
+// "pushing through" tradeoff a workout does.
+export function effectiveTimeMinutes(name, explicitTime, bedtimeMin, dateKey, sleepQuality) {
   let base;
   if (explicitTime) {
     base = parseHM(explicitTime);
@@ -190,7 +199,11 @@ export function effectiveTimeMinutes(name, explicitTime, bedtimeMin, dateKey) {
     else if (/\(am\)|\bmorning\b/.test(n)) base = DEFAULT_AM_MINUTES;
     else return null;
   }
-  return Math.max(0, base + jitterMinutes(dateKey + '|' + name));
+  let eff = Math.max(0, base + jitterMinutes(dateKey + '|' + name));
+  if (sleepQuality != null && sleepQuality <= SLEEP_POOR_THRESHOLD && isGymItemName(name)) {
+    eff += SLEEP_POOR_GYM_DELAY_MIN;
+  }
+  return eff;
 }
 
 // Pure decision function — no Date/network involved — so this is the one
@@ -566,9 +579,12 @@ export default async function handler(req, res) {
     const todayState = (stateRow && stateRow[todayKey6am]) || {};
     const dueIndividual = [];
     const catchAllNames = [];
+    // peak.html's morning check-in uses a plain calendar date, same as todayPlain.
+    const lastNightMorning = (peakData && peakData['peak:morning'] && peakData['peak:morning'][todayPlain]) || null;
+    const lastNightSleepQuality = lastNightMorning ? lastNightMorning.sleepQuality : null;
 
     allItems.forEach(({ name, time }) => {
-      const eff = effectiveTimeMinutes(name, time, bedtimeMin, todayKey6am);
+      const eff = effectiveTimeMinutes(name, time, bedtimeMin, todayKey6am, lastNightSleepQuality);
       if (eff == null) { catchAllNames.push(name); return; }
       const st = todayState[name];
       if (shouldSendNow(st, nowMin, eff, bedtimeMin)) {
