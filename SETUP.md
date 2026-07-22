@@ -366,6 +366,14 @@ knowledge way. Add a caption if you want to steer the estimate (portion size, wh
 etc.); without one it just describes what it logged in its reply so you can correct it if the
 guess is off.
 
+The Finance tab's currency pickers (net worth display, and every account/subscription/purchase/
+order/wishlist/debt entry) now only offer **USD** (the default) and **DOP** — CHF/EUR/GBP were
+removed as choices everywhere. Nothing about your already-saved data changed: every stored amount
+is still converted through the same internal CHF-based exchange rate under the hood, so nothing
+was recalculated or migrated. If you had something entered in CHF/EUR/GBP before this change,
+editing it still shows and preserves its real original currency rather than silently relabeling
+it to USD — you'd have to deliberately switch it yourself.
+
 The Finance tab's **Debts** tab tracks loans/credit card balances separately from your net worth
 accounts, with a payoff calculator (avalanche vs snowball, compares total interest and time to
 debt-free for a given extra monthly payment). Add a debt from the tab directly or via chat
@@ -534,9 +542,10 @@ link tiles — today's goal completion, your best active streak (habits or gym, 
 longer), a net worth figure with its trend direction, what's next on today's schedule, and an
 energy/mood read (your latest feeling/stress check-in today, or last night's sleep quality if you
 haven't checked in yet). No setup needed — it's built entirely from data the dashboard already
-syncs. Net worth here always shows in CHF (the currency your accounts are actually totaled in
-internally) rather than your chosen display currency from the Finance tab, to avoid an extra live
-exchange-rate fetch just for a glance-level summary card.
+syncs. Net worth here always shows in USD — the app's one primary currency (DOP is the only other
+option, on the Finance tab's own currency pickers) — with its own small live exchange-rate fetch
+to convert your accounts' internal base units correctly, separate from the Finance tab's own rate
+fetch.
 
 ---
 

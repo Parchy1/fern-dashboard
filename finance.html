@@ -1641,17 +1641,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:14px">
       <div>
         <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Total net worth</div>
-        <div id="netWorthTotal" style="font-size:34px;font-weight:700;color:var(--text-primary);line-height:1.05;margin-top:2px">CHF 0</div>
+        <div id="netWorthTotal" style="font-size:34px;font-weight:700;color:var(--text-primary);line-height:1.05;margin-top:2px">USD 0</div>
         <div id="netWorthBreakdown" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
         <div id="netWorthAfterDebt" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-size:11px;color:var(--text-tertiary)">CHF</span>
         <select id="netWorthCurrency" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer">
-          <option value="CHF">CHF</option>
           <option value="USD">USD</option>
-          <option value="EUR">EUR</option>
-          <option value="GBP">GBP</option>
           <option value="DOP">DOP</option>
         </select>
       </div>
@@ -1848,10 +1844,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <input type="text" placeholder="Service (e.g. Netflix)" id="subName" style="flex:1.5;min-width:120px" />
       <input type="number" placeholder="Amount" id="subAmount" step="0.01" style="flex:1;max-width:100px" />
       <select id="subCurrency" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);max-width:90px">
-        <option value="CHF">CHF</option>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
         <option value="DOP">DOP</option>
       </select>
       <select id="subPeriod" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);max-width:100px">
@@ -1886,10 +1879,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <input type="text"   id="ordName"   placeholder="Item (e.g. New iPhone)" class="ord-input ord-input-name">
       <input type="number" id="ordCost"   placeholder="Cost" step="0.01" class="ord-input ord-input-cost">
       <select id="ordCurrency" class="ord-input ord-input-ccy">
-        <option value="CHF">CHF</option>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
         <option value="DOP">DOP</option>
       </select>
       <select id="ordFromCat" class="ord-input ord-input-from" title="Which net worth account this comes out of">
@@ -1942,10 +1932,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <input type="text"   id="purName"   placeholder="What did you buy?" class="ord-input ord-input-name">
       <input type="number" id="purCost"   placeholder="Cost" step="0.01" class="ord-input ord-input-cost">
       <select id="purCurrency" class="ord-input ord-input-ccy">
-        <option value="CHF">CHF</option>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
         <option value="DOP">DOP</option>
       </select>
       <select id="purCategory" class="ord-input ord-input-ccy"></select>
@@ -1981,7 +1968,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     <div class="wish-hero-top">
       <div>
         <div class="wish-hero-eyebrow">WISHLIST TOTAL</div>
-        <div class="wish-hero-num" id="wishTotal">CHF 0</div>
+        <div class="wish-hero-num" id="wishTotal">USD 0</div>
       </div>
       <div class="wish-hero-pct-wrap">
         <div class="wish-hero-pct-label">% OF NET WORTH</div>
@@ -2001,10 +1988,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <input type="text"   id="wishName"   placeholder="Item name (e.g. New iPhone Pro Max)" class="wish-input wish-input-name">
       <input type="number" id="wishAmount" placeholder="Cost" step="0.01" class="wish-input wish-input-amt">
       <select id="wishCurrency" class="wish-input wish-input-ccy">
-        <option value="CHF">CHF</option>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
         <option value="DOP">DOP</option>
       </select>
       <button class="wish-add-btn" id="wishAddBtn" onclick="window.__addWish && window.__addWish()">+ Add</button>
@@ -2033,7 +2017,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:12px">
       <div>
         <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Total owed</div>
-        <div id="debtsTotal" style="font-size:28px;font-weight:700;color:var(--text-primary);line-height:1.1;margin-top:2px">CHF 0</div>
+        <div id="debtsTotal" style="font-size:28px;font-weight:700;color:var(--text-primary);line-height:1.1;margin-top:2px">USD 0</div>
         <div id="debtsAvgApr" style="font-size:11px;color:var(--text-tertiary);margin-top:2px"></div>
       </div>
       <div id="debtsCount" style="font-size:11px;color:var(--text-tertiary)"></div>
@@ -2044,10 +2028,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <input type="text" placeholder="Debt (e.g. Car loan)" id="debtName" style="flex:1.5;min-width:120px" />
       <input type="number" placeholder="Balance" id="debtBalance" step="0.01" style="flex:1;max-width:100px" />
       <select id="debtCurrency" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);max-width:90px">
-        <option value="CHF">CHF</option>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
         <option value="DOP">DOP</option>
       </select>
       <input type="number" placeholder="APR %" id="debtApr" step="0.01" style="flex:1;max-width:90px" />
@@ -2334,6 +2315,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   const netWorthTotal = document.getElementById('netWorthTotal');
   const netWorthBreakdown = document.getElementById('netWorthBreakdown');
 
+  // CHF is the invisible internal base unit every stored amount (amountCHF,
+  // account balances, etc.) is denominated in — that's purely historical
+  // plumbing at this point, not something shown to the user anymore. USD is
+  // now the only default/primary DISPLAY currency, with DOP as the one
+  // alternate; CHF/EUR/GBP stay in this rates table (never offered in any
+  // dropdown going forward) only so existing items that were entered in one
+  // of them before this change still render their original "entered as X"
+  // amount correctly instead of that hint silently going wrong.
   let exchangeRates = { CHF: 1, USD: 1, EUR: 1, GBP: 1, DOP: 1 };
   async function loadExchangeRates() {
     try {
@@ -2355,7 +2344,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   loadExchangeRates();
 
   function fmtMoney(amountCHF) {
-    const symbol = currencyEl ? currencyEl.value : 'CHF';
+    const symbol = currencyEl ? currencyEl.value : 'USD';
     const rate = exchangeRates[symbol] || 1;
     const num = (Number(amountCHF) || 0) * rate;
     return symbol + ' ' + num.toLocaleString('en-US', { minimumFractionDigits: num % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 });
@@ -2408,7 +2397,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   function beginNwAmountEdit(amtEl, items, idx, catKey) {
     if (amtEl.querySelector('input')) return;
-    const symbol = currencyEl ? currencyEl.value : 'CHF';
+    const symbol = currencyEl ? currencyEl.value : 'USD';
     const rate = exchangeRates[symbol] || 1;
     const curCHF = Number(items[idx].amount) || 0;
     const curDisplay = curCHF * rate;
@@ -2627,7 +2616,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (idx < 0) return;
     // Amount is entered in the currently selected display currency —
     // convert to CHF for storage, same as every other NW input.
-    const symbol = currencyEl ? currencyEl.value : 'CHF';
+    const symbol = currencyEl ? currencyEl.value : 'USD';
     const rate = exchangeRates[symbol] || 1;
     const deltaCHF = amt / rate;
     items[idx].amount = (Number(items[idx].amount) || 0) + deltaCHF;
@@ -2996,7 +2985,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       // Interpret the input in the CURRENTLY SELECTED display currency, then
       // convert to CHF for storage. So if USD is selected and user types 40000,
       // we store 40000 / USD-per-CHF rate — 31,400 CHF; displays as $40,000.
-      const symbol = currencyEl ? currencyEl.value : 'CHF';
+      const symbol = currencyEl ? currencyEl.value : 'USD';
       const rate = exchangeRates[symbol] || 1;
       const amountCHF = a / rate;
       const items = storeGet('nw:' + cat.key) || [];
@@ -3075,7 +3064,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   if (currencyEl) {
     const savedCur = storeGet(CURRENCY_KEY);
-    if (savedCur) currencyEl.value = savedCur;
+    // Only honor a saved preference if it's still a real option (USD/DOP) —
+    // a stale 'CHF'/'EUR'/'GBP' preference from before those were removed as
+    // display choices just falls through to the <select>'s own default
+    // (USD, the first option) instead of being force-set to a value that no
+    // longer exists in the dropdown.
+    if (savedCur === 'USD' || savedCur === 'DOP') currencyEl.value = savedCur;
     currencyEl.addEventListener('change', () => {
       storeSet(CURRENCY_KEY, currencyEl.value);
       renderAllNetWorth();
@@ -3229,7 +3223,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const cost = document.createElement('div');
       cost.style.cssText = 'text-align:right;line-height:1.1';
       const bigNum = fmtMoney(m);
-      const origHint = (it.entered_currency && it.entered_currency !== 'CHF' && it.entered_amount != null)
+      // USD is the boring/implicit default now (not CHF) — only show the
+      // "originally entered as X" hint when it's genuinely a different
+      // currency, which now includes legacy CHF-denominated entries that
+      // predate this change (worth surfacing, not hiding).
+      const origHint = (it.entered_currency && it.entered_currency !== 'USD' && it.entered_amount != null)
         ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">billed ' + it.entered_currency + ' ' + Number(it.entered_amount).toLocaleString('en-US', { minimumFractionDigits: it.entered_amount % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 }) + ' / ' + it.period + '</div>'
         : (it.period !== 'monthly'
             ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">billed ' + fmtMoney(it.amount) + ' / ' + it.period + '</div>'
@@ -3365,7 +3363,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const periodOpts = ['monthly','yearly','weekly'].map(p =>
       '<option value="' + p + '"' + (p === it.period ? ' selected' : '') + '>' + p.charAt(0).toUpperCase() + p.slice(1) + '</option>'
     ).join('');
-    const ccyOpts = ['CHF','USD','EUR','GBP','DOP'].map(c =>
+    // Only USD/DOP are offered for a fresh pick, but if this item was
+    // entered in a legacy currency (CHF/EUR/GBP, from before those were
+    // removed as options) that value is kept in the list too — otherwise
+    // simply opening this edit form and hitting Save, without touching
+    // currency at all, would silently relabel it to USD.
+    const ccyBase = ['USD', 'DOP'];
+    const ccyOpts = (ccyBase.includes(enteredCcy) ? ccyBase : ccyBase.concat(enteredCcy)).map(c =>
       '<option value="' + c + '"' + (c === enteredCcy ? ' selected' : '') + '>' + c + '</option>'
     ).join('');
     // Build From-account options from the live NW accounts
@@ -3450,7 +3454,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const n = (nEl.value || '').trim();
       const aRaw = parseFloat(aEl.value);
       if (!n || isNaN(aRaw)) { nEl.focus(); return; }
-      const enteredCcy = ccEl ? ccEl.value : 'CHF';
+      const enteredCcy = ccEl ? ccEl.value : 'USD';
       const rate = exchangeRates[enteredCcy] || 1;
       const amountCHF = aRaw / rate;
       // Parse "From" selection — value is "catKey::accountName"
@@ -3596,7 +3600,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const n = (nEl.value || '').trim();
       const aRaw = parseFloat(aEl.value);
       if (!n || isNaN(aRaw)) { nEl.focus(); return; }
-      const enteredCcy = cEl ? cEl.value : 'CHF';
+      const enteredCcy = cEl ? cEl.value : 'USD';
       const rate = exchangeRates[enteredCcy] || 1;
       const amountCHF = aRaw / rate;
       const arr = storeGet('wishlist') || [];
@@ -3675,7 +3679,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + (Number(it.apr) || 0).toFixed(2) + '% APR · min ' + fmtMoney(it.minPayment || 0) + '/mo</div>';
       const bal = document.createElement('div');
       bal.style.cssText = 'text-align:right;line-height:1.1';
-      const origHint = (it.entered_currency && it.entered_currency !== 'CHF' && it.entered_balance != null)
+      // Same reasoning as the subscriptions hint above: USD is the implicit
+      // default now, so a legacy CHF-denominated debt is worth flagging too.
+      const origHint = (it.entered_currency && it.entered_currency !== 'USD' && it.entered_balance != null)
         ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">' + it.entered_currency + ' ' + Number(it.entered_balance).toLocaleString('en-US', { minimumFractionDigits: it.entered_balance % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 }) + '</div>'
         : '';
       bal.innerHTML = '<div style="font-size:18px;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums">' + fmtMoney(it.balance) + '</div>' + origHint;
@@ -3715,7 +3721,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!row) return;
     const enteredCcy = it.entered_currency || 'CHF';
     const enteredAmt = it.entered_balance != null ? it.entered_balance : it.balance;
-    const ccyOpts = ['CHF','USD','EUR','GBP','DOP'].map(c =>
+    // Same legacy-preserve reasoning as editSubInline above: don't let
+    // opening this form silently relabel an old CHF/EUR/GBP debt to USD.
+    const ccyBase = ['USD', 'DOP'];
+    const ccyOpts = (ccyBase.includes(enteredCcy) ? ccyBase : ccyBase.concat(enteredCcy)).map(c =>
       '<option value="' + c + '"' + (c === enteredCcy ? ' selected' : '') + '>' + c + '</option>'
     ).join('');
     row.innerHTML = '';
@@ -3766,7 +3775,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const n = (nEl.value || '').trim();
       const bRaw = parseFloat(bEl.value);
       if (!n || isNaN(bRaw)) { nEl.focus(); return; }
-      const enteredCcy = ccEl ? ccEl.value : 'CHF';
+      const enteredCcy = ccEl ? ccEl.value : 'USD';
       const rate = exchangeRates[enteredCcy] || 1;
       const balanceCHF = bRaw / rate;
       const aprRaw = aEl && aEl.value ? parseFloat(aEl.value) : 0;
@@ -4207,7 +4216,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       prev.className = 'ord-add-preview';
       return;
     }
-    const ccy = ccyEl ? ccyEl.value : 'CHF';
+    const ccy = ccyEl ? ccyEl.value : 'USD';
     const rate = exchangeRates[ccy] || 1;
     const amountCHF = aRaw / rate;
     const grand = nwGrandCHF();
@@ -4234,7 +4243,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const n = (nEl.value || '').trim();
       const aRaw = parseFloat(aEl.value);
       if (!n || isNaN(aRaw)) { nEl.focus(); return; }
-      const ccy = cEl ? cEl.value : 'CHF';
+      const ccy = cEl ? cEl.value : 'USD';
       const rate = exchangeRates[ccy] || 1;
       const amountCHF = aRaw / rate;
       const parsed = parseFromValue(fEl ? fEl.value : '');
@@ -4377,7 +4386,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       prev.className = 'ord-add-preview';
       return;
     }
-    const ccy = ccyEl ? ccyEl.value : 'CHF';
+    const ccy = ccyEl ? ccyEl.value : 'USD';
     const rate = exchangeRates[ccy] || 1;
     const amountCHF = aRaw / rate;
     const grand = nwGrandCHF();
@@ -4472,7 +4481,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const n = (nEl.value || '').trim();
       const aRaw = parseFloat(aEl.value);
       if (!n || isNaN(aRaw)) { nEl.focus(); return; }
-      const ccy = cEl ? cEl.value : 'CHF';
+      const ccy = cEl ? cEl.value : 'USD';
       const rate = exchangeRates[ccy] || 1;
       const amountCHF = aRaw / rate;
       const category = catEl && catEl.value ? catEl.value : 'other';
@@ -4614,7 +4623,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   const PUR_CAT_KEYS = PURCHASE_CATS.map(c => c.key);
-  const PUR_CCY_KEYS = ['CHF', 'USD', 'EUR', 'GBP', 'DOP'];
+  // Only USD/DOP are real options anywhere in this app now. A receipt that's
+  // genuinely in some third currency gets forced into whichever of these two
+  // is the closer guess by the model — an accepted tradeoff for keeping the
+  // currency picker down to just the two that are actually used, not a bug.
+  const PUR_CCY_KEYS = ['USD', 'DOP'];
   async function aiParseReceipt(subject, from, dateHeader, bodyText, apiKey) {
     const prompt = 'Subject: ' + subject + '\nFrom: ' + from + '\nDate: ' + dateHeader + '\nBody:\n' + bodyText.slice(0, 3000);
     const res = await fetch('https://api.anthropic.com/v1/messages', {

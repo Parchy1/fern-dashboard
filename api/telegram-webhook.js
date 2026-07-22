@@ -54,7 +54,10 @@
 // the current value.
 function tz() { return process.env.REMINDER_TIMEZONE || 'America/New_York'; }
 const NW_CATS = ['cash', 'bank', 'stocks', 'crypto', 'other'];
-const PUR_CCY_KEYS = ['CHF', 'USD', 'EUR', 'GBP', 'DOP'];
+// Only USD/DOP are real currencies anywhere in this app now — this enum
+// constrains what Claude can even pass as a tool argument, so a stray "CHF"
+// can no longer reach the executors from a real Telegram conversation.
+const PUR_CCY_KEYS = ['USD', 'DOP'];
 const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'business', 'water', 'supplements', 'peak_morning'];
 
 // ---------- date helpers (must match the dashboard's own conventions) ----------
@@ -272,6 +275,10 @@ function summarizeApiUsage(data) {
   };
 }
 
+// CHF stays as the invisible internal base unit every stored amount is
+// denominated in (matching finance.html) — EUR/GBP are kept in this table
+// only so pre-existing items entered in one of them still convert correctly;
+// neither is offered as a choice anywhere anymore (PUR_CCY_KEYS above).
 async function fetchExchangeRates() {
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/CHF');
@@ -294,7 +301,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'What was bought, e.g. "Groceries"' },
-        amount: { type: 'number', description: 'Amount in the given currency (not CHF-converted — that happens automatically)' },
+        amount: { type: 'number', description: 'Amount in the given currency (not pre-converted — that happens automatically)' },
         currency: { type: 'string', enum: PUR_CCY_KEYS, description: 'Defaults to USD if unsure' },
         category: { type: 'string', description: 'Free-text category, e.g. "food", "shopping" — defaults to "other"' },
         from_account: { type: 'string', description: 'Optional: name of a real Net Worth account (e.g. "Checking", "Cash") to deduct from. Omit if not mentioned.' },
