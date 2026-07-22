@@ -495,16 +495,30 @@ function sourceDoneToday(autoSource, ctx) {
 // your carrier's SMS gateway address (e.g. 5551234567@vtext.com) via Resend.
 // Either way this returns a small result object; the caller doesn't need to
 // know which path was used.
-async function sendViaTelegram(body) {
+async function sendViaTelegram(body, opts) {
   const token = process.env.TELEGRAM_BOT_TOKEN, chatId = process.env.TELEGRAM_CHAT_ID;
+  const payload = { chat_id: chatId, text: body };
+  if (opts && opts.inlineKeyboard) payload.reply_markup = { inline_keyboard: opts.inlineKeyboard };
   const res = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: body }),
+    body: JSON.stringify(payload),
   });
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error('telegram send failed: ' + JSON.stringify(json));
   return { method: 'telegram', id: json.result && json.result.message_id };
+}
+
+// A single "✅ Done" button whose callback_data api/telegram-webhook.js's
+// callback_query handler routes straight into execMarkTodoDone — the same
+// fuzzy-match-and-materialize path a typed "mark X done" chat message
+// already goes through, so tapping it is exactly equivalent to marking the
+// item done via chat. Telegram caps callback_data at 64 bytes; the 'done:'
+// prefix (5 bytes) leaves 59 for the name, and truncating is safe here since
+// execMarkTodoDone's fuzzy match already accepts either side containing the
+// other — a truncated prefix still matches the full stored name.
+function doneButton(name) {
+  return [[{ text: '✅ Done', callback_data: 'done:' + String(name).slice(0, 59) }]];
 }
 
 async function sendViaTwilio(body) {
@@ -540,11 +554,13 @@ async function sendViaEmailGateway(body) {
   return { method: 'email-gateway', id: json.id };
 }
 
-export async function sendReminder(body) {
+// opts.inlineKeyboard is Telegram-only (ignored by the Twilio/email-gateway
+// paths, which have no concept of tappable buttons) — see doneButton() above.
+export async function sendReminder(body, opts) {
   const tgConfigured = process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID;
   const twConfigured = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER && process.env.TWILIO_TO_NUMBER;
   const emailConfigured = process.env.RESEND_API_KEY && process.env.SMS_GATEWAY_TO;
-  if (tgConfigured) return sendViaTelegram(body);
+  if (tgConfigured) return sendViaTelegram(body, opts);
   if (twConfigured) return sendViaTwilio(body);
   if (emailConfigured) return sendViaEmailGateway(body);
   throw new Error('no delivery method configured — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID, the TWILIO_* vars, or RESEND_API_KEY + SMS_GATEWAY_TO');
@@ -668,7 +684,7 @@ export default async function handler(req, res) {
     for (const { name, count } of dueIndividual) {
       const body = composeSingleMessage(name, todayKey6am, count);
       try {
-        const result = await sendReminder(body);
+        const result = await sendReminder(body, { inlineKeyboard: doneButton(name) });
         todayState[name] = { count: count + 1, lastMinutes: nowMin };
         stateChanged = true;
         results.push({ name, method: result.method });

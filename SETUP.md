@@ -361,6 +361,13 @@ renew my passport in 3 months," "remind me to call the dentist next Tuesday at 2
 to-do to that day's Schedule/Calendar entry directly (same as picking that date in the Calendar
 tab and typing it in yourself), and it'll get reminded on its own once that day arrives.
 
+Every individual item reminder (not the once-daily catch-all digest, subscription heads-up, or
+morning briefing — just the "your time is up for this one thing" nudges) comes with a tappable
+**✅ Done** button, so you don't have to type anything back to mark it done — one tap, and the
+message updates in place to confirm it. It's exactly equivalent to texting "mark X done" — same
+fuzzy name matching, same materialization of a not-yet-opened-today recurring item — just without
+having to type.
+
 Calendar/Gmail/Drive (step 5) can be included too — see the separate **"Connect Google to the
 assistant"** steps further down, after the core setup below.
 

@@ -1367,6 +1367,69 @@ async function tgSend(token, chatId, text) {
   });
 }
 
+// Answers a callback_query — required so Telegram clears the tappable
+// button's loading spinner on the user's client. `text` (optional, shows as
+// a small toast) is capped well under Telegram's 200-char limit.
+async function tgAnswerCallback(token, callbackQueryId, text) {
+  await fetch('https://api.telegram.org/bot' + token + '/answerCallbackQuery', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text: text ? String(text).slice(0, 180) : undefined }),
+  });
+}
+
+// Strips the inline keyboard off an already-sent message once its button's
+// action has been handled, so a second tap can't double-fire the same tool.
+async function tgClearKeyboard(token, chatId, messageId) {
+  await fetch('https://api.telegram.org/bot' + token + '/editMessageReplyMarkup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }),
+  });
+}
+
+async function tgEditText(token, chatId, messageId, text) {
+  await fetch('https://api.telegram.org/bot' + token + '/editMessageText', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, text: String(text).slice(0, 4000) }),
+  });
+}
+
+// A tapped inline-keyboard button skips the Claude tool-use loop entirely —
+// it's a direct, deterministic action (currently just "mark this done"), so
+// there's no ambiguity to resolve and no reason to pay for an LLM round
+// trip. callback_data is a small routing tag: "done:<name>" reuses
+// execMarkTodoDone's existing fuzzy-match-and-materialize logic, the exact
+// same path a typed "mark X done" message already goes through.
+async function handleCallbackQuery(botToken, callback, res) {
+  const data = String(callback.data || '');
+  const chatId = callback.message && callback.message.chat && callback.message.chat.id;
+  const messageId = callback.message && callback.message.message_id;
+
+  if (!data.startsWith('done:')) {
+    try { await tgAnswerCallback(botToken, callback.id); } catch (e) {}
+    return res.status(200).json({ ok: true, callback: true, ignored: 'unknown callback data' });
+  }
+
+  const text = data.slice(5);
+  let result;
+  try {
+    result = await execMarkTodoDone({ text });
+  } catch (e) {
+    result = { ok: false, reason: e && e.message ? e.message : String(e) };
+  }
+
+  try { await tgAnswerCallback(botToken, callback.id, result.ok ? 'Marked done ✅' : (result.reason || 'Could not mark done')); } catch (e) {}
+  if (result.ok && chatId && messageId) {
+    try { await tgClearKeyboard(botToken, chatId, messageId); } catch (e) {}
+    const origText = callback.message && typeof callback.message.text === 'string' ? callback.message.text : '';
+    try { await tgEditText(botToken, chatId, messageId, (origText ? origText + '\n\n' : '') + '✅ Marked done'); } catch (e) {}
+  }
+
+  return res.status(200).json({ ok: true, callback: true, result });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(200).send('ok');
 
@@ -1384,6 +1447,18 @@ export default async function handler(req, res) {
   // serverless functions (the process can be frozen the instant we respond).
   try {
     const update = req.body || {};
+
+    if (update.callback_query) {
+      const cbChatId = update.callback_query.message && update.callback_query.message.chat && update.callback_query.message.chat.id;
+      // Mirrors the plain-message flow below: silently ignore anything not
+      // from the one authorized chat, and do nothing (including no data
+      // access) until initial setup (TELEGRAM_CHAT_ID) is complete.
+      if (!configuredChatId || String(cbChatId) !== String(configuredChatId)) {
+        return res.status(200).json({ ok: true, ignored: 'callback chat id not authorized' });
+      }
+      return handleCallbackQuery(botToken, update.callback_query, res);
+    }
+
     const message = update.message;
     if (!message || typeof message.text !== 'string') return res.status(200).json({ ok: true, skipped: 'no text message' });
 

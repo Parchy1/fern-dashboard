@@ -169,6 +169,7 @@ function nowMinUtc() {
   // tests that are really about something else.
   function fakeSupabase({ recurDefs = [], oneOffGoals = [], stateRow = null, peakData = { 'peak:checkins': [{ ts: Date.now() }] } } = {}) {
     let writtenState = null;
+    const sentPayloads = [];
     // Upserts (POST /rest/v1/app_state?on_conflict=key) carry the row key
     // inside the JSON body, not the URL query string — only GET reads use
     // `?key=eq.<key>`. Check the method + body, not the URL, for writes.
@@ -189,10 +190,13 @@ function nowMinUtc() {
         return { ok: true, json: async () => (peakData ? [{ data: peakData }] : []) };
       }
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
-      if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+      if (u.includes('sendMessage')) {
+        sentPayloads.push(JSON.parse(opts.body));
+        return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+      }
       throw new Error('unexpected fetch: ' + u);
     };
-    return { fetchStub, getWrittenState: () => writtenState };
+    return { fetchStub, getWrittenState: () => writtenState, getSentPayloads: () => sentPayloads };
   }
 
   // ---- an item whose time has passed and never reminded today: fires an individual message ----
@@ -210,7 +214,7 @@ function nowMinUtc() {
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
 
-    const { fetchStub, getWrittenState } = fakeSupabase({
+    const { fetchStub, getWrittenState, getSentPayloads } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }],
     });
     global.fetch = fetchStub;
@@ -222,6 +226,11 @@ function nowMinUtc() {
     assertEq(res._body.results[0].name, 'Gym', 'correct item named in the result');
     const written = getWrittenState();
     assertTrue(!!written && !!written[todayKey6amActual] && written[todayKey6amActual].Gym && written[todayKey6amActual].Gym.count === 1, 'reminder state persisted with count=1 after the first send: ' + JSON.stringify(written));
+
+    const sent = getSentPayloads();
+    assertEq(sent.length, 1, 'exactly one Telegram sendMessage call made');
+    assertTrue(!!sent[0].reply_markup, 'an individual item reminder carries an inline keyboard');
+    assertEq(sent[0].reply_markup.inline_keyboard, [[{ text: '✅ Done', callback_data: 'done:Gym' }]], 'the keyboard is a single "Done" button whose callback_data names the exact item');
   }
 
   // ---- a poor night's sleep delays the gym reminder past "now", so it's not due yet even though it normally would be ----
@@ -320,7 +329,7 @@ function nowMinUtc() {
     // whenever this test happens to run near midnight UTC.
     const bedtimeSoon = minToHM(Math.min(1439, nowMin + 20)); // catch-all fires at bedtime-30, so bedtime 20min out means catch-all window already open
     process.env.BEDTIME_LOCAL = bedtimeSoon;
-    const { fetchStub, getWrittenState } = fakeSupabase({
+    const { fetchStub, getWrittenState, getSentPayloads } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
     });
     global.fetch = fetchStub;
@@ -330,6 +339,7 @@ function nowMinUtc() {
     assertEq(res._body.results.length, 1, 'exactly one catch-all message sent (not one per generic item)');
     assertEq(res._body.results[0].name, '__catchall__', 'the catch-all result is tagged distinctly from individual item reminders');
     assertEq(res._body.results[0].items, ['Clean up room'], 'the catch-all lists the correct generic item(s)');
+    assertTrue(!getSentPayloads()[0].reply_markup, 'the catch-all digest (covers multiple items at once) does not carry a single-item Done button');
     const written = getWrittenState();
     const todayKey6amActual = Object.keys(written)[0];
     assertEq(written[todayKey6amActual].__catchall__, true, 'catch-all-sent flag persisted in state');
