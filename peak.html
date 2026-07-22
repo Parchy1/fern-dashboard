@@ -1033,6 +1033,49 @@ body::after {
     return { avgGood: avg(goodSleepStress), avgPoor: avg(poorSleepStress), nGood: goodSleepStress.length, nPoor: poorSleepStress.length };
   }
 
+  // Gym day (plain calendar date, matching po_coach_workout_done's own
+  // convention) vs. that SAME day's average check-in feeling/stress —
+  // generalizes the caffeine/sleep and sleep/stress pattern above to a
+  // different life domain (working out) using the same "two buckets, min
+  // sample size per side" approach rather than a different statistical
+  // method, so the results read the same way. checkinField is 'feeling' or
+  // 'stress' — one function covers both since the bucketing logic is
+  // identical, only which check-in field gets averaged differs.
+  function computeGymCheckinInsight(checkinField) {
+    const doneDays = storeGet('po_coach_workout_done') || {};
+    const checkins = getCheckins();
+    const byDay = {};
+    checkins.forEach(c => {
+      if (!c[checkinField] || !c.dateKey) return;
+      (byDay[c.dateKey] = byDay[c.dateKey] || []).push(c[checkinField]);
+    });
+    const withGym = [], withoutGym = [];
+    Object.keys(byDay).forEach(dateKey => {
+      const dayAvg = avg(byDay[dateKey]);
+      (doneDays[dateKey] ? withGym : withoutGym).push(dayAvg);
+    });
+    if (withGym.length < INSIGHT_MIN_SAMPLES || withoutGym.length < INSIGHT_MIN_SAMPLES) return null;
+    return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
+  }
+
+  // Gym day vs. THAT NIGHT'S logged sleep quality the following morning —
+  // same day-shift relationship as the caffeine/sleep insight (an evening
+  // behavior affecting the sleep that follows it), just a different source
+  // behavior.
+  function computeGymSleepInsight() {
+    const doneDays = storeGet('po_coach_workout_done') || {};
+    const morning = getMorning();
+    const withGym = [], withoutGym = [];
+    Object.keys(morning).forEach(dateKey => {
+      const q = morning[dateKey] && morning[dateKey].sleepQuality;
+      if (!q) return;
+      const prevDay = shiftDateKey(dateKey, -1);
+      (doneDays[prevDay] ? withGym : withoutGym).push(q);
+    });
+    if (withGym.length < INSIGHT_MIN_SAMPLES || withoutGym.length < INSIGHT_MIN_SAMPLES) return null;
+    return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
+  }
+
   function renderInsights() {
     const list = $('insightList'), empty = $('insightEmpty');
     const rows = [];
@@ -1053,6 +1096,33 @@ body::after {
       const text = 'On good-sleep days (4-5/5), average stress was <b>' + sleepStress.avgGood.toFixed(1) + '/5</b> vs <b>'
         + sleepStress.avgPoor.toFixed(1) + '/5</b> on poor-sleep days (1-2/5) (' + sleepStress.nGood + ' vs ' + sleepStress.nPoor + ' days)';
       rows.push(factorRow('😴', text, meaningful && diff > 0 ? 'more stress' : meaningful ? 'less stress' : 'no difference', meaningful && diff > 0 ? 'neg' : meaningful ? 'pos' : 'flat'));
+    }
+
+    const gymFeeling = computeGymCheckinInsight('feeling');
+    if (gymFeeling) {
+      const diff = gymFeeling.avgWith - gymFeeling.avgWithout;
+      const meaningful = Math.abs(diff) >= 0.4;
+      const text = 'On gym days, average feeling was <b>' + gymFeeling.avgWith.toFixed(1) + '/5</b> vs <b>'
+        + gymFeeling.avgWithout.toFixed(1) + '/5</b> on rest days (' + gymFeeling.nWith + ' vs ' + gymFeeling.nWithout + ' days)';
+      rows.push(factorRow('💪', text, meaningful && diff > 0 ? 'better mood' : meaningful ? 'worse mood' : 'no difference', meaningful && diff > 0 ? 'pos' : meaningful ? 'neg' : 'flat'));
+    }
+
+    const gymStress = computeGymCheckinInsight('stress');
+    if (gymStress) {
+      const diff = gymStress.avgWith - gymStress.avgWithout;
+      const meaningful = Math.abs(diff) >= 0.4;
+      const text = 'On gym days, average stress was <b>' + gymStress.avgWith.toFixed(1) + '/5</b> vs <b>'
+        + gymStress.avgWithout.toFixed(1) + '/5</b> on rest days (' + gymStress.nWith + ' vs ' + gymStress.nWithout + ' days)';
+      rows.push(factorRow('💪', text, meaningful && diff < 0 ? 'less stress' : meaningful ? 'more stress' : 'no difference', meaningful && diff < 0 ? 'pos' : meaningful ? 'neg' : 'flat'));
+    }
+
+    const gymSleep = computeGymSleepInsight();
+    if (gymSleep) {
+      const diff = gymSleep.avgWith - gymSleep.avgWithout;
+      const meaningful = Math.abs(diff) >= 0.4;
+      const text = 'On nights after a gym day, sleep quality averaged <b>' + gymSleep.avgWith.toFixed(1) + '/5</b> vs <b>'
+        + gymSleep.avgWithout.toFixed(1) + '/5</b> on nights after a rest day (' + gymSleep.nWith + ' vs ' + gymSleep.nWithout + ' days)';
+      rows.push(factorRow('💪', text, meaningful && diff > 0 ? 'better sleep' : meaningful ? 'worse sleep' : 'no difference', meaningful && diff > 0 ? 'pos' : meaningful ? 'neg' : 'flat'));
     }
 
     if (!rows.length) {
