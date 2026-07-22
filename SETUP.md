@@ -669,6 +669,61 @@ this endpoint.
 
 ---
 
+## 11. Bank auto-import via Plaid (optional)
+
+Connect a real bank account and pull in transactions instead of typing every purchase by hand.
+Same review-before-logging pattern as the Gmail-receipt scanner above — a synced transaction
+shows up as a **suggestion** with "Add to Purchases" / "Dismiss" buttons; nothing hits your real
+Purchases list or account balances until you confirm it. A bank feed can be miscategorized,
+duplicated, or include a transfer between your own accounts, so this is deliberately not
+automatic.
+
+1. Sign up at **plaid.com/dashboard** (free to start). Plaid gates real bank connections behind
+   their own review — you get **Sandbox** access immediately (fake test banks, real UI, good for
+   building/trying the whole flow), but connecting an ACTUAL bank needs Plaid to approve
+   **Production** access first, which is a separate request on their end, not something this app
+   can skip around.
+2. **SQL Editor → New query → Run** — this table holds the real bank credential (the Plaid
+   access_token), so it's locked down the same way as `google_tokens`: no anon-key policies at
+   all, only the service_role key (server-side only, never shipped to the browser) can touch it.
+   ```sql
+   create table if not exists public.plaid_items (
+     id               int primary key default 1,
+     access_token     text,
+     item_id          text,
+     institution_name text,
+     cursor           text,
+     updated_at       timestamptz default now()
+   );
+   alter table public.plaid_items enable row level security;
+   -- No policies added on purpose — this blocks the anon key entirely.
+   ```
+3. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `PLAID_CLIENT_ID` | from your Plaid dashboard |
+| `PLAID_SECRET` | your Sandbox (or Production, once approved) secret from the same page |
+| `PLAID_ENV` | `sandbox` (default if unset), `development`, or `production` — match whichever secret you used above |
+| `PLAID_SYNC_SECRET` | any random string — abuse-prevention only, same trade-off as `NOTES_EMBED_SECRET`/`GOOGLE_SYNC_SECRET` (served to the browser, so not a real secret; the point is stopping a stranger from spamming your Plaid account, not protecting confidentiality — the locked-down table above is what actually protects the real credential) |
+
+   `SUPABASE_SERVICE_ROLE_KEY` is the same one from step 8 (Connect Google to the assistant) —
+   nothing new there if you already set that up.
+4. Redeploy, then open **Finance → Purchases** — a **🏦 Suggested from Bank** card appears
+   (hidden entirely if the above isn't configured). Hit **Connect Bank**, which opens Plaid's own
+   hosted Link widget — in Sandbox, use Plaid's test credentials (`user_good` / `pass_good` for
+   most test institutions; Plaid's own docs list the full set). This app never sees or stores your
+   actual bank login, only Plaid does.
+5. Once connected, hit **🔄 Sync Bank** any time to pull in new transactions as suggestions.
+   Syncing isn't automatic on a schedule in this version — you have to actually click it.
+
+> Only transactions that are genuinely money leaving the account are suggested — refunds,
+> deposits, and transfers between your own accounts are filtered out rather than mis-logged as
+> purchases. Categories are a best-guess mapping from Plaid's own categorization, same "best
+> guess if unclear" tone as the Gmail-receipt parser; recategorize after adding if it's off.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -682,4 +737,5 @@ this endpoint.
 8. (Optional) Connect Google to the assistant: the `google_tokens` SQL + `SUPABASE_SERVICE_ROLE_KEY`/`GOOGLE_SYNC_SECRET` env vars, see step 8 above.
 9. (Optional) Voice/location Shortcuts: `SHORTCUTS_WEBHOOK_SECRET` env var + iOS Shortcuts, see step 9 above.
 10. (Optional) Semantic note search: enable pgvector + the SQL above + `OPENAI_API_KEY`/`NOTES_EMBED_SECRET` env vars, see step 10 above.
-11. Change the password in `lock.js`. Done.
+11. (Optional) Bank auto-import: Plaid account + the `plaid_items` SQL + `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV`/`PLAID_SYNC_SECRET` env vars, see step 11 above.
+12. Change the password in `lock.js`. Done.
