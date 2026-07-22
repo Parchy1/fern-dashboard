@@ -150,9 +150,11 @@ on the **Google** tile (Today hub). Same OAuth pattern as WHOOP above.
 2. **APIs & Services → Library** → enable these three: **Google Calendar API**, **Gmail API**,
    **Google Drive API**.
 3. **APIs & Services → OAuth consent screen** → External → fill in the basics → add these
-   scopes: `calendar.readonly`, `gmail.readonly`, `drive.metadata.readonly` → add **yourself**
+   scopes: `calendar.events`, `gmail.readonly`, `drive.metadata.readonly` → add **yourself**
    as a test user → save. Leave it in **Testing** status — publishing/verification isn't
-   needed for personal use, but see the caveat below.
+   needed for personal use, but see the caveat below. (`calendar.events` rather than
+   `calendar.readonly` — the Telegram assistant can create/reschedule/cancel real events, not
+   just read them; see step 8 below.)
 4. **APIs & Services → Credentials** → **Create Credentials → OAuth client ID** → type
    **Web application** → Authorized redirect URI: `https://your-app.vercel.app/api/google-callback`
    (use your real Vercel domain).
@@ -451,6 +453,16 @@ read it.
 5. Message the assistant something like "what's on my calendar today" to confirm it's working.
    If Google isn't connected yet, or the connection has lapsed, it'll say so rather than
    guessing — reconnect via `google.html` in that case.
+
+> **Calendar write access:** the assistant can also create, reschedule, and cancel REAL events
+> on your actual Google Calendar — "schedule a dentist appointment Tuesday at 2pm", "move my 3pm
+> to 4pm", "cancel the dentist thing" — not just to-dos on the dashboard's own Schedule/Calendar
+> view (that's what `add_todo` is for). This needs the `calendar.events` scope from step 5 above;
+> if you connected Google before this was added, the stored token only has the old read-only
+> grant — hit **Disconnect** then **Connect Google** again on the Google tile to re-grant it.
+> Unlike everything else the assistant does, these writes hit a real external account directly,
+> not the dashboard's own Supabase data — `undo_last_action` does not cover them, so a mistaken
+> delete/reschedule has to be fixed by hand (or from Google Calendar itself).
 
 ---
 
