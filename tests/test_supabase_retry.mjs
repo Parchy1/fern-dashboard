@@ -40,23 +40,28 @@ function assertTrue(cond, label) { if (cond) { pass++; console.log('PASS:', labe
   }
 
   // ---- a 429 on the write, then success ----
+  // (patchRow also writes a 'last_action' undo-snapshot after every
+  // successful mutation — that write is scoped out here, since this test
+  // is specifically about retry behavior on the primary 'goals' write.)
   {
-    let writeAttempts = 0;
+    let goalsWriteAttempts = 0;
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state') && (!opts || !opts.method)) {
         return { ok: true, json: async () => [{ data: {} }] };
       }
       if (u.includes('/rest/v1/app_state') && opts && opts.method === 'POST') {
-        writeAttempts++;
-        if (writeAttempts === 1) return { ok: false, status: 429, text: async () => 'rate limited' };
+        const body = JSON.parse(opts.body);
+        if (body.key !== 'goals') return { ok: true, json: async () => ({}) };
+        goalsWriteAttempts++;
+        if (goalsWriteAttempts === 1) return { ok: false, status: 429, text: async () => 'rate limited' };
         return { ok: true, json: async () => ({}) };
       }
       throw new Error('unexpected fetch: ' + u);
     };
     const result = await TOOL_EXECUTORS.add_todo({ text: 'Survive a 429' });
     assertEq(result.ok, true, 'a 429 rate-limit response on the write is retried and the tool call still succeeds');
-    assertEq(writeAttempts, 2, 'exactly 2 write attempts made (1 rate-limited + 1 success)');
+    assertEq(goalsWriteAttempts, 2, 'exactly 2 write attempts made to the goals row (1 rate-limited + 1 success)');
   }
 
   // ---- a 500 that never recovers exhausts retries and throws (surfaced as ok:false by the caller's try/catch) ----

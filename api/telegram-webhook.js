@@ -157,11 +157,35 @@ async function writeRow(key, data) {
 // Read-modify-write in one step: `mutate` receives the row's current data
 // object (safe to mutate directly) and its return value (if any) is passed
 // back to the caller as the tool result.
+// Friendly labels for the undo-confirmation reply — purely cosmetic, falls
+// back to the raw key for anything not listed here.
+const ROW_LABELS = {
+  goals: 'to-dos/habits/recurring items', health: 'health/supplements/food log', 'po-coach': 'gym/fitness data',
+  finance: 'finance', business: 'business', reading: 'reading', peak: 'Peak', caffeine: 'caffeine/nicotine', notes: 'notes',
+};
+// Read-modify-write in one step: `mutate` receives the row's current data
+// object (safe to mutate directly) and its return value (if any) is passed
+// back to the caller as the tool result. Also transparently snapshots the
+// pre-mutation state into a dedicated 'last_action' row (skipped when the
+// call didn't actually change anything, i.e. result.ok === false) so
+// undo_last_action can revert ANY tool's most recent write without every
+// executor having to wire up undo support individually.
 async function patchRow(key, mutate) {
   const data = await readRow(key);
+  const before = JSON.parse(JSON.stringify(data));
   const result = await mutate(data);
   await writeRow(key, data);
+  if (!result || result.ok !== false) {
+    await writeRow('last_action', { row: key, before, description: ROW_LABELS[key] || key, ts: Date.now() });
+  }
   return result;
+}
+async function execUndoLastAction() {
+  const last = await readRow('last_action');
+  if (!last || !last.row) return { ok: false, reason: 'nothing to undo' };
+  await writeRow(last.row, last.before);
+  await writeRow('last_action', {});
+  return { ok: true, undone: last.description || last.row };
 }
 
 // ---------- conversation memory (its own row, separate from dashboard data) ----------
@@ -508,6 +532,11 @@ const TOOLS = [
       },
       required: ['body'],
     },
+  },
+  {
+    name: 'undo_last_action',
+    description: 'Reverts the single most recent change made by any tool call in this chat (whichever one that was) back to exactly how it was before — e.g. "undo that", "oops, undo", "that was wrong, undo it". Only one level of undo is kept — it reverts the very last write, not a specific earlier one. Use this instead of trying to manually construct the opposite change yourself.',
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
 ];
 
@@ -1132,6 +1161,7 @@ const TOOL_EXECUTORS = {
   log_caffeine: execLogCaffeine,
   log_nicotine: execLogNicotine,
   add_note: execAddNote,
+  undo_last_action: execUndoLastAction,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -1267,7 +1297,10 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'earlier), create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
   + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements when the new item corresponds to one '
   + 'of those, so it self-completes instead of needing a manual checkbox), log a food/meal entry, log caffeine or '
-  + 'nicotine intake, and add a note. There is no hardcoded food or drink database behind any of those three — '
+  + 'nicotine intake, add a note, and undo the single most recent change any tool made (e.g. "undo that", "oops, '
+  + 'wrong exercise, undo") via undo_last_action — don\'t try to manually reverse a mistake yourself (e.g. by '
+  + 'guessing at the opposite log_purchase amount), always use that tool instead, since it reverts the exact prior '
+  + 'state rather than an approximation. There is no hardcoded food or drink database behind any of those three — '
   + 'estimate calories/macros/mg yourself from general knowledge (a careful, realistic estimate, the same way the '
   + 'dashboard\'s own AI photo-estimate feature works) unless the user gives exact numbers; don\'t ask for numbers '
   + 'they clearly expect you to just know or estimate (e.g. "a Red Bull" -> ~80mg caffeine for the 8.4oz can, "2 '

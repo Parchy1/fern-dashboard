@@ -329,6 +329,11 @@ the 🔥 counters already on the Main and Gym tabs) when it's more than a day or
 "today counts, or falls back to yesterday if today's not done yet" rule as those counters, so an
 unlogged today doesn't look like a broken streak before the day's actually over.
 
+If it logs something wrong — misheard a name, wrong amount, wrong exercise — just say "undo
+that" and it reverts the single most recent change exactly, rather than you having to work out
+the opposite correction yourself. It only keeps one level of undo (the very last thing it did),
+not a full history.
+
 > Not covered: Avatar Lab and the weekly/monthly Review tab's reflection notes are local-feeling
 > pages the assistant intentionally doesn't touch — the former has no synced data at all, and the
 > latter's "what went well / what would you change" fields are meant to be a deliberate sit-down
