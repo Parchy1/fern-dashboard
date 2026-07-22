@@ -212,6 +212,9 @@ function makeFakeSupabase(seed) {
     assertTrue(Math.abs(sub.amount - 15.99 / 1.1) < 0.001, 'subscription amount converted to CHF base');
     assertEq(sub.fromAccount, 'Checking', 'subscription linked to the matched account');
     assertEq(sub.autoDeduct, false, 'autoDeduct stays false when no renewal_date is given, even with a linked account');
+    assertTrue(Array.isArray(sub.priceHistory) && sub.priceHistory.length === 1, 'a single-entry priceHistory baseline is seeded on creation (finance.html\'s price-creep tracking)');
+    assertEq(sub.priceHistory[0].enteredAmount, 15.99, 'the seeded price-history entry records the entered amount as-is');
+    assertEq(sub.priceHistory[0].enteredCurrency, 'USD', 'the seeded price-history entry records the entered currency');
 
     const cancelResult = await TOOL_EXECUTORS.cancel_subscription({ name: 'netflix' });
     assertEq(cancelResult.removed, 'Netflix', 'cancel_subscription fuzzy-matches and reports the removed name');
