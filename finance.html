@@ -1643,6 +1643,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Total net worth</div>
         <div id="netWorthTotal" style="font-size:34px;font-weight:700;color:var(--text-primary);line-height:1.05;margin-top:2px">CHF 0</div>
         <div id="netWorthBreakdown" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
+        <div id="netWorthAfterDebt" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:11px;color:var(--text-tertiary)">CHF</span>
@@ -2002,6 +2003,56 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   </div>
 </div>
 
+<!-- ===== DEBTS + PAYOFF CALCULATOR ===== -->
+<div class="section" data-section="debts" hidden>
+  <div class="section-title">
+    <span class="section-title-text">DEBTS</span>
+  </div>
+  <div class="card" style="background:linear-gradient(135deg, rgba(255,138,138,0.07), rgba(216,90,48,0.05));border:1px solid rgba(255,138,138,0.20)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+      <div>
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Total owed</div>
+        <div id="debtsTotal" style="font-size:28px;font-weight:700;color:var(--text-primary);line-height:1.1;margin-top:2px">CHF 0</div>
+        <div id="debtsAvgApr" style="font-size:11px;color:var(--text-tertiary);margin-top:2px"></div>
+      </div>
+      <div id="debtsCount" style="font-size:11px;color:var(--text-tertiary)"></div>
+    </div>
+    <div id="debtsList"></div>
+    <div class="empty-state" id="debtsEmpty">No debts tracked — nice, or just haven't added any yet</div>
+    <div class="quick-add" style="flex-wrap:wrap;gap:6px">
+      <input type="text" placeholder="Debt (e.g. Car loan)" id="debtName" style="flex:1.5;min-width:120px" />
+      <input type="number" placeholder="Balance" id="debtBalance" step="0.01" style="flex:1;max-width:100px" />
+      <select id="debtCurrency" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);max-width:90px">
+        <option value="CHF">CHF</option>
+        <option value="USD">USD</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="DOP">DOP</option>
+      </select>
+      <input type="number" placeholder="APR %" id="debtApr" step="0.01" style="flex:1;max-width:90px" />
+      <input type="number" placeholder="Min payment" id="debtMinPayment" step="0.01" style="flex:1;max-width:110px" />
+      <button class="quick-add-btn" id="debtAddBtn" onclick="window.__addDebt && window.__addDebt()">+ Add</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="section-title" style="margin-bottom:10px">
+      <span class="section-title-text">PAYOFF CALCULATOR</span>
+    </div>
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:10px">
+      How much extra can you throw at these every month, on top of the minimums? Compares two payoff orders:
+      <b>avalanche</b> (highest interest rate first — mathematically optimal) and <b>snowball</b> (smallest balance
+      first — faster early wins).
+    </div>
+    <div class="quick-add" style="flex-wrap:wrap;gap:6px;margin-bottom:14px">
+      <input type="number" placeholder="Extra monthly payment" id="debtExtraPayment" step="0.01" style="flex:1;min-width:160px" />
+      <button class="quick-add-btn" id="debtCalcBtn" onclick="window.__calcPayoff && window.__calcPayoff()">Calculate</button>
+    </div>
+    <div id="debtPayoffResults"></div>
+    <div class="empty-state" id="debtPayoffEmpty">Add at least one debt (with an APR and minimum payment) to run the calculator</div>
+  </div>
+</div>
+
 </div>
 
 <!-- ===== BOTTOM TAB BAR ===== -->
@@ -2025,6 +2076,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   <button class="bot-tab" data-tab="wish">
     <span class="bot-tab-icon">🎯</span>
     <span class="bot-tab-label">Wishlist</span>
+  </button>
+  <button class="bot-tab" data-tab="debts">
+    <span class="bot-tab-icon">📉</span>
+    <span class="bot-tab-label">Debts</span>
   </button>
 </nav>
 
@@ -2241,7 +2296,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
   tabs.forEach(b => b.addEventListener('click', () => setActiveTab(b.dataset.tab)));
   const savedTab = storeGet(TAB_KEY);
-  setActiveTab(savedTab && ['net','subs','incoming','purchases','wish'].includes(savedTab) ? savedTab : 'net');
+  setActiveTab(savedTab && ['net','subs','incoming','purchases','wish','debts'].includes(savedTab) ? savedTab : 'net');
 
   // ============================================================
   // NET WORTH (copied from the main dashboard, verbatim logic)
@@ -2417,6 +2472,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (typeof populateIncomeAccountSelect === 'function') populateIncomeAccountSelect();
     if (typeof renderIncomeStats === 'function') renderIncomeStats();
     if (typeof renderWishlist === 'function') renderWishlist();
+    if (typeof renderDebts === 'function') renderDebts();
     if (typeof renderOrders   === 'function') renderOrders();
     if (typeof updateOrdPreview === 'function') updateOrdPreview();
     if (typeof renderPurchases === 'function') renderPurchases();
@@ -3426,6 +3482,293 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   renderWishlist();
 
   // ============================================================
+  // DEBTS + PAYOFF CALCULATOR — full-spec: name, balance (CHF base),
+  // entered_balance/entered_currency for display, apr (%), minPayment (CHF
+  // base). Stored under 'debts'. Deliberately its own top-level total — NOT
+  // folded into NW_CATS/nwGrandCHF()/the net worth hero figure, since that
+  // number feeds the net-worth trend snapshot history and the allocation
+  // donut, and this avoids risking any change to that established
+  // arithmetic. A separate "net worth after debts" line is shown instead.
+  // ============================================================
+  // Looked up fresh inside each function (not cached as top-level consts) —
+  // renderAllNetWorth() fires for the first time at the bottom of the NET
+  // WORTH section further up this same IIFE, well before this block is
+  // textually reached, so a `const` declared here would still be in the
+  // temporal dead zone on that first call and crash the whole script (same
+  // hazard already documented above for ORD_FROM_META).
+  function debtsTotalCHF() {
+    const items = storeGet('debts') || [];
+    return items.reduce((sum, d) => sum + (Number(d.balance) || 0), 0);
+  }
+  function renderNetWorthAfterDebt() {
+    const netWorthAfterDebtEl = document.getElementById('netWorthAfterDebt');
+    if (!netWorthAfterDebtEl) return;
+    const debt = debtsTotalCHF();
+    if (debt <= 0) { netWorthAfterDebtEl.textContent = ''; return; }
+    netWorthAfterDebtEl.textContent = 'Net of ' + fmtMoney(debt) + ' debt: ' + fmtMoney(nwGrandCHF() - debt);
+  }
+
+  function renderDebts() {
+    const debtsListEl = document.getElementById('debtsList');
+    const debtsEmptyEl = document.getElementById('debtsEmpty');
+    const debtsTotalEl = document.getElementById('debtsTotal');
+    const debtsAvgAprEl = document.getElementById('debtsAvgApr');
+    const debtsCountEl = document.getElementById('debtsCount');
+    if (!debtsListEl) return;
+    const items = storeGet('debts') || [];
+    debtsListEl.innerHTML = '';
+    if (!items.length) {
+      debtsEmptyEl.style.display = 'flex';
+      debtsTotalEl.textContent = fmtMoney(0);
+      debtsAvgAprEl.textContent = '';
+      debtsCountEl.textContent = '';
+      renderNetWorthAfterDebt();
+      renderPayoffCalculator();
+      return;
+    }
+    debtsEmptyEl.style.display = 'none';
+    let total = 0, weightedApr = 0;
+    items.forEach((it, idx) => {
+      total += Number(it.balance) || 0;
+      weightedApr += (Number(it.balance) || 0) * (Number(it.apr) || 0);
+      const row = document.createElement('div');
+      row.className = 'sub-row';
+      row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);margin-bottom:8px;gap:12px;';
+      const left = document.createElement('div');
+      left.style.cssText = 'min-width:0';
+      left.innerHTML = '<div style="font-weight:600;color:var(--text-primary);font-size:14px">' + escapeHtml(it.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + (Number(it.apr) || 0).toFixed(2) + '% APR · min ' + fmtMoney(it.minPayment || 0) + '/mo</div>';
+      const bal = document.createElement('div');
+      bal.style.cssText = 'text-align:right;line-height:1.1';
+      const origHint = (it.entered_currency && it.entered_currency !== 'CHF' && it.entered_balance != null)
+        ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">' + it.entered_currency + ' ' + Number(it.entered_balance).toLocaleString('en-US', { minimumFractionDigits: it.entered_balance % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 }) + '</div>'
+        : '';
+      bal.innerHTML = '<div style="font-size:18px;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums">' + fmtMoney(it.balance) + '</div>' + origHint;
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:center';
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Edit';
+      editBtn.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
+      editBtn.textContent = '✏';
+      editBtn.addEventListener('click', () => editDebtInline(idx));
+      const del = document.createElement('button');
+      del.title = 'Delete';
+      del.style.cssText = editBtn.style.cssText;
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        if (!confirm('Delete "' + it.name + '"?')) return;
+        items.splice(idx, 1); storeSet('debts', items); renderDebts();
+      });
+      actions.appendChild(editBtn);
+      actions.appendChild(del);
+      row.appendChild(left); row.appendChild(bal); row.appendChild(actions);
+      debtsListEl.appendChild(row);
+    });
+    debtsTotalEl.textContent = fmtMoney(total);
+    debtsAvgAprEl.textContent = total > 0 ? (weightedApr / total).toFixed(2) + '% weighted avg APR' : '';
+    debtsCountEl.textContent = items.length + (items.length === 1 ? ' debt' : ' debts');
+    renderNetWorthAfterDebt();
+    renderPayoffCalculator();
+  }
+
+  function editDebtInline(idx) {
+    const items = storeGet('debts') || [];
+    const it = items[idx];
+    if (!it) return;
+    const rows = document.getElementById('debtsList').querySelectorAll('.sub-row');
+    const row = rows[idx];
+    if (!row) return;
+    const enteredCcy = it.entered_currency || 'CHF';
+    const enteredAmt = it.entered_balance != null ? it.entered_balance : it.balance;
+    const ccyOpts = ['CHF','USD','EUR','GBP','DOP'].map(c =>
+      '<option value="' + c + '"' + (c === enteredCcy ? ' selected' : '') + '>' + c + '</option>'
+    ).join('');
+    row.innerHTML = '';
+    row.style.gridTemplateColumns = '1fr';
+    row.style.padding = '14px';
+    const form = document.createElement('div');
+    form.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center';
+    form.innerHTML =
+      '<input type="text" class="de-name" value="' + escapeHtml(it.name) + '" style="flex:1.5;min-width:120px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="number" step="0.01" class="de-bal" value="' + Number(enteredAmt).toFixed(2) + '" style="width:90px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<select class="de-ccy" style="padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + ccyOpts + '</select>' +
+      '<input type="number" step="0.01" class="de-apr" value="' + (Number(it.apr) || 0) + '" placeholder="APR %" style="width:80px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="number" step="0.01" class="de-min" value="' + (Number(it.minPayment) || 0) + '" placeholder="Min payment" style="width:100px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<button class="de-save quick-add-btn">Save</button>' +
+      '<button class="de-cancel" style="background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:6px 10px;border-radius:var(--radius-md);font-family:inherit">Cancel</button>';
+    row.appendChild(form);
+    const save = () => {
+      const newName = row.querySelector('.de-name').value.trim();
+      const newBalRaw = parseFloat(row.querySelector('.de-bal').value);
+      const newCcy = row.querySelector('.de-ccy').value;
+      const newApr = parseFloat(row.querySelector('.de-apr').value) || 0;
+      const newMin = parseFloat(row.querySelector('.de-min').value) || 0;
+      if (!newName || isNaN(newBalRaw)) return;
+      const rate = exchangeRates[newCcy] || 1;
+      items[idx] = { ...it, name: newName, balance: newBalRaw / rate, entered_balance: newBalRaw, entered_currency: newCcy, apr: newApr, minPayment: newMin / rate };
+      storeSet('debts', items); renderDebts();
+    };
+    const cancel = () => renderDebts();
+    row.querySelector('.de-save').addEventListener('click', save);
+    row.querySelector('.de-cancel').addEventListener('click', cancel);
+    row.querySelectorAll('input').forEach(i => {
+      i.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') save();
+        else if (e.key === 'Escape') cancel();
+      });
+    });
+    row.querySelector('.de-name').focus();
+  }
+
+  function doDebtAdd() {
+    try {
+      const nEl = document.getElementById('debtName');
+      const bEl = document.getElementById('debtBalance');
+      const ccEl = document.getElementById('debtCurrency');
+      const aEl = document.getElementById('debtApr');
+      const mEl = document.getElementById('debtMinPayment');
+      if (!nEl || !bEl) return;
+      const n = (nEl.value || '').trim();
+      const bRaw = parseFloat(bEl.value);
+      if (!n || isNaN(bRaw)) { nEl.focus(); return; }
+      const enteredCcy = ccEl ? ccEl.value : 'CHF';
+      const rate = exchangeRates[enteredCcy] || 1;
+      const balanceCHF = bRaw / rate;
+      const aprRaw = aEl && aEl.value ? parseFloat(aEl.value) : 0;
+      const minPaymentRaw = mEl && mEl.value ? parseFloat(mEl.value) : 0;
+      const items = storeGet('debts') || [];
+      items.push({
+        name: n, balance: balanceCHF,
+        entered_balance: bRaw, entered_currency: enteredCcy,
+        apr: isNaN(aprRaw) ? 0 : aprRaw,
+        minPayment: (isNaN(minPaymentRaw) ? 0 : minPaymentRaw) / rate,
+        ts: Date.now(),
+      });
+      storeSet('debts', items);
+      nEl.value = ''; bEl.value = ''; if (aEl) aEl.value = ''; if (mEl) mEl.value = '';
+      renderDebts();
+    } catch (e) { console.error('debtAdd failed', e); }
+  }
+
+  // ---------- payoff simulation (pure) ----------
+  // Simulates month-by-month amortization under a given strategy: minimum
+  // payments go to every open debt each month, any FREED-UP minimum from an
+  // already-paid-off debt rolls into the extra pool (real snowball/avalanche
+  // behavior — not just a fixed extra amount split at random), and the full
+  // extra pool goes to whichever debt is highest-priority under the chosen
+  // ordering. Capped at PAYOFF_MAX_MONTHS so a configuration that can never
+  // pay itself off (minimums below monthly interest, no extra) terminates
+  // instead of looping forever.
+  const PAYOFF_MAX_MONTHS = 600;
+  function simulatePayoff(debts, extraMonthly, strategy) {
+    const working = debts.map(d => ({ id: d.id, balance: Number(d.balance) || 0, apr: Number(d.apr) || 0, minPayment: Number(d.minPayment) || 0 }))
+      .filter(d => d.balance > 0.01);
+    if (!working.length) return { months: 0, totalInterest: 0, payoffOrder: [], maxedOut: false };
+    const order = (strategy === 'avalanche')
+      ? working.slice().sort((a, b) => b.apr - a.apr)
+      : working.slice().sort((a, b) => a.balance - b.balance);
+    let months = 0, totalInterest = 0;
+    const payoffOrder = [];
+    const extra = Math.max(0, Number(extraMonthly) || 0);
+    while (working.some(d => d.balance > 0.01) && months < PAYOFF_MAX_MONTHS) {
+      months++;
+      order.forEach(refD => {
+        const d = working.find(w => w.id === refD.id);
+        if (!d || d.balance <= 0.01) return;
+        const interest = d.balance * (d.apr / 100 / 12);
+        totalInterest += interest;
+        d.balance += interest;
+      });
+      let slack = extra;
+      order.forEach(refD => {
+        const d = working.find(w => w.id === refD.id);
+        if (!d) return;
+        if (d.balance <= 0.01) { slack += refD.minPayment; return; }
+        const pay = Math.min(refD.minPayment, d.balance);
+        d.balance -= pay;
+      });
+      for (const refD of order) {
+        if (slack <= 0) break;
+        const d = working.find(w => w.id === refD.id);
+        if (!d || d.balance <= 0.01) continue;
+        const pay = Math.min(slack, d.balance);
+        d.balance -= pay;
+        slack -= pay;
+      }
+      order.forEach(refD => {
+        const d = working.find(w => w.id === refD.id);
+        if (d && d.balance <= 0.01 && !payoffOrder.includes(refD.id)) payoffOrder.push(refD.id);
+      });
+    }
+    return { months, totalInterest, payoffOrder, maxedOut: months >= PAYOFF_MAX_MONTHS };
+  }
+
+  function monthsToLabel(months) {
+    const y = Math.floor(months / 12), m = months % 12;
+    const parts = [];
+    if (y) parts.push(y + (y === 1 ? ' year' : ' years'));
+    if (m || !y) parts.push(m + (m === 1 ? ' month' : ' months'));
+    return parts.join(', ');
+  }
+
+  function renderPayoffCalculator() {
+    const resultsEl = document.getElementById('debtPayoffResults');
+    const emptyEl = document.getElementById('debtPayoffEmpty');
+    if (!resultsEl) return;
+    const items = (storeGet('debts') || []).filter(d => (Number(d.balance) || 0) > 0.01);
+    if (!items.length) {
+      resultsEl.innerHTML = ''; if (emptyEl) emptyEl.style.display = 'flex';
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    const extraEl = document.getElementById('debtExtraPayment');
+    const extraRaw = extraEl && extraEl.value ? parseFloat(extraEl.value) : 0;
+    const extra = isNaN(extraRaw) ? 0 : extraRaw;
+    const debtsForSim = items.map((d, i) => ({ id: 'd' + i, balance: d.balance, apr: d.apr, minPayment: d.minPayment, name: d.name }));
+    const missingMin = debtsForSim.some(d => !(d.minPayment > 0)) && extra <= 0;
+    if (missingMin) {
+      resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">At least one debt has no minimum payment set — add one, or enter an extra monthly payment above, so the calculator has something to pay down with.</div>';
+      return;
+    }
+    const avalanche = simulatePayoff(debtsForSim, extra, 'avalanche');
+    const snowball = simulatePayoff(debtsForSim, extra, 'snowball');
+    const nameFor = (id) => { const d = debtsForSim.find(x => x.id === id); return d ? d.name : id; };
+    const card = (label, result) => {
+      if (result.maxedOut) {
+        return '<div style="flex:1;min-width:200px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);padding:12px">' +
+          '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">' + label + '</div>' +
+          '<div style="font-size:13px;color:#FF8A8A;margin-top:6px">Won\'t pay off within 50 years at this rate — increase the extra payment or minimums.</div></div>';
+      }
+      const freeMonths = new Date();
+      freeMonths.setMonth(freeMonths.getMonth() + result.months);
+      const freeLabel = freeMonths.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return '<div style="flex:1;min-width:200px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);padding:12px">' +
+        '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">' + label + '</div>' +
+        '<div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-top:4px">' + monthsToLabel(result.months) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">debt-free ~' + freeLabel + '</div>' +
+        '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">' + fmtMoney(result.totalInterest) + ' total interest</div>' +
+        '<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Order: ' + result.payoffOrder.map(nameFor).join(' → ') + '</div>' +
+        '</div>';
+    };
+    let winner = '';
+    if (!avalanche.maxedOut && !snowball.maxedOut) {
+      const interestSaved = snowball.totalInterest - avalanche.totalInterest;
+      if (interestSaved > 1) {
+        winner = '<div style="font-size:11px;color:#6BE3A4;margin-top:10px">Avalanche saves ' + fmtMoney(interestSaved) + ' in interest vs snowball' +
+          (avalanche.months < snowball.months ? ', and pays off ' + (snowball.months - avalanche.months) + ' month(s) sooner.' : '.') + '</div>';
+      }
+    }
+    resultsEl.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap">' + card('Avalanche', avalanche) + card('Snowball', snowball) + '</div>' + winner;
+  }
+  const _debtName = document.getElementById('debtName');
+  const _debtBalance = document.getElementById('debtBalance');
+  const _debtExtraPayment = document.getElementById('debtExtraPayment');
+  if (_debtName)     _debtName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doDebtAdd(); });
+  if (_debtBalance)  _debtBalance.addEventListener('keydown', (e) => { if (e.key === 'Enter') doDebtAdd(); });
+  if (_debtExtraPayment) _debtExtraPayment.addEventListener('input', () => renderPayoffCalculator());
+  renderDebts();
+
+  // ============================================================
   // ADD-BUTTON BULLETPROOFING — three independent paths:
   //   1. inline onclick attribute (in the HTML) calls window.__addX
   //   2. document-level click delegation matches by id
@@ -3434,6 +3777,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // ============================================================
   window.__addSub  = doSubAdd;
   window.__addWish = doWishAdd;
+  window.__addDebt = doDebtAdd;
+  window.__calcPayoff = renderPayoffCalculator;
   document.addEventListener('click', (e) => {
     const t = e.target.closest('button');
     if (!t) return;
@@ -3441,6 +3786,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (t.hasAttribute('onclick')) return;
     if (t.id === 'subAddBtn')  { e.preventDefault(); doSubAdd();  }
     if (t.id === 'wishAddBtn') { e.preventDefault(); doWishAdd(); }
+    if (t.id === 'debtAddBtn') { e.preventDefault(); doDebtAdd(); }
+    if (t.id === 'debtCalcBtn') { e.preventDefault(); renderPayoffCalculator(); }
   });
 
   // ============================================================
