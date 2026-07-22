@@ -94,6 +94,30 @@ function makeFakeSupabase(seed) {
     assertEq(missResult.ok, false, 'mark_todo_done reports failure (not a thrown error) when nothing matches');
   }
 
+  // ---- add_todo: one-off future-dated reminders (e.g. "remind me to renew my passport in 3 months") ----
+  {
+    const todayKey = 'goals:' + activeDateKey();
+    const fake = makeFakeSupabase({ goals: { [todayKey]: [] } });
+    global.fetch = fake.fetchStub;
+
+    const r1 = await TOOL_EXECUTORS.add_todo({ text: 'Renew passport', date: '2026-10-22', time: '09:00' });
+    assertEq(r1.ok, true, 'add_todo accepts a future date');
+    assertEq(r1.date, '2026-10-22', 'reports back the date it was added under');
+    assertTrue(!fake.rows.goals[todayKey].some(g => g.text === 'Renew passport'), 'the future reminder was NOT added to today\'s list');
+    const futureList = fake.rows.goals['goals:2026-10-22'];
+    assertTrue(Array.isArray(futureList) && futureList.length === 1, 'a new goals:<date> key was created for the future date');
+    assertEq(futureList[0], { text: 'Renew passport', done: false, time: '09:00' }, 'the future entry matches calendar.html\'s own addDayItem() shape exactly');
+
+    // A second future reminder for the same date appends, doesn't overwrite.
+    await TOOL_EXECUTORS.add_todo({ text: 'Pack for the trip', date: '2026-10-22' });
+    assertEq(fake.rows.goals['goals:2026-10-22'].length, 2, 'a second reminder on the same future date appends rather than overwriting');
+    assertTrue(!('time' in fake.rows.goals['goals:2026-10-22'][1]), 'no time field is added when none was given');
+
+    const badDate = await TOOL_EXECUTORS.add_todo({ text: 'Bad date test', date: 'next tuesday' });
+    assertEq(badDate.ok, false, 'an unparseable natural-language date string (not computed to YYYY-MM-DD by the caller) is rejected rather than silently misfiling the reminder');
+    assertTrue(!fake.rows.goals[todayKey].some(g => g.text === 'Bad date test'), 'the rejected item was not added anywhere');
+  }
+
   // ---- mark_todo_done falls back to recur:defs when a recurring item hasn't
   // been materialized into today's list yet (main.html hasn't been opened
   // today, so its client-side injectRecurringToday() hasn't run) ----
