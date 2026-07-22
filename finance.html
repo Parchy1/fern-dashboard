@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Finances</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
 <style>
@@ -1913,6 +1914,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   <div class="ord-section-h" style="margin-bottom:14px">
     <span class="ord-section-label">SPENDING</span>
     <span class="ord-section-count" id="purStats">This month — · This year —</span>
+  </div>
+
+  <!-- Bank-suggested purchases (Plaid) -->
+  <div class="card ord-add-card" id="plaidSuggestCard" style="display:none">
+    <div class="ord-add-eyebrow" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>🏦 SUGGESTED FROM BANK</span>
+      <span style="display:flex;gap:6px">
+        <button class="ord-add-btn" id="plaidConnectBtn" type="button" style="padding:7px 14px;font-size:11px;white-space:nowrap">Connect Bank</button>
+        <button class="ord-add-btn" id="plaidSyncBtn" type="button" style="padding:7px 14px;font-size:11px;white-space:nowrap;display:none">🔄 Sync Bank</button>
+      </span>
+    </div>
+    <div id="plaidStatus" style="font-size:11.5px;color:var(--text-tertiary);margin-top:8px"></div>
+    <div id="plaidSuggestList" style="margin-top:10px"></div>
   </div>
 
   <!-- Gmail-suggested purchases -->
@@ -4803,6 +4817,186 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   renderGmailSuggestions();
 
   // ============================================================
+  // PLAID BANK SYNC — connects a real bank account via Plaid Link and
+  // pulls new transactions as review-before-logging suggestions, the
+  // exact same UX pattern as the Gmail-scanned receipts above. Plaid
+  // access tokens live server-side only (see api/plaid-exchange-token.js
+  // and api/plaid-sync-transactions.js) — this page never sees or stores
+  // a real bank credential, only the resulting transaction suggestions
+  // (and a non-sensitive "connected to <bank>" display flag).
+  // ============================================================
+  const PLAID_CONNECTION_KEY = 'plaid_connection';
+  const PLAID_SUGGEST_KEY = 'plaid_suggestions';
+
+  function plaidConfigured() { return !!(window.DASH_PLAID_SYNC_SECRET); }
+  async function plaidCall(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + window.DASH_PLAID_SYNC_SECRET },
+      body: JSON.stringify(body || {}),
+    });
+    return await res.json();
+  }
+
+  function loadPlaidConnection() { try { return JSON.parse(localStorage.getItem(PLAID_CONNECTION_KEY)); } catch (e) { return null; } }
+  function savePlaidConnection(v) { try { localStorage.setItem(PLAID_CONNECTION_KEY, JSON.stringify(v)); } catch (e) {} }
+  function loadPlaidSuggestions() { try { return JSON.parse(localStorage.getItem(PLAID_SUGGEST_KEY)) || []; } catch (e) { return []; } }
+  function savePlaidSuggestions(arr) { try { localStorage.setItem(PLAID_SUGGEST_KEY, JSON.stringify(arr)); } catch (e) {} }
+
+  function setPlaidStatus(text, isError) {
+    const el = document.getElementById('plaidStatus');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = isError ? '#FF8A8A' : 'var(--text-tertiary)';
+  }
+
+  function renderPlaidSuggestions() {
+    const list = document.getElementById('plaidSuggestList');
+    if (!list) return;
+    const suggestions = loadPlaidSuggestions();
+    if (!suggestions.length) { list.innerHTML = ''; return; }
+    list.innerHTML = suggestions.map(s => {
+      const catMeta = purCatMeta(s.category);
+      return '<div class="ord-card pcat-' + catMeta.key + '" style="margin-top:8px">'
+        + '<div class="ord-card-h">'
+        +   '<div class="ord-card-name">' + escapeHtml(s.merchant) + '</div>'
+        +   '<div class="ord-card-amt">' + s.currency + ' ' + Number(s.amount).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '</div>'
+        + '</div>'
+        + '<div class="ord-card-meta">'
+        +   '<span class="ord-meta-pill" style="color:' + catMeta.color + '">' + catMeta.label + '</span>'
+        +   '<span class="ord-meta-pill date">' + escapeHtml(s.date || '') + '</span>'
+        + '</div>'
+        + '<div class="ord-card-foot" style="display:flex;gap:8px;margin-top:10px">'
+        +   '<button class="ord-deduct-btn" data-plaid-add-id="' + s.plaidId + '">+ Add to Purchases</button>'
+        +   '<button class="ord-deduct-undo" data-plaid-dismiss-id="' + s.plaidId + '">Dismiss</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+    list.querySelectorAll('[data-plaid-add-id]').forEach(b => b.addEventListener('click', () => addPlaidSuggestion(b.dataset.plaidAddId)));
+    list.querySelectorAll('[data-plaid-dismiss-id]').forEach(b => b.addEventListener('click', () => dismissPlaidSuggestion(b.dataset.plaidDismissId)));
+  }
+
+  function addPlaidSuggestion(plaidId) {
+    const suggestions = loadPlaidSuggestions();
+    const idx = suggestions.findIndex(s => s.plaidId === plaidId);
+    if (idx < 0) return;
+    const s = suggestions[idx];
+    const rate = exchangeRates[s.currency] || 1;
+    const amountCHF = (Number(s.amount) || 0) / rate;
+    const arr = storeGet('purchases') || [];
+    arr.push({
+      id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
+      name: s.merchant,
+      amount: amountCHF,
+      entered_amount: s.amount,
+      entered_currency: s.currency,
+      category: s.category,
+      fromCat: null,
+      fromAccount: null,
+      date: s.date,
+      ts: Date.now(),
+    });
+    storeSet('purchases', arr);
+    suggestions.splice(idx, 1);
+    savePlaidSuggestions(suggestions);
+    renderPlaidSuggestions();
+    renderPurchases();
+  }
+  function dismissPlaidSuggestion(plaidId) {
+    const suggestions = loadPlaidSuggestions().filter(s => s.plaidId !== plaidId);
+    savePlaidSuggestions(suggestions);
+    renderPlaidSuggestions();
+  }
+
+  function renderPlaidCard() {
+    const card = document.getElementById('plaidSuggestCard');
+    const connectBtn = document.getElementById('plaidConnectBtn');
+    const syncBtn = document.getElementById('plaidSyncBtn');
+    if (!card) return;
+    // Hidden entirely when not configured, same reasoning as the
+    // Semantic-search button in notes.html — never show a feature that
+    // would just fail every time on a fresh install.
+    if (!plaidConfigured()) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const conn = loadPlaidConnection();
+    if (conn && conn.connected) {
+      connectBtn.style.display = 'none';
+      syncBtn.style.display = '';
+      setPlaidStatus(conn.institutionName ? ('Connected to ' + conn.institutionName + '.') : 'Connected.');
+    } else {
+      connectBtn.style.display = '';
+      syncBtn.style.display = 'none';
+      setPlaidStatus('Not connected yet.');
+    }
+  }
+
+  async function connectPlaidBank() {
+    const connectBtn = document.getElementById('plaidConnectBtn');
+    if (connectBtn) connectBtn.disabled = true;
+    setPlaidStatus('Preparing connection…');
+    try {
+      const tokenResult = await plaidCall('/api/plaid-link-token');
+      if (!tokenResult || !tokenResult.ok) throw new Error((tokenResult && tokenResult.error) || 'Could not start connection.');
+      if (typeof Plaid === 'undefined') throw new Error('Plaid Link failed to load — check your connection and try again.');
+      const plaidHandler = Plaid.create({
+        token: tokenResult.linkToken,
+        onSuccess: async (publicToken, metadata) => {
+          setPlaidStatus('Finishing connection…');
+          const institutionName = (metadata && metadata.institution && metadata.institution.name) || '';
+          const exchangeResult = await plaidCall('/api/plaid-exchange-token', { publicToken: publicToken, institutionName: institutionName });
+          if (!exchangeResult || !exchangeResult.ok) {
+            setPlaidStatus((exchangeResult && exchangeResult.error) || 'Could not finish connecting.', true);
+            return;
+          }
+          savePlaidConnection({ connected: true, institutionName: exchangeResult.institutionName || institutionName || null });
+          renderPlaidCard();
+          syncPlaidTransactions();
+        },
+        onExit: (err) => {
+          if (err) setPlaidStatus(err.error_message || 'Connection cancelled.', true);
+          else setPlaidStatus('Not connected yet.');
+        },
+      });
+      plaidHandler.open();
+    } catch (e) {
+      setPlaidStatus((e && e.message) || 'Something went wrong connecting your bank.', true);
+    } finally {
+      if (connectBtn) connectBtn.disabled = false;
+    }
+  }
+
+  async function syncPlaidTransactions() {
+    const syncBtn = document.getElementById('plaidSyncBtn');
+    if (syncBtn) syncBtn.disabled = true;
+    setPlaidStatus('Syncing…');
+    try {
+      const result = await plaidCall('/api/plaid-sync-transactions');
+      if (!result || !result.ok) {
+        setPlaidStatus((result && result.error) || 'Could not sync just now.', true);
+        return;
+      }
+      const existing = loadPlaidSuggestions();
+      const seenIds = new Set(existing.map(s => s.plaidId));
+      let added = 0;
+      (result.suggestions || []).forEach(s => { if (!seenIds.has(s.plaidId)) { existing.push(s); seenIds.add(s.plaidId); added++; } });
+      savePlaidSuggestions(existing);
+      renderPlaidSuggestions();
+      setPlaidStatus(added ? ('Found ' + added + ' new ' + (added === 1 ? 'transaction' : 'transactions') + ' to review.') : 'Synced — nothing new.');
+    } catch (e) {
+      setPlaidStatus((e && e.message) || 'Something went wrong syncing.', true);
+    } finally {
+      if (syncBtn) syncBtn.disabled = false;
+    }
+  }
+
+  const plaidConnectBtnEl = document.getElementById('plaidConnectBtn');
+  if (plaidConnectBtnEl) plaidConnectBtnEl.addEventListener('click', connectPlaidBank);
+  const plaidSyncBtnEl = document.getElementById('plaidSyncBtn');
+  if (plaidSyncBtnEl) plaidSyncBtnEl.addEventListener('click', syncPlaidTransactions);
+  renderPlaidCard();
+  renderPlaidSuggestions();
+
+  // ============================================================
   // FINANCE TICKER — rotates through upcoming subscription renewals
   // every 5 seconds. Flashes red whenever the currently displayed sub
   // renews in 5 days or fewer. Hides itself if there are no renewals.
@@ -4937,7 +5131,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'finance',
-    syncedKeys: ['subs', 'wishlist', 'incoming_orders', 'purchases', 'nw_currency', 'nw:activity', 'nw:history'],
+    syncedKeys: ['subs', 'wishlist', 'incoming_orders', 'purchases', 'nw_currency', 'nw:activity', 'nw:history', 'plaid_connection', 'plaid_suggestions'],
     syncedPrefixes: ['nw:'],
     onApplied: function () {
       window.dispatchEvent(new Event('storage'));

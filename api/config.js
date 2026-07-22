@@ -5,6 +5,7 @@
 //   SUPABASE_ANON_KEY   (the public anon / publishable key)
 //   GOOGLE_SYNC_SECRET  (see api/google-token-sync.js)
 //   NOTES_EMBED_SECRET  (see api/notes-embed.js)
+//   PLAID_SYNC_SECRET   (see api/plaid-link-token.js)
 //
 // Loaded via <script src="/api/config"></script> in the <head>
 // BEFORE sync.js / topbar.js. If the env vars aren't set (or the
@@ -28,12 +29,14 @@ export default function handler(req, res) {
   const key = process.env.SUPABASE_ANON_KEY || '';
   const googleSyncSecret = process.env.GOOGLE_SYNC_SECRET || '';
   const notesEmbedSecret = process.env.NOTES_EMBED_SECRET || '';
+  const plaidSyncSecret = process.env.PLAID_SYNC_SECRET || '';
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).send(
     'window.DASH_SUPABASE_URL=' + JSON.stringify(url) + ';' +
     'window.DASH_SUPABASE_KEY=' + JSON.stringify(key) + ';' +
     'window.DASH_GOOGLE_SYNC_SECRET=' + JSON.stringify(googleSyncSecret) + ';' +
-    'window.DASH_NOTES_EMBED_SECRET=' + JSON.stringify(notesEmbedSecret) + ';'
+    'window.DASH_NOTES_EMBED_SECRET=' + JSON.stringify(notesEmbedSecret) + ';' +
+    'window.DASH_PLAID_SYNC_SECRET=' + JSON.stringify(plaidSyncSecret) + ';'
   );
 }
