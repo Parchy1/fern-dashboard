@@ -318,6 +318,11 @@ feature works), so you don't need to give it exact numbers for common items. It 
 the recurring-item reminder texts from step 7 above once configured, including the periodic
 feeling-check-in prompts described there.
 
+Marking gym day, a habit, or a stretch routine done tells you the current streak too (matching
+the 🔥 counters already on the Main and Gym tabs) when it's more than a day or two — same
+"today counts, or falls back to yesterday if today's not done yet" rule as those counters, so an
+unlogged today doesn't look like a broken streak before the day's actually over.
+
 > Not covered: Avatar Lab and the weekly/monthly Review tab's reflection notes are local-feeling
 > pages the assistant intentionally doesn't touch — the former has no synced data at all, and the
 > latter's "what went well / what would you change" fields are meant to be a deliberate sit-down
