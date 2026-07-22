@@ -83,6 +83,7 @@ const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit ti
 const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per item per day
 const FEELING_CHECKIN_INTERVAL_MIN = 240; // how often to nudge for a feeling/stress check-in (4 hours)
 const FEELING_CHECKIN_START_MIN = 9 * 60;  // don't start nudging before 9am
+const SUBS_REMIND_DAYS_BEFORE = 3;   // heads-up window before a subscription's renewal date
 
 const FEELING_CHECKIN_PROMPTS = [
   'Quick check-in — how are you feeling, and how\'s your stress? Just reply with a number 1-5 for each (or however you want to put it) and I\'ll log it.',
@@ -106,6 +107,49 @@ export function shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, feelingSt
   if (hasRecentRealCheckin) return false;
   if (feelingState && (nowMin - feelingState.lastMinutes) < FEELING_CHECKIN_INTERVAL_MIN) return false;
   return true;
+}
+
+// ---------- Subscription renewal reminders ----------
+// Independent from the once-daily/timed-item model above, same reasoning as
+// shouldSendFeelingCheckin: fires once per renewal (tracked in its own row,
+// 'subs_reminders', keyed by "name|renewal date" — NOT the day-scoped
+// reminder_state row, since that one intentionally drops everything except
+// today's bucket on every write and would forget "already reminded" the
+// very next tick). Pure function — todayDateStr and each sub's renewal are
+// both plain YYYY-MM-DD, parsed identically (new Date(y,m-1,d), local to
+// whatever runs this), so the day-difference between them is correct
+// regardless of the server's actual timezone — no real wall-clock instant
+// is involved, just calendar-date subtraction.
+export function subsRenewalsDue(subs, todayDateStr, remindedMap) {
+  const [ty, tm, td] = todayDateStr.split('-').map(Number);
+  const todayMs = new Date(ty, tm - 1, td).getTime();
+  const due = [];
+  (subs || []).forEach(sub => {
+    if (!sub || !sub.renewal || !/^\d{4}-\d{2}-\d{2}$/.test(sub.renewal)) return;
+    const [y, m, d] = sub.renewal.split('-').map(Number);
+    const renewalMs = new Date(y, m - 1, d).getTime();
+    const daysUntil = Math.round((renewalMs - todayMs) / 86400000);
+    if (daysUntil < 0 || daysUntil > SUBS_REMIND_DAYS_BEFORE) return;
+    const remindKey = sub.name + '|' + sub.renewal;
+    if (remindedMap && remindedMap[remindKey]) return;
+    due.push({
+      name: sub.name, renewal: sub.renewal, daysUntil, remindKey,
+      amount: sub.entered_amount != null ? sub.entered_amount : sub.amount,
+      currency: sub.entered_currency || 'CHF',
+    });
+  });
+  return due;
+}
+function fmtSubAmount(n) {
+  const num = Number(n) || 0;
+  return num % 1 === 0 ? String(num) : num.toFixed(2);
+}
+export function composeSubsMessage(dueSubs) {
+  const lines = dueSubs.map(s => {
+    const when = s.daysUntil === 0 ? 'today' : s.daysUntil === 1 ? 'tomorrow' : 'in ' + s.daysUntil + ' days';
+    return s.name + ' — ' + s.currency + ' ' + fmtSubAmount(s.amount) + ' renews ' + when + ' (' + s.renewal + ')';
+  });
+  return (dueSubs.length > 1 ? 'Upcoming renewals:\n' : 'Upcoming renewal: ') + lines.join('\n');
 }
 
 function parseHM(hm) {
@@ -497,14 +541,16 @@ export default async function handler(req, res) {
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
-    const [goalsData, healthData, gymData, businessData, readingData, peakData, stateRow] = await Promise.all([
+    const [goalsData, healthData, gymData, businessData, readingData, peakData, financeData, stateRow, subsRemindedRow] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'po-coach'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'business'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reading'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'peak'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'finance'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'subs_reminders'),
     ]);
 
     const { key: todayKey6am, dow } = dateKeyInTz(tz, true);
@@ -533,8 +579,10 @@ export default async function handler(req, res) {
     const catchAllEff = bedtimeMin - CATCHALL_OFFSET_MIN;
     const catchAllDue = catchAllNames.length > 0 && nowMin >= catchAllEff && nowMin < bedtimeMin && !todayState.__catchall__;
     const feelingCheckinDue = shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, todayState.__feeling_checkin__);
+    const subsRemindedMap = subsRemindedRow || {};
+    const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
 
-    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue) {
+    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
@@ -572,6 +620,24 @@ export default async function handler(req, res) {
       } catch (e) {
         results.push({ name: '__feeling_checkin__', error: e && e.message ? e.message : String(e) });
       }
+    }
+    let subsRemindedChanged = false;
+    if (dueSubs.length) {
+      const body = composeSubsMessage(dueSubs);
+      try {
+        const result = await sendReminder(body);
+        dueSubs.forEach(s => { subsRemindedMap[s.remindKey] = true; });
+        subsRemindedChanged = true;
+        results.push({ name: '__subs_reminder__', items: dueSubs.map(s => s.name), method: result.method });
+      } catch (e) {
+        results.push({ name: '__subs_reminder__', items: dueSubs.map(s => s.name), error: e && e.message ? e.message : String(e) });
+      }
+    }
+    if (subsRemindedChanged) {
+      // Its own row, unlike reminder_state — this one must persist across
+      // days (a renewal 3 days out shouldn't re-remind on day 2 of the
+      // window), so nothing here gets pruned on write.
+      await upsertRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'subs_reminders', subsRemindedMap);
     }
 
     if (stateChanged) {
