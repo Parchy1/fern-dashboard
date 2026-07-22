@@ -1064,6 +1064,8 @@ async function execAddSubscription(args) {
       period: ['monthly', 'yearly', 'weekly'].includes(args.period) ? args.period : 'monthly',
       renewal: args.renewal_date || null, entered_amount: Number(args.amount), entered_currency: currency,
       fromCat, fromAccount, autoDeduct: !!(args.renewal_date && fromCat), lastDeductedAt: null,
+      // Seeds finance.html's price-creep tracking baseline — see priceCreepInfo() there.
+      priceHistory: [{ amountCHF, enteredAmount: Number(args.amount), enteredCurrency: currency, ts: Date.now() }],
     });
     finance['subs'] = subs;
     return { ok: true, fromAccount };

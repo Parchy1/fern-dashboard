@@ -1816,6 +1816,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Monthly burn</div>
         <div id="subsTotal" style="font-size:28px;font-weight:700;color:var(--text-primary);line-height:1.1;margin-top:2px">CHF 0 <span style="font-size:13px;color:var(--text-tertiary);font-weight:500">/ mo</span></div>
         <div id="subsYearly" style="font-size:11px;color:var(--text-tertiary);margin-top:2px"></div>
+        <div id="subsCreepTotal" style="font-size:11px;color:#F2C063;margin-top:2px"></div>
       </div>
       <div id="subsCount" style="font-size:11px;color:var(--text-tertiary)"></div>
     </div>
@@ -2899,6 +2900,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   const subsEmpty = document.getElementById('subsEmpty');
   const subsTotal = document.getElementById('subsTotal');
   const subsYearly = document.getElementById('subsYearly');
+  const subsCreepTotal = document.getElementById('subsCreepTotal');
   const subsCount = document.getElementById('subsCount');
   const subAddBtn = document.getElementById('subAddBtn');
   const subName = document.getElementById('subName');
@@ -2910,6 +2912,21 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (item.period === 'yearly') return a / 12;
     if (item.period === 'weekly') return a * 4.345;
     return a;
+  }
+  // Compares the current CHF-normalized amount against the earliest
+  // recorded priceHistory point. Returns null when there's nothing to
+  // compare (no history yet, or the price hasn't actually moved) — a badge
+  // only shows up once there's a real increase to report, never a decrease
+  // (going down isn't "creep" and doesn't need flagging the same way).
+  const PRICE_CREEP_MIN_PCT = 3; // ignore noise-level drift under this
+  function priceCreepInfo(it) {
+    if (!Array.isArray(it.priceHistory) || it.priceHistory.length < 1) return null;
+    const first = it.priceHistory[0];
+    if (!first || !(first.amountCHF > 0)) return null;
+    const deltaCHF = it.amount - first.amountCHF;
+    const pct = (deltaCHF / first.amountCHF) * 100;
+    if (pct < PRICE_CREEP_MIN_PCT) return null;
+    return { pct, deltaCHF, sinceTs: first.ts };
   }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2939,19 +2956,38 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     // Keep the From-account dropdown synced with current NW accounts
     populateSubFromSelect();
     const items = storeGet('subs') || [];
+    // Backfill priceHistory for subscriptions added before this feature
+    // existed — seeds a baseline at their CURRENT price so future increases
+    // have something to compare against, rather than ever fabricating a past.
+    let backfilled = false;
+    items.forEach(it => {
+      if (!Array.isArray(it.priceHistory) || !it.priceHistory.length) {
+        it.priceHistory = [{ amountCHF: it.amount, enteredAmount: it.entered_amount != null ? it.entered_amount : it.amount, enteredCurrency: it.entered_currency || 'CHF', ts: Date.now() }];
+        backfilled = true;
+      }
+    });
+    if (backfilled) storeSet('subs', items);
     subsList.innerHTML = '';
     if (!items.length) {
       subsEmpty.style.display = 'flex';
       subsTotal.innerHTML = fmtMoney(0) + ' <span style="font-size:13px;color:var(--text-tertiary);font-weight:500">/ mo</span>';
       subsYearly.textContent = '';
       subsCount.textContent = '';
+      if (subsCreepTotal) subsCreepTotal.textContent = '';
       return;
     }
     subsEmpty.style.display = 'none';
     let monthly = 0;
+    let creepMonthly = 0; // sum of monthly-equivalent price creep across all subs with a tracked increase
     items.forEach((it, idx) => {
       const m = monthlyEquivalent(it);
       monthly += m;
+      const creepForTotal = priceCreepInfo(it);
+      // Assumes the billing period hasn't changed since the first tracked
+      // price (comparing CHF amounts across different periods would be
+      // apples-to-oranges) — true for the overwhelming common case of "same
+      // subscription, price went up."
+      if (creepForTotal) creepMonthly += monthlyEquivalent({ amount: it.amount, period: it.period }) - monthlyEquivalent({ amount: it.priceHistory[0].amountCHF, period: it.period });
       // Days until next renewal (rolls past dates forward by the period so
       // a "Renews Apr 28 · monthly" sub shows the *next* upcoming renewal).
       let daysToRenew = null;
@@ -2975,6 +3011,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const pills = [];
       if (it.fromCat && it.fromAccount) {
         pills.push('<span class="sub-from-pill">from · ' + escapeHtml(it.fromAccount) + '</span>');
+      }
+      const creep = priceCreepInfo(it);
+      if (creep) {
+        const sinceLabel = new Date(creep.sinceTs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        pills.push(
+          '<span class="sub-from-pill" style="color:#F2C063;border-color:rgba(242,192,99,0.35)" title="Was '
+          + fmtMoney(it.priceHistory[0].amountCHF) + '/mo when first tracked in ' + sinceLabel + '">'
+          + '⬆ +' + creep.pct.toFixed(0) + '% since ' + sinceLabel + '</span>'
+        );
       }
       pills.push(
         '<button class="sub-row-toggle' + (it.autoDeduct ? ' is-on' : '') + '" data-sub-toggle="' + idx + '" type="button" title="Auto-deduct from the linked account on each renewal">'
@@ -3039,6 +3084,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     });
     subsTotal.innerHTML = fmtMoney(monthly) + ' <span style="font-size:13px;color:var(--text-tertiary);font-weight:500">/ mo</span>';
     subsYearly.textContent = '~' + fmtMoney(monthly * 12) + ' per year';
+    if (subsCreepTotal) {
+      subsCreepTotal.textContent = creepMonthly > 0.01 ? '⬆ +' + fmtMoney(creepMonthly) + '/mo from price increases since you started tracking' : '';
+    }
     subsCount.textContent = items.length + (items.length === 1 ? ' subscription' : ' subscriptions');
     // Re-render the donut so the subs slice updates with the latest annualized total
     if (typeof renderAllNetWorth === 'function') renderAllNetWorth();
@@ -3172,7 +3220,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       }
       if (!newName || isNaN(newAmtRaw)) return;
       const rate = exchangeRates[newCcy] || 1;
-      items[idx] = { ...it, name: newName, amount: newAmtRaw / rate, period: newPer, renewal: newRen, entered_amount: newAmtRaw, entered_currency: newCcy, fromCat: newFromCat, fromAccount: newFromAccount, autoDeduct: newAuto };
+      const newAmountCHF = newAmtRaw / rate;
+      // Record a price-history point whenever the CHF-normalized amount
+      // actually moved (comparing in CHF sidesteps ambiguity from a
+      // currency switch — 0.005 tolerance avoids float-rounding noise
+      // registering as a "change"). A name/period/renewal-only edit
+      // doesn't append anything.
+      const priceChanged = Math.abs(newAmountCHF - it.amount) > 0.005;
+      const history = Array.isArray(it.priceHistory) && it.priceHistory.length
+        ? it.priceHistory.slice()
+        : [{ amountCHF: it.amount, enteredAmount: it.entered_amount != null ? it.entered_amount : it.amount, enteredCurrency: it.entered_currency || 'CHF', ts: it.ts || Date.now() }];
+      if (priceChanged) history.push({ amountCHF: newAmountCHF, enteredAmount: newAmtRaw, enteredCurrency: newCcy, ts: Date.now() });
+      items[idx] = { ...it, name: newName, amount: newAmountCHF, period: newPer, renewal: newRen, entered_amount: newAmtRaw, entered_currency: newCcy, fromCat: newFromCat, fromAccount: newFromAccount, autoDeduct: newAuto, priceHistory: history };
       storeSet('subs', items); renderSubs();
     };
     const cancel = () => renderSubs();
@@ -3225,7 +3284,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         fromCat: fromCat,
         fromAccount: fromAccount,
         autoDeduct: autoDeduct,
-        lastDeductedAt: null
+        lastDeductedAt: null,
+        // Seeds the price-creep baseline — the first recorded price this
+        // subscription was added at, so a later increase has something to
+        // compare against. See priceCreepInfo().
+        priceHistory: [{ amountCHF: amountCHF, enteredAmount: aRaw, enteredCurrency: enteredCcy, ts: Date.now() }]
       });
       storeSet('subs', items);
       nEl.value = ''; aEl.value = '';
