@@ -1661,6 +1661,7 @@ img, video, canvas, svg { max-width: 100%; }
               <span class="po-tw-summary-sep">·</span>
               <span class="po-tw-summary-vol" id="poTwTotalVol">0 kg lifted</span>
             </div>
+            <div class="wt-streak hidden" id="poTwStreak">🔥<span id="poTwStreakNum">0 day streak</span></div>
           </div>
           <button class="po-tw-done-btn" id="poTwDoneBtn" type="button">Mark workout done</button>
         </div>
@@ -2393,12 +2394,38 @@ img, video, canvas, svg { max-width: 100%; }
     return { perEx, totalSets, totalVol };
   }
 
+  // Consecutive days ending at today (or yesterday if today isn't marked
+  // done yet, so an unlogged "today" doesn't show 0 before the day is
+  // over) with a workout marked done — same forgiving rule as the
+  // bodyweight-log streak (wtRenderStreak) and stretch-routine streaks.
+  function workoutDoneStreak() {
+    let streak = 0;
+    const cursor = new Date();
+    if (!doneDays[wtDateKey(cursor)]) cursor.setDate(cursor.getDate() - 1);
+    while (doneDays[wtDateKey(cursor)]) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }
+  function renderWorkoutStreak() {
+    const el = $('poTwStreak');
+    const streak = workoutDoneStreak();
+    if (streak >= 2) {
+      $('poTwStreakNum').textContent = streak + ' day streak';
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
   function renderTodaysWorkout() {
     const todayKey = wtDateKey(new Date());
     const all = logsByDay();
     const todaySets = all[todayKey] || [];
     const sum = summarizeDay(todaySets);
     const u = state.units;
+    renderWorkoutStreak();
 
     const eyebrow = $('poTwDateLabel');
     const dows = ['SUN','MON','TUE','WED','THU','FRI','SAT'];

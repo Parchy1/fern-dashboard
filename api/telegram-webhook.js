@@ -85,6 +85,21 @@ function isRecurScheduledToday(def) {
   if (def.freq === 'days') return Array.isArray(def.days) && def.days.indexOf(activeDateObj().getDay()) !== -1;
   return false;
 }
+// Consecutive days ending at `anchorDate` (or the day before it, if
+// anchorDate itself isn't done yet — so an unlogged "today" doesn't read as
+// streak-broken before the day is even over). Mirrors the exact "forgiving"
+// streak rule already used by main.html's habit streaks, gym.html's
+// bodyweight-log streak, and gym.html's stretch-routine streaks —
+// isDoneOnDate is whatever day-key convention (plain or 6am-boundary) the
+// caller's anchorDate already matches.
+function computeStreak(anchorDate, isDoneOnDate) {
+  const cursor = new Date(anchorDate);
+  const keyOf = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  if (!isDoneOnDate(keyOf(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (isDoneOnDate(keyOf(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+  return streak;
+}
 // Plain UTC calendar-date slice — used by reading.html's session log
 // (new Date().toISOString().slice(0,10)), a third, distinct convention from
 // the two above. Deliberately NOT timezone-adjusted, to match exactly.
@@ -625,7 +640,8 @@ async function execMarkGymDone() {
     const done = pc['po_coach_workout_done'] || {};
     done[plainDateKey()] = new Date().toISOString();
     pc['po_coach_workout_done'] = done;
-    return { ok: true };
+    const streak = computeStreak(tzNow(), (k) => !!done[k]);
+    return { ok: true, streak };
   });
 }
 
@@ -717,7 +733,11 @@ async function execMarkStretchDone(args) {
       });
     }
     pc['stretch:log'] = log;
-    return { ok: true, matched };
+    // Routine streak (not per-item) — mirrors gym.html's own
+    // routineDoneOnDay(): only counts a day where every item in the
+    // routine, not just the one(s) just marked, was checked off.
+    const streak = computeStreak(tzNow(), (k) => items.every(item => !!(log[item.id] && log[item.id][k])));
+    return { ok: true, matched, streak };
   });
 }
 
@@ -844,7 +864,9 @@ async function execMarkHabitDone(args) {
     log[def.id] = log[def.id] || {};
     log[def.id][activeDateKey()] = true;
     goals['habits:log'] = log;
-    return { ok: true, matched: def.name };
+    const habitLog = log[def.id];
+    const streak = computeStreak(activeDateObj(), (k) => !!habitLog[k]);
+    return { ok: true, matched: def.name, streak };
   });
 }
 
@@ -1250,7 +1272,9 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'dashboard\'s own AI photo-estimate feature works) unless the user gives exact numbers; don\'t ask for numbers '
   + 'they clearly expect you to just know or estimate (e.g. "a Red Bull" -> ~80mg caffeine for the 8.4oz can, "2 '
   + 'scrambled eggs" -> a reasonable calorie/protein estimate) — only ask if the item is too ambiguous to estimate at '
-  + 'all. Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 grocery run", '
+  + 'all. mark_gym_done, mark_habit_done, and mark_stretch_done each return a streak (consecutive days), matching the '
+  + '🔥 streak counters already shown on the Main/Gym tabs — mention it in your reply when it\'s genuinely notable '
+  + '(2+ days), but don\'t bother calling it out for a 0 or 1. Use a tool whenever the user is clearly asking you to DO one of those things (e.g. "log a $20 grocery run", '
   + '"mark gym done", "sleep was a 5, stress at 1, just woke up", "add a recurring reminder for X", "track this Red '
   + 'Bull", "note that the landlord called"), not just when they ask a question about their data. Names (exercises, '
   + 'clients, books, habits, accounts, subscriptions) are matched loosely — exact or partial — so don\'t worry about '
