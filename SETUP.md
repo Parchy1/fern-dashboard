@@ -322,7 +322,7 @@ A two-way personal assistant, reachable from the regular Telegram app on your ph
 just a one-way reminder text. It can see and act on essentially the whole dashboard (same
 Supabase rows the dashboard itself reads/writes): to-dos, recurring items, daily habits, gym
 (workout sets, exercises, cardio, stretch routines, body weight), water/supplements, finances
-(net worth accounts, purchases, subscriptions, orders, wishlist), side-hustle business
+(net worth accounts, purchases, subscriptions, debts, orders, wishlist), side-hustle business
 (affiliate commitments/revenue, editing clients/deliveries/payments), reading, Peak (morning
 check-in — wake time/resting heart rate/sleep hours/sleep quality — and feeling/stress
 check-ins, which it understands can happen several times a day rather than just once), the
@@ -344,6 +344,14 @@ a caption — and it identifies what's in the photo and logs it the same estimat
 knowledge way. Add a caption if you want to steer the estimate (portion size, what's mixed in,
 etc.); without one it just describes what it logged in its reply so you can correct it if the
 guess is off.
+
+The Finance tab's **Debts** tab tracks loans/credit card balances separately from your net worth
+accounts, with a payoff calculator (avalanche vs snowball, compares total interest and time to
+debt-free for a given extra monthly payment). Add a debt from the tab directly or via chat
+("add a car loan, $10k at 6% APR, $220 minimum"). Subscriptions also now flag **price creep** —
+a badge shows up once a subscription's price has genuinely risen since you first started
+tracking it, plus a running total of how much of your monthly subscription burn is drift rather
+than the price you originally signed up for.
 
 Marking gym day, a habit, or a stretch routine done tells you the current streak too (matching
 the 🔥 counters already on the Main and Gym tabs) when it's more than a day or two — same

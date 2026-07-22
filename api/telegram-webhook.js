@@ -483,6 +483,21 @@ const TOOLS = [
     input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
   },
   {
+    name: 'add_debt',
+    description: 'Add a debt/loan (e.g. a credit card balance, car loan, student loan) to the Finance tab\'s debt tracker and payoff calculator. Separate from net worth accounts and subscriptions — this is specifically for money owed, not money held.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        balance: { type: 'number' },
+        currency: { type: 'string', enum: PUR_CCY_KEYS },
+        apr: { type: 'number', description: 'Annual interest rate as a percentage, e.g. 22.99 for 22.99% — if mentioned' },
+        min_payment: { type: 'number', description: 'The minimum monthly payment, if mentioned' },
+      },
+      required: ['name', 'balance'],
+    },
+  },
+  {
     name: 'add_wishlist_item',
     description: 'Add an item to the Finance tab\'s wishlist.',
     input_schema: {
@@ -1082,6 +1097,28 @@ async function execCancelSubscription(args) {
   });
 }
 
+// finance.html's Debts tab — a separate top-level total from net worth
+// accounts on purpose (see the comment there), so this writes to its own
+// 'debts' key rather than any nw:<cat> row.
+async function execAddDebt(args) {
+  const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency] || 1;
+  const balanceCHF = Number(args.balance) / rate;
+  return patchRow('finance', (finance) => {
+    const debts = finance['debts'] || [];
+    debts.push({
+      name: args.name, balance: balanceCHF,
+      entered_balance: Number(args.balance), entered_currency: currency,
+      apr: args.apr != null ? Number(args.apr) : 0,
+      minPayment: args.min_payment != null ? Number(args.min_payment) / rate : 0,
+      ts: Date.now(),
+    });
+    finance['debts'] = debts;
+    return { ok: true };
+  });
+}
+
 async function execAddWishlistItem(args) {
   const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
   const rates = await fetchExchangeRates();
@@ -1384,6 +1421,7 @@ const TOOL_EXECUTORS = {
   adjust_net_worth_account: execAdjustNetWorthAccount,
   add_subscription: execAddSubscription,
   cancel_subscription: execCancelSubscription,
+  add_debt: execAddDebt,
   add_wishlist_item: execAddWishlistItem,
   add_order: execAddOrder,
   log_bedtime: execLogBedtime,
@@ -1553,7 +1591,8 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'only for things that repeat), mark a habit done, '
   + 'log water/a supplement, log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session '
   + 'or body weight, log affiliate/editing business activity, log a reading session or add a book, adjust a net worth '
-  + 'account balance, add/cancel a subscription/order/wishlist item, log a Peak morning check-in or a feeling/stress '
+  + 'account balance, add/cancel a subscription/order/wishlist item, add a debt (loan, credit card balance — its own '
+  + 'tracker with a payoff calculator, separate from net worth accounts), log a Peak morning check-in or a feeling/stress '
   + 'check-in (this one can happen several times a day — don\'t treat it as already-done just because one happened '
   + 'earlier), track real sleep with log_bedtime (call it the moment the user says "going to bed"/"heading to '
   + 'sleep") so the next log_morning_checkin — triggered by any wake-up signal, even a bare "good morning", no '

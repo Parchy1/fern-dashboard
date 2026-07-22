@@ -222,6 +222,27 @@ function makeFakeSupabase(seed) {
   }
 
   {
+    const fake = makeFakeSupabase({ finance: { debts: [] } });
+    global.fetch = fake.fetchStub;
+
+    const r1 = await TOOL_EXECUTORS.add_debt({ name: 'Car loan', balance: 10000, currency: 'USD', apr: 6, min_payment: 220 });
+    assertEq(r1.ok, true, 'add_debt returns ok');
+    const debt = fake.rows.finance.debts[0];
+    assertEq(debt.name, 'Car loan', 'debt name recorded');
+    assertEq(debt.entered_currency, 'USD', 'debt entered currency recorded');
+    assertTrue(Math.abs(debt.balance - 10000 / 1.1) < 0.001, 'debt balance converted to CHF base, same exchange-rate convention as subscriptions/purchases');
+    assertEq(debt.apr, 6, 'APR stored as given');
+    assertTrue(Math.abs(debt.minPayment - 220 / 1.1) < 0.001, 'minimum payment also converted to CHF base, matching the balance');
+
+    // apr/min_payment are optional — a bare debt still logs cleanly.
+    const r2 = await TOOL_EXECUTORS.add_debt({ name: 'Family loan', balance: 500, currency: 'CHF' });
+    assertEq(r2.ok, true, 'add_debt succeeds with no APR or minimum payment given');
+    const bareDebt = fake.rows.finance.debts[1];
+    assertEq(bareDebt.apr, 0, 'APR defaults to 0 when not mentioned');
+    assertEq(bareDebt.minPayment, 0, 'minimum payment defaults to 0 when not mentioned');
+  }
+
+  {
     const fake = makeFakeSupabase({ finance: { wishlist: [] } });
     global.fetch = fake.fetchStub;
     await TOOL_EXECUTORS.add_wishlist_item({ name: 'Nintendo Switch 2', amount: 450, currency: 'USD' });
