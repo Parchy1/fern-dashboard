@@ -82,6 +82,10 @@ function mockRes() {
     process.env.SUPABASE_URL = 'https://fake.supabase.co'; process.env.SUPABASE_ANON_KEY = 'anon';
     process.env.REMINDER_TIMEZONE = 'UTC';
     process.env.BEDTIME_LOCAL = '23:59';
+    // Pin this out of range of the real current time so the (unrelated)
+    // morning briefing doesn't interject an extra message alongside the
+    // subscription reminder this test is actually checking.
+    process.env.MORNING_BRIEFING_TIME = '23:58';
     delete process.env.CRON_SECRET;
 
     const realNow = new Date();

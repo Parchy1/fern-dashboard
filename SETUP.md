@@ -225,6 +225,12 @@ same renewal once it's fired — the next one only fires ahead of the *following
 every subscription with a renewal date set, whether or not it's linked to an account for
 auto-deduct — a heads-up is still useful even for ones that charge automatically.
 
+**A daily morning briefing** goes out once a day at `MORNING_BRIEFING_TIME` (24h `HH:MM`,
+default `07:00`) — a single message listing everything scheduled today and still undone
+(recurring items plus any timed one-off to-dos), last night's logged sleep quality if you've
+been using the Peak morning check-in, and a nod to any subscription renewals coming up soon.
+It's a one-shot per day, same as the catch-all digest, so it won't repeat once sent.
+
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called

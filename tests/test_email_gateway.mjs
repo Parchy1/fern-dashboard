@@ -101,6 +101,10 @@ function clearEnv() {
   const minToHM = (min) => String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0');
   const gymTime = minToHM(Math.max(0, nowMinUtc - 60));
   process.env.BEDTIME_LOCAL = minToHM(Math.min(1439, nowMinUtc + 120));
+  // Pin the morning briefing's fire time safely out of this test's frozen
+  // "now" so it doesn't interject an extra message alongside the Gym
+  // reminder this test is actually checking.
+  process.env.MORNING_BRIEFING_TIME = '23:59';
   global.fetch = async (url) => {
     const u = String(url);
     if (u.includes('supabase')) {

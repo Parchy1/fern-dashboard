@@ -43,6 +43,12 @@
 // spontaneous check-in you log on your own resets the interval same as a
 // prompted one would.
 //
+// Also separately, once a day at MORNING_BRIEFING_TIME a single "here's
+// today" summary goes out — everything scheduled and still undone, last
+// night's sleep quality if logged, and a nod to any subscription renewals
+// coming up. One-shot per day, tracked in the same reminder_state bucket as
+// the catch-all digest.
+//
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
 //
@@ -68,6 +74,8 @@
 //                         which reminders stop for the day, and the anchor
 //                         "(PM)"/evening items with no explicit time default
 //                         shortly before.
+//   MORNING_BRIEFING_TIME 24h HH:MM, default '07:00' — when the once-daily
+//                         "here's today" summary fires.
 //   CRON_SECRET           if set, requests must carry
 //                         Authorization: Bearer <CRON_SECRET> — Vercel
 //                         sends this automatically on cron-triggered
@@ -86,6 +94,7 @@ const FEELING_CHECKIN_START_MIN = 9 * 60;  // don't start nudging before 9am
 const SUBS_REMIND_DAYS_BEFORE = 3;   // heads-up window before a subscription's renewal date
 const SLEEP_POOR_THRESHOLD = 2;      // a logged sleepQuality at/below this counts as "slept poorly last night"
 const SLEEP_POOR_GYM_DELAY_MIN = 90; // push the gym reminder back this much after a poor-sleep night — no benefit nagging first thing when recovery is what's actually needed
+const MORNING_BRIEFING_DEFAULT_TIME = '07:00'; // when the once-daily "here's today" summary fires, unless MORNING_BRIEFING_TIME overrides it
 
 const FEELING_CHECKIN_PROMPTS = [
   'Quick check-in — how are you feeling, and how\'s your stress? Just reply with a number 1-5 for each (or however you want to put it) and I\'ll log it.',
@@ -152,6 +161,44 @@ export function composeSubsMessage(dueSubs) {
     return s.name + ' — ' + s.currency + ' ' + fmtSubAmount(s.amount) + ' renews ' + when + ' (' + s.renewal + ')';
   });
   return (dueSubs.length > 1 ? 'Upcoming renewals:\n' : 'Upcoming renewal: ') + lines.join('\n');
+}
+
+// ---------- Morning briefing ----------
+// A single once-a-day summary, independent of the per-item nag model above
+// (same reasoning as the feeling check-in / subs reminders: this doesn't fit
+// the "one moment per item" shape). Fires once MORNING_BRIEFING_TIME has
+// passed, tracked via todayState.__morning_briefing__ same as __catchall__ —
+// fine to live in the day-scoped reminder_state row since it's inherently
+// daily.
+export function shouldSendMorningBriefing(nowMin, briefingMin, bedtimeMin, alreadySent) {
+  if (alreadySent) return false;
+  if (nowMin < briefingMin) return false;
+  if (nowMin >= bedtimeMin) return false;
+  return true;
+}
+
+// todayNames: everything scheduled today and not yet done (recurring +
+// one-off timed to-dos) — a plain list of names is enough, no need to know
+// their individual times for a summary. sleepQuality is last night's Peak
+// morning check-in (null if not logged). dueSubsCount is how many
+// subscriptions are coming up within the reminder window.
+export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount) {
+  const lines = ['Morning. Here\'s today:'];
+  if (todayNames.length) {
+    lines.push(todayNames.map(n => '- ' + n).join('\n'));
+  } else {
+    lines.push('Nothing on the list today — clean slate.');
+  }
+  if (sleepQuality != null) {
+    lines.push(
+      'Last night\'s sleep: ' + sleepQuality + '/5' +
+      (sleepQuality <= SLEEP_POOR_THRESHOLD ? ' — rough one, take it easy today' : '')
+    );
+  }
+  if (dueSubsCount > 0) {
+    lines.push(dueSubsCount + ' subscription renewal' + (dueSubsCount > 1 ? 's' : '') + ' coming up soon.');
+  }
+  return lines.join('\n\n');
 }
 
 function parseHM(hm) {
@@ -548,6 +595,7 @@ export default async function handler(req, res) {
 
     const tz = process.env.REMINDER_TIMEZONE || 'America/New_York';
     const bedtimeMin = parseHM(process.env.BEDTIME_LOCAL || '23:00');
+    const morningBriefingMin = parseHM(process.env.MORNING_BRIEFING_TIME || MORNING_BRIEFING_DEFAULT_TIME);
     const nowMin = minutesInTz(tz);
 
     const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -597,13 +645,26 @@ export default async function handler(req, res) {
     const feelingCheckinDue = shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, todayState.__feeling_checkin__);
     const subsRemindedMap = subsRemindedRow || {};
     const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
+    const morningBriefingDue = shouldSendMorningBriefing(nowMin, morningBriefingMin, bedtimeMin, todayState.__morning_briefing__);
 
-    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length) {
+    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
     const results = [];
     let stateChanged = false;
+    if (morningBriefingDue) {
+      const todayNames = undoneRecurNames.concat(oneOffItems.map(i => i.name));
+      const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length);
+      try {
+        const result = await sendReminder(body);
+        todayState.__morning_briefing__ = true;
+        stateChanged = true;
+        results.push({ name: '__morning_briefing__', method: result.method });
+      } catch (e) {
+        results.push({ name: '__morning_briefing__', error: e && e.message ? e.message : String(e) });
+      }
+    }
     for (const { name, count } of dueIndividual) {
       const body = composeSingleMessage(name, todayKey6am, count);
       try {
