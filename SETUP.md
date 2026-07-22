@@ -514,6 +514,15 @@ read it.
 > not the dashboard's own Supabase data — `undo_last_action` does not cover them, so a mistaken
 > delete/reschedule has to be fixed by hand (or from Google Calendar itself).
 
+The **Today** hub (`hub-today.html`) now leads with a computed "Mission Control" strip above the
+link tiles — today's goal completion, your best active streak (habits or gym, whichever's
+longer), a net worth figure with its trend direction, what's next on today's schedule, and an
+energy/mood read (your latest feeling/stress check-in today, or last night's sleep quality if you
+haven't checked in yet). No setup needed — it's built entirely from data the dashboard already
+syncs. Net worth here always shows in CHF (the currency your accounts are actually totaled in
+internally) rather than your chosen display currency from the Finance tab, to avoid an extra live
+exchange-rate fetch just for a glance-level summary card.
+
 ---
 
 ## TL;DR
