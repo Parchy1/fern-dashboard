@@ -172,7 +172,13 @@ body {
   // Paste your Google Cloud OAuth Client ID here — see SETUP.md.
   const CLIENT_ID = '852157933945-40shvfmrsi6fkhhdgrk45re0ejc7hetq.apps.googleusercontent.com';
   const REDIRECT  = window.location.origin + '/api/google-callback';
-  const SCOPES    = 'https://www.googleapis.com/auth/calendar.readonly '
+  // calendar.events (not calendar.readonly) — the Telegram assistant can
+  // create/reschedule/cancel real events, not just read them. Narrower than
+  // the full 'calendar' scope: it covers events specifically, not calendar
+  // list/settings management. Existing connections made before this change
+  // only hold the old read-only grant — Disconnect and reconnect here to
+  // pick up write access.
+  const SCOPES    = 'https://www.googleapis.com/auth/calendar.events '
     + 'https://www.googleapis.com/auth/gmail.readonly '
     + 'https://www.googleapis.com/auth/drive.metadata.readonly';
 

@@ -535,8 +535,56 @@ const TOOLS = [
   },
   {
     name: 'undo_last_action',
-    description: 'Reverts the single most recent change made by any tool call in this chat (whichever one that was) back to exactly how it was before — e.g. "undo that", "oops, undo", "that was wrong, undo it". Only one level of undo is kept — it reverts the very last write, not a specific earlier one. Use this instead of trying to manually construct the opposite change yourself.',
+    description: 'Reverts the single most recent change made by any tool call in this chat (whichever one that was) back to exactly how it was before — e.g. "undo that", "oops, undo", "that was wrong, undo it". Only one level of undo is kept — it reverts the very last write, not a specific earlier one. Use this instead of trying to manually construct the opposite change yourself. Does NOT cover the Google Calendar tools below — those write to a real external account, not the dashboard\'s own data, so there\'s nothing here to revert them.',
     input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'create_calendar_event',
+    description: 'Creates a REAL event on the user\'s actual Google Calendar (not the dashboard\'s own Schedule/Calendar to-do list — use add_todo for that instead). Only available if Google is connected. Compute actual ISO dates/times yourself from what the user said, same as add_todo\'s date field.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        start: { type: 'string', description: 'ISO 8601 datetime (e.g. "2026-08-03T14:00:00-04:00") for a timed event, or a plain YYYY-MM-DD for an all-day event.' },
+        end: { type: 'string', description: 'Same format as start. For a timed event with no explicit end mentioned, default to 1 hour after start.' },
+        description: { type: 'string' },
+        location: { type: 'string' },
+      },
+      required: ['title', 'start', 'end'],
+    },
+  },
+  {
+    name: 'update_calendar_event',
+    description: 'Modifies an existing REAL Google Calendar event (e.g. "move my 3pm to 4pm", "rename the dentist thing to dentist - cleaning"). Needs event_id — get it from today\'s Calendar context if it\'s there, otherwise call list_calendar_events first to find it. Only the fields provided are changed; anything omitted is left as-is.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string' },
+        title: { type: 'string' },
+        start: { type: 'string', description: 'Same format as create_calendar_event\'s start. Omit if not changing.' },
+        end: { type: 'string' },
+        description: { type: 'string' },
+        location: { type: 'string' },
+      },
+      required: ['event_id'],
+    },
+  },
+  {
+    name: 'delete_calendar_event',
+    description: 'Permanently cancels/deletes a REAL Google Calendar event (e.g. "cancel the dentist thing", "delete my 3pm"). Needs event_id — get it from today\'s Calendar context if it\'s there, otherwise call list_calendar_events first to find it. This cannot be undone — if there\'s real ambiguity about which event is meant, confirm with the user before calling this rather than guessing.',
+    input_schema: { type: 'object', properties: { event_id: { type: 'string' } }, required: ['event_id'] },
+  },
+  {
+    name: 'list_calendar_events',
+    description: 'Looks up real Google Calendar events (with their event_id) in a date range beyond just today — needed before update_calendar_event/delete_calendar_event can target something not already shown in today\'s context.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        start_date: { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+        end_date: { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+      },
+      required: ['start_date', 'end_date'],
+    },
   },
 ];
 
@@ -1117,6 +1165,71 @@ async function execLogNicotine(args) {
   });
 }
 
+// ---------- Google Calendar (real external account — not app_state) ----------
+// Unlike every other tool here, these write to the user's actual Google
+// Calendar, not a Supabase app_state row — so no patchRow, no undo_last_action
+// coverage (there's nothing to snapshot-and-restore against a live external
+// API the same way), and a much smaller blast radius on purpose: only the
+// fields the caller actually provides get sent (a real PATCH, not a
+// read-merge-write of the whole event), so a partial update can't
+// accidentally blank out fields it didn't mean to touch.
+function calendarEventPayload(args) {
+  const payload = {};
+  if (args.title != null) payload.summary = args.title;
+  if (args.description != null) payload.description = args.description;
+  if (args.location != null) payload.location = args.location;
+  if (args.start != null) payload.start = /^\d{4}-\d{2}-\d{2}$/.test(args.start) ? { date: args.start } : { dateTime: args.start };
+  if (args.end != null) payload.end = /^\d{4}-\d{2}-\d{2}$/.test(args.end) ? { date: args.end } : { dateTime: args.end };
+  return payload;
+}
+const CALENDAR_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+const GOOGLE_NOT_CONNECTED = 'Google Calendar isn\'t connected (or the connection has expired) — connect it from the Google tab first.';
+
+async function execCreateCalendarEvent(args) {
+  if (!args.title || !args.start || !args.end) return { ok: false, reason: 'title, start, and end are all required to create an event' };
+  const tokens = await getValidGoogleTokens();
+  if (!tokens) return { ok: false, reason: GOOGLE_NOT_CONNECTED };
+  const ev = await gWrite(CALENDAR_EVENTS_URL, tokens.access, 'POST', calendarEventPayload(args));
+  return { ok: true, id: ev.id, title: ev.summary, htmlLink: ev.htmlLink };
+}
+
+async function execUpdateCalendarEvent(args) {
+  if (!args.event_id) return { ok: false, reason: 'event_id is required — use list_calendar_events first if you don\'t already have it from today\'s context' };
+  const payload = calendarEventPayload(args);
+  if (!Object.keys(payload).length) return { ok: false, reason: 'nothing to update — provide at least one of title/start/end/description/location' };
+  const tokens = await getValidGoogleTokens();
+  if (!tokens) return { ok: false, reason: GOOGLE_NOT_CONNECTED };
+  const ev = await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(args.event_id), tokens.access, 'PATCH', payload);
+  return { ok: true, id: ev.id, title: ev.summary };
+}
+
+async function execDeleteCalendarEvent(args) {
+  if (!args.event_id) return { ok: false, reason: 'event_id is required — use list_calendar_events first if you don\'t already have it from today\'s context' };
+  const tokens = await getValidGoogleTokens();
+  if (!tokens) return { ok: false, reason: GOOGLE_NOT_CONNECTED };
+  await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(args.event_id), tokens.access, 'DELETE');
+  return { ok: true, deleted: args.event_id };
+}
+
+async function execListCalendarEvents(args) {
+  if (!args.start_date || !args.end_date) return { ok: false, reason: 'start_date and end_date (YYYY-MM-DD) are both required' };
+  const tokens = await getValidGoogleTokens();
+  if (!tokens) return { ok: false, reason: GOOGLE_NOT_CONNECTED };
+  const timeMin = new Date(args.start_date + 'T00:00:00').toISOString();
+  const timeMax = new Date(args.end_date + 'T23:59:59').toISOString();
+  const url = CALENDAR_EVENTS_URL
+    + '?timeMin=' + encodeURIComponent(timeMin) + '&timeMax=' + encodeURIComponent(timeMax)
+    + '&singleEvents=true&orderBy=startTime&maxResults=25';
+  const data = await gFetch(url, tokens.access);
+  const events = ((data && data.items) || []).map(ev => ({
+    id: ev.id,
+    title: ev.summary || '(no title)',
+    start: (ev.start && (ev.start.dateTime || ev.start.date)) || null,
+    end: (ev.end && (ev.end.dateTime || ev.end.date)) || null,
+  }));
+  return { ok: true, events };
+}
+
 // ---------- Notes tab ----------
 async function execAddNote(args) {
   return patchRow('notes', (n) => {
@@ -1162,6 +1275,10 @@ const TOOL_EXECUTORS = {
   log_nicotine: execLogNicotine,
   add_note: execAddNote,
   undo_last_action: execUndoLastAction,
+  create_calendar_event: execCreateCalendarEvent,
+  update_calendar_event: execUpdateCalendarEvent,
+  delete_calendar_event: execDeleteCalendarEvent,
+  list_calendar_events: execListCalendarEvents,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -1210,21 +1327,42 @@ async function gFetch(url, accessToken) {
   if (!r.ok) throw new Error('Google ' + r.status + ': ' + (await r.text()));
   return r.json();
 }
+// POST/PATCH/DELETE counterpart to gFetch, used by the calendar write tools
+// below. DELETE responses have no body (204 No Content), unlike everything
+// else this hits.
+async function gWrite(url, accessToken, method, body) {
+  const r = await fetch(url, {
+    method,
+    headers: Object.assign({ Authorization: 'Bearer ' + accessToken, Accept: 'application/json' }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error('Google ' + r.status + ': ' + (await r.text()));
+  if (r.status === 204) return null;
+  return r.json();
+}
+// Shared by buildContext (read-only summary) and the calendar write tools
+// (which need a live token independent of, and possibly called well after,
+// that one-time context build within the same request).
+async function getValidGoogleTokens() {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return null;
+  let tokens = await readGoogleTokens();
+  if (!tokens || !tokens.access) return null;
+  if (tokens.expires && Date.now() > Number(tokens.expires) - 60000) {
+    if (!tokens.refresh) return null;
+    const refreshed = await refreshGoogleToken(tokens.refresh);
+    tokens = { access: refreshed.access, refresh: tokens.refresh, expires: refreshed.expires };
+    await writeGoogleTokens(tokens);
+  }
+  return tokens;
+}
 // Mirrors google.html's loadCalendar/loadGmail/loadDrive, minus any DOM
 // rendering — same summarized shape (titles/subjects/filenames only, no
 // event descriptions, email bodies, or file contents) that already gets
 // cached into 'google:snapshot' for Nova.
 async function buildGoogleContext() {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return null;
   try {
-    let tokens = await readGoogleTokens();
-    if (!tokens || !tokens.access) return null;
-    if (tokens.expires && Date.now() > Number(tokens.expires) - 60000) {
-      if (!tokens.refresh) return null;
-      const refreshed = await refreshGoogleToken(tokens.refresh);
-      tokens = { access: refreshed.access, refresh: tokens.refresh, expires: refreshed.expires };
-      await writeGoogleTokens(tokens);
-    }
+    const tokens = await getValidGoogleTokens();
+    if (!tokens) return null;
 
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1240,6 +1378,7 @@ async function buildGoogleContext() {
     ]);
 
     const calendarEventsToday = ((calData && calData.items) || []).map(ev => ({
+      id: ev.id,
       title: ev.summary || '(no title)',
       time: ev.start && ev.start.dateTime ? new Date(ev.start.dateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'All day',
     }));
@@ -1317,10 +1456,17 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'clients, books, habits, accounts, subscriptions) are matched loosely — exact or partial — so don\'t worry about '
   + 'getting a name exactly right before calling a tool. Be direct, concise, and conversational — this is a text '
   + 'chat, not a report. If a tool call fails or finds no match, say so plainly instead of pretending it worked. '
-  + 'If a "google" key is present in the data, it has today\'s Calendar events, Gmail unread count/subjects, and '
-  + 'recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected or the tokens have '
-  + 'expired — say so rather than guessing at calendar/email/file content. Google Calendar is read-only here (no '
-  + 'ability to create/edit real Google events from this chat) — say so if asked to schedule something there.'
+  + 'If a "google" key is present in the data, it has today\'s Calendar events (each with an id), Gmail unread '
+  + 'count/subjects, and recent Drive files — use it when relevant. If it\'s absent, Google either isn\'t connected '
+  + 'or the tokens have expired — say so rather than guessing at calendar/email/file content, and don\'t attempt '
+  + 'the calendar tools below in that case (they\'ll just report the same thing). You can create/reschedule/cancel '
+  + 'REAL events on the user\'s actual Google Calendar via create_calendar_event/update_calendar_event/'
+  + 'delete_calendar_event — this is a genuinely different, higher-stakes thing than add_todo (which only ever '
+  + 'touches the dashboard\'s own to-do list), so be careful: compute real ISO dates yourself the same way you do '
+  + 'for add_todo\'s date field, and if it\'s not clear which real event the user means (update/delete need an '
+  + 'event_id — pull it from today\'s Calendar context, or call list_calendar_events to search a wider range), ask '
+  + 'rather than guess, since a wrong delete/update can\'t be undone the way dashboard changes can via '
+  + 'undo_last_action.'
   + '\n\nCurrent dashboard data:\n';
 
 // userContent is either a plain string (a normal text message) or an array
