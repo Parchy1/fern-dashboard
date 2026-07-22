@@ -603,6 +603,63 @@ no new AI logic of its own; it's purely a different way in.
 
 ---
 
+## 10. Semantic note search (optional)
+
+Search **Notes** by meaning instead of exact words — "car trouble" finds a note that says
+"the Civic's making a weird noise" even though no words match. Note *content* never leaves
+localStorage/the normal sync row; `api/notes-embed.js` only ever sees a note's text
+transiently to turn it into a vector, and the ranking math itself runs inside Postgres, not
+this endpoint.
+
+1. **Enable pgvector**: Supabase dashboard → **Database → Extensions** → search "vector" →
+   enable it.
+2. **SQL Editor → New query → Run**:
+   ```sql
+   create table if not exists public.note_embeddings (
+     note_id    text primary key,
+     embedding  vector(1536),
+     updated_at timestamptz not null default now()
+   );
+
+   -- The browser calls the search/upsert endpoint using the ANON key, so allow it:
+   alter table public.note_embeddings enable row level security;
+   create policy "anon full access note_embeddings"
+     on public.note_embeddings for all
+     to anon using (true) with check (true);
+
+   create or replace function match_notes(query_embedding vector(1536), match_count int default 20)
+   returns table (note_id text, similarity float)
+   language sql stable
+   as $$
+     select note_id, 1 - (embedding <=> query_embedding) as similarity
+     from public.note_embeddings
+     order by embedding <=> query_embedding
+     limit match_count;
+   $$;
+   ```
+3. Get an API key at **platform.openai.com** (embeddings cost about $0.02 per 1M tokens — your
+   entire notes history is likely a fraction of a cent to embed, ongoing cost is negligible).
+4. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `OPENAI_API_KEY` | your OpenAI key — server-side only |
+| `NOTES_EMBED_SECRET` | any long random string — abuse-prevention only, same trade-off as `GOOGLE_SYNC_SECRET` (it's served to the browser, so it isn't a real secret; the point is stopping a stranger from running up your OpenAI bill, not protecting confidentiality) |
+
+   Redeploy after adding both.
+5. Open **Notes** — a **🧠 Semantic** button appears next to the search box (hidden entirely
+   if the above isn't configured, so it never shows up broken). Every note you create or edit
+   gets embedded automatically in the background as you type (debounced, fire-and-forget — a
+   note always saves locally regardless of whether embedding succeeds). Type a query and hit
+   **Semantic** to search by meaning instead of exact substring match; typing anything new in
+   the search box afterward reverts to the normal live keyword filter.
+
+> Notes that existed before you set this up won't have an embedding yet — open and re-save
+> each one (even just a trivial edit) to backfill it, or start fresh; there's no bulk backfill
+> button.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -615,4 +672,5 @@ no new AI logic of its own; it's purely a different way in.
 7. (Optional) Telegram Assistant: bot token + env vars in step 8 above.
 8. (Optional) Connect Google to the assistant: the `google_tokens` SQL + `SUPABASE_SERVICE_ROLE_KEY`/`GOOGLE_SYNC_SECRET` env vars, see step 8 above.
 9. (Optional) Voice/location Shortcuts: `SHORTCUTS_WEBHOOK_SECRET` env var + iOS Shortcuts, see step 9 above.
-10. Change the password in `lock.js`. Done.
+10. (Optional) Semantic note search: enable pgvector + the SQL above + `OPENAI_API_KEY`/`NOTES_EMBED_SECRET` env vars, see step 10 above.
+11. Change the password in `lock.js`. Done.
