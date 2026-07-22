@@ -68,6 +68,64 @@ function makeFakeSupabase(seed) {
     assertEq(fake2.rows.peak['peak:morning'][todayKey].sleepQuality, 1, 'sleep_quality clamps below range up to 1');
   }
 
+  // ==================== log_bedtime + tracked sleep on log_morning_checkin ====================
+  {
+    const fake = makeFakeSupabase({ peak: {} });
+    global.fetch = fake.fetchStub;
+
+    const bed = await TOOL_EXECUTORS.log_bedtime({});
+    assertEq(bed.ok, true, 'log_bedtime returns ok');
+    assertTrue(!!fake.rows.peak['peak:pendingBedtime'] && typeof fake.rows.peak['peak:pendingBedtime'].ts === 'number', 'log_bedtime stores a pending bedtime timestamp');
+
+    // Simulate real elapsed time by backdating the stored pending timestamp
+    // directly (rather than actually sleeping for the test to pass).
+    fake.rows.peak['peak:pendingBedtime'].ts = Date.now() - 7.5 * 3600000;
+
+    const wake = await TOOL_EXECUTORS.log_morning_checkin({});
+    assertEq(wake.ok, true, 'log_morning_checkin returns ok when closing out a tracked bedtime');
+    assertEq(wake.trackedFromBedtime, true, 'result flags that sleep hours came from a tracked bedtime, not a manual estimate');
+    assertEq(wake.entry.sleepHours, 7.5, 'sleep hours computed from the real elapsed time between log_bedtime and log_morning_checkin');
+    assertTrue(/^\d{2}:\d{2}$/.test(wake.entry.wakeTime), 'wake time is auto-filled from the current moment when tracked, matching the HH:MM format');
+    assertTrue(!('peak:pendingBedtime' in fake.rows.peak), 'the pending bedtime is cleared once closed out by a check-in');
+
+    // An explicit sleep_hours from the user overrides tracking, even if a bedtime was pending.
+    const fake2 = makeFakeSupabase({ peak: {} });
+    global.fetch = fake2.fetchStub;
+    await TOOL_EXECUTORS.log_bedtime({});
+    fake2.rows.peak['peak:pendingBedtime'].ts = Date.now() - 6 * 3600000;
+    const overridden = await TOOL_EXECUTORS.log_morning_checkin({ sleep_hours: 9 });
+    assertEq(overridden.trackedFromBedtime, false, 'an explicitly stated sleep_hours is not overwritten by tracking');
+    assertEq(overridden.entry.sleepHours, 9, 'the user-stated sleep_hours value wins over the tracked elapsed time');
+    assertTrue(!('peak:pendingBedtime' in fake2.rows.peak), 'the pending bedtime is still cleared even when it was not the one used');
+
+    // A stale pending bedtime (way too long ago — a forgotten wake-up, not a real night) is ignored, not trusted.
+    const fake3 = makeFakeSupabase({ peak: {} });
+    global.fetch = fake3.fetchStub;
+    await TOOL_EXECUTORS.log_bedtime({});
+    fake3.rows.peak['peak:pendingBedtime'].ts = Date.now() - 40 * 3600000; // 40 hours ago
+    const stale = await TOOL_EXECUTORS.log_morning_checkin({});
+    assertEq(stale.trackedFromBedtime, false, 'an implausibly long pending bedtime (40h) is not trusted as real tracked sleep');
+    assertEq(stale.entry.sleepHours, null, 'no bogus sleep hours value is logged from a stale pending bedtime');
+    assertTrue(!('peak:pendingBedtime' in fake3.rows.peak), 'the stale pending bedtime is still cleared so it cannot pollute a later night');
+
+    // No pending bedtime at all -> unchanged, pre-existing behavior.
+    const fake4 = makeFakeSupabase({ peak: {} });
+    global.fetch = fake4.fetchStub;
+    const noTracking = await TOOL_EXECUTORS.log_morning_checkin({ wake_time: '07:00', sleep_hours: 8 });
+    assertEq(noTracking.trackedFromBedtime, false, 'with no pending bedtime at all, behaves exactly like a normal manual check-in');
+    assertEq(noTracking.entry.wakeTime, '07:00', 'manual wake_time is respected with no tracking involved');
+
+    // log_bedtime backfill via an explicit `at`.
+    const fake5 = makeFakeSupabase({ peak: {} });
+    global.fetch = fake5.fetchStub;
+    const backfilled = await TOOL_EXECUTORS.log_bedtime({ at: '2026-01-01T23:30:00.000Z' });
+    assertEq(backfilled.ok, true, 'log_bedtime accepts an explicit backfilled `at` timestamp');
+    assertEq(fake5.rows.peak['peak:pendingBedtime'].ts, new Date('2026-01-01T23:30:00.000Z').getTime(), 'the backfilled timestamp is stored exactly as given');
+
+    const badTime = await TOOL_EXECUTORS.log_bedtime({ at: 'not a real date' });
+    assertEq(badTime.ok, false, 'an unparseable `at` value is rejected rather than silently storing garbage');
+  }
+
   // ==================== log_feeling_checkin ====================
   {
     const fake = makeFakeSupabase({ peak: {} });
