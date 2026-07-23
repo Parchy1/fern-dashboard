@@ -168,6 +168,30 @@ function makeFakeSupabase(seed) {
     assertEq(newBook.title, 'Deep Work', 'new book title recorded');
     assertEq(newBook.status, 'want', 'new book starts in "want" status');
     assertEq(newBook.totalPages, 300, 'new book total pages recorded');
+    assertEq(newBook.audiobook, false, 'a book added without audiobook: true defaults to page-tracked, not audiobook');
+  }
+
+  // ==================== READING: audiobooks (tracked by time, not pages) ====================
+  {
+    const fake = makeFakeSupabase({
+      reading: { 'reading:items': [{ id: 'r1', title: 'Sapiens', status: 'want', audiobook: true, currentMinutes: 0, totalMinutes: 900, sessions: [] }] },
+    });
+    global.fetch = fake.fetchStub;
+
+    const result = await TOOL_EXECUTORS.log_reading_session({ title: 'sapiens', current_minutes: 180 });
+    assertEq(result.matched, 'Sapiens', 'log_reading_session fuzzy-matches an audiobook by title too');
+    const item = fake.rows.reading['reading:items'][0];
+    assertEq(item.currentMinutes, 180, 'current minutes updated for an audiobook');
+    assertEq(item.progress, 20, 'progress percentage recalculated from currentMinutes/totalMinutes, not pages');
+    assertEq(item.status, 'progress', 'status auto-advances from "want" to "progress" for an audiobook session too');
+    const utcToday = new Date().toISOString().slice(0, 10);
+    assertEq(item.sessions, [{ date: utcToday, minutes: 180, ts: item.sessions[0].ts }], 'an audiobook session is logged with a minutes field, not a page field');
+
+    await TOOL_EXECUTORS.add_book({ title: 'Educated', author: 'Tara Westover', audiobook: true, total_minutes: 720 });
+    const newAudiobook = fake.rows.reading['reading:items'][1];
+    assertEq(newAudiobook.audiobook, true, 'a new audiobook is flagged as such');
+    assertEq(newAudiobook.totalMinutes, 720, 'new audiobook total runtime (minutes) recorded');
+    assertEq(newAudiobook.totalPages, 0, 'an audiobook still has a totalPages field (0), so it never gets misread as a page-tracked book');
   }
 
   // ==================== HABITS ====================

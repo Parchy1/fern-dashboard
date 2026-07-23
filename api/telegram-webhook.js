@@ -443,19 +443,20 @@ const TOOLS = [
   },
   {
     name: 'log_reading_session',
-    description: 'Update reading progress for a book/item (matched by title) and log today\'s session.',
+    description: 'Update reading progress for a book/item (matched by title) and log today\'s session. Use current_page for a print/ebook; use current_minutes instead for an audiobook (convert a stated duration like "2 hours 15 minutes" to total minutes yourself, same as you compute dates elsewhere).',
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
-        current_page: { type: 'number', description: 'Optional: the page you\'re now on. Omit if not mentioned.' },
+        current_page: { type: 'number', description: 'Optional: the page you\'re now on. Omit for an audiobook, or if not mentioned.' },
+        current_minutes: { type: 'number', description: 'Optional: total minutes into an AUDIOBOOK. Omit for a print/ebook, or if not mentioned.' },
       },
       required: ['title'],
     },
   },
   {
     name: 'add_book',
-    description: 'Add a new book/course/article/video to the Reading tab.',
+    description: 'Add a new book/course/article/video to the Reading tab. For an audiobook, set audiobook: true and total_minutes (not total_pages) — convert a stated runtime like "14 hours" to minutes yourself.',
     input_schema: {
       type: 'object',
       properties: {
@@ -463,6 +464,8 @@ const TOOLS = [
         type: { type: 'string', enum: ['book', 'course', 'article', 'video'] },
         author: { type: 'string' },
         total_pages: { type: 'number' },
+        audiobook: { type: 'boolean', description: 'True if this is an audiobook, tracked by time listened rather than pages.' },
+        total_minutes: { type: 'number', description: 'Total runtime in minutes — only for an audiobook.' },
       },
       required: ['title'],
     },
@@ -1023,7 +1026,10 @@ async function execLogReadingSession(args) {
     const items = reading['reading:items'] || [];
     const item = fuzzyFind(items, args.title, i => i.title);
     if (!item) return { ok: false, reason: 'no book/item found matching "' + args.title + '"' };
-    if (args.current_page != null) {
+    if (args.current_minutes != null) {
+      item.currentMinutes = Number(args.current_minutes);
+      if (item.totalMinutes) item.progress = Math.round((item.currentMinutes / item.totalMinutes) * 100);
+    } else if (args.current_page != null) {
       item.currentPage = Number(args.current_page);
       if (item.totalPages) item.progress = Math.round((item.currentPage / item.totalPages) * 100);
     }
@@ -1032,11 +1038,13 @@ async function execLogReadingSession(args) {
     const todayKey = utcDateSlice();
     const sessions = Array.isArray(item.sessions) ? item.sessions : [];
     const idx = sessions.findIndex(s => s.date === todayKey);
-    const entry = { date: todayKey, page: item.currentPage || 0, ts: Date.now() };
+    const entry = item.audiobook
+      ? { date: todayKey, minutes: item.currentMinutes || 0, ts: Date.now() }
+      : { date: todayKey, page: item.currentPage || 0, ts: Date.now() };
     if (idx >= 0) sessions[idx] = entry; else sessions.push(entry);
     item.sessions = sessions;
     reading['reading:items'] = items;
-    return { ok: true, matched: item.title, currentPage: item.currentPage };
+    return { ok: true, matched: item.title, currentPage: item.currentPage, currentMinutes: item.currentMinutes };
   });
 }
 
@@ -1048,7 +1056,10 @@ async function execAddBook(args) {
       title: args.title,
       type: ['book', 'course', 'article', 'video'].includes(args.type) ? args.type : 'book',
       status: 'want', author: args.author || '', link: '', progress: 0, rating: 0, notes: '',
-      currentPage: 0, totalPages: Number(args.total_pages) || 0, sessions: [], updatedAt: Date.now(),
+      audiobook: !!args.audiobook,
+      currentPage: 0, totalPages: Number(args.total_pages) || 0,
+      currentMinutes: 0, totalMinutes: Number(args.total_minutes) || 0,
+      sessions: [], updatedAt: Date.now(),
     });
     reading['reading:items'] = items;
     return { ok: true };
@@ -1621,7 +1632,9 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'the actual calendar date yourself and passing it as date; that\'s different from add_recurring_item, which is '
   + 'only for things that repeat), mark a habit done, '
   + 'log water/a supplement, log a workout set or mark an exercise/gym day/stretch routine done, log a cardio session '
-  + 'or body weight, log affiliate/editing business activity, log a reading session or add a book, adjust a net worth '
+  + 'or body weight, log affiliate/editing business activity, log a reading session or add a book (an audiobook is '
+  + 'tracked by time listened rather than pages — convert a stated duration like "2 hours" to minutes yourself, same '
+  + 'as you compute dates), adjust a net worth '
   + 'account balance, add/cancel a subscription/order/wishlist item, add a debt (loan, credit card balance — its own '
   + 'tracker with a payoff calculator, separate from net worth accounts), log a Peak morning check-in or a feeling/stress '
   + 'check-in (this one can happen several times a day — don\'t treat it as already-done just because one happened '

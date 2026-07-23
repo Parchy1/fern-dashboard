@@ -406,16 +406,43 @@ body::after {
       </div>
 
       <div id="pagesWrap" style="display:none">
-        <div class="editor-row">
-          <div style="flex:1;min-width:120px">
-            <div class="editor-field-label">Current Page</div>
-            <input class="gm-input" id="editorCurrentPage" type="number" min="0" step="1" placeholder="0" style="width:100%">
-          </div>
-          <div style="flex:1;min-width:120px">
-            <div class="editor-field-label">Total Pages</div>
-            <input class="gm-input" id="editorTotalPages" type="number" min="0" step="1" placeholder="e.g. 320" style="width:100%">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          <input type="checkbox" id="editorAudiobook" style="width:16px;height:16px;accent-color:var(--warning)">
+          🎧 This is an audiobook — track by time listened instead of pages
+        </label>
+
+        <div id="pagesFieldsWrap">
+          <div class="editor-row">
+            <div style="flex:1;min-width:120px">
+              <div class="editor-field-label">Current Page</div>
+              <input class="gm-input" id="editorCurrentPage" type="number" min="0" step="1" placeholder="0" style="width:100%">
+            </div>
+            <div style="flex:1;min-width:120px">
+              <div class="editor-field-label">Total Pages</div>
+              <input class="gm-input" id="editorTotalPages" type="number" min="0" step="1" placeholder="e.g. 320" style="width:100%">
+            </div>
           </div>
         </div>
+
+        <div id="timeFieldsWrap" style="display:none">
+          <div class="editor-row">
+            <div style="flex:1;min-width:120px">
+              <div class="editor-field-label">Current Time</div>
+              <div style="display:flex;gap:6px">
+                <input class="gm-input" id="editorCurrentHr" type="number" min="0" step="1" placeholder="hr" style="width:100%">
+                <input class="gm-input" id="editorCurrentMin" type="number" min="0" max="59" step="1" placeholder="min" style="width:100%">
+              </div>
+            </div>
+            <div style="flex:1;min-width:120px">
+              <div class="editor-field-label">Total Runtime</div>
+              <div style="display:flex;gap:6px">
+                <input class="gm-input" id="editorTotalHr" type="number" min="0" step="1" placeholder="hr" style="width:100%">
+                <input class="gm-input" id="editorTotalMin" type="number" min="0" max="59" step="1" placeholder="min" style="width:100%">
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="pages-progress-summary" id="pagesProgressSummary">0 / 0 pages · 0%</div>
         <div class="pages-progress-track">
           <div class="pages-progress-fill" id="pagesProgressFill" style="width:0%"></div>
@@ -424,7 +451,7 @@ body::after {
         <div class="editor-field-label" style="margin-top:14px">Reading Pace</div>
         <div class="chart-wrap">
           <svg class="book-chart-svg" id="bookChartSvg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
-          <div class="empty-state" id="bookChartEmpty">Log your current page on a few different days to see your pace here.</div>
+          <div class="empty-state" id="bookChartEmpty">Log your current page (or time) on a few different days to see your pace here.</div>
         </div>
       </div>
 
@@ -499,8 +526,15 @@ body::after {
   const progressNumEl = document.getElementById('editorProgressNum');
   const progressSliderWrap = document.getElementById('progressSliderWrap');
   const pagesWrap       = document.getElementById('pagesWrap');
+  const audiobookEl     = document.getElementById('editorAudiobook');
+  const pagesFieldsWrap = document.getElementById('pagesFieldsWrap');
+  const timeFieldsWrap  = document.getElementById('timeFieldsWrap');
   const currentPageEl   = document.getElementById('editorCurrentPage');
   const totalPagesEl    = document.getElementById('editorTotalPages');
+  const currentHrEl     = document.getElementById('editorCurrentHr');
+  const currentMinEl    = document.getElementById('editorCurrentMin');
+  const totalHrEl       = document.getElementById('editorTotalHr');
+  const totalMinEl      = document.getElementById('editorTotalMin');
   const pagesSummaryEl  = document.getElementById('pagesProgressSummary');
   const pagesFillEl     = document.getElementById('pagesProgressFill');
   const bookChartSvg    = document.getElementById('bookChartSvg');
@@ -555,7 +589,7 @@ body::after {
 
       const emoji = document.createElement('div');
       emoji.className = 'item-emoji';
-      emoji.textContent = TYPE_EMOJI[item.type] || '📖';
+      emoji.textContent = (item.type === 'book' && item.audiobook) ? '🎧' : (TYPE_EMOJI[item.type] || '📖');
 
       const body = document.createElement('div');
       body.className = 'item-row-body';
@@ -580,7 +614,12 @@ body::after {
       body.append(top);
       if (item.author) body.append(meta);
 
-      if (item.type === 'book' && item.totalPages > 0) {
+      if (item.type === 'book' && item.audiobook && item.totalMinutes > 0) {
+        const timeMeta = document.createElement('div');
+        timeMeta.className = 'item-row-meta';
+        timeMeta.textContent = fmtHM(item.currentMinutes || 0) + ' / ' + fmtHM(item.totalMinutes);
+        body.appendChild(timeMeta);
+      } else if (item.type === 'book' && item.totalPages > 0) {
         const pagesMeta = document.createElement('div');
         pagesMeta.className = 'item-row-meta';
         pagesMeta.textContent = (item.currentPage || 0) + ' / ' + item.totalPages + ' pages';
@@ -625,7 +664,36 @@ body::after {
     pagesWrap.style.display = isBook ? 'block' : 'none';
   }
 
+  // "125" -> "2h 5m"; under an hour -> "45m"; zero -> "0m".
+  function fmtHM(totalMinutes) {
+    const m = Math.max(0, Math.round(totalMinutes || 0));
+    const h = Math.floor(m / 60), rem = m % 60;
+    return h > 0 ? (h + 'h ' + rem + 'm') : (rem + 'm');
+  }
+  function hrMinToMinutes(hrEl, minEl) {
+    return (Number(hrEl.value) || 0) * 60 + (Number(minEl.value) || 0);
+  }
+  function minutesToHrMin(totalMinutes, hrEl, minEl) {
+    const m = Math.max(0, Math.round(totalMinutes || 0));
+    hrEl.value = Math.floor(m / 60) || '';
+    minEl.value = (m % 60) || '';
+  }
+
+  function updateFormatFields() {
+    const isAudiobook = audiobookEl.checked;
+    pagesFieldsWrap.style.display = isAudiobook ? 'none' : 'block';
+    timeFieldsWrap.style.display = isAudiobook ? 'block' : 'none';
+  }
+
   function updatePagesSummary() {
+    if (audiobookEl.checked) {
+      const cur = hrMinToMinutes(currentHrEl, currentMinEl);
+      const tot = hrMinToMinutes(totalHrEl, totalMinEl);
+      const pct = tot > 0 ? Math.round((cur / tot) * 100) : 0;
+      pagesSummaryEl.textContent = fmtHM(cur) + ' / ' + fmtHM(tot) + ' · ' + pct + '%';
+      pagesFillEl.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      return;
+    }
     const cur = Number(currentPageEl.value) || 0;
     const tot = Number(totalPagesEl.value) || 0;
     const pct = tot > 0 ? Math.round((cur / tot) * 100) : 0;
@@ -642,12 +710,14 @@ body::after {
     }
     bookChartSvg.style.display = 'block';
     bookChartEmpty.style.display = 'none';
+    const isAudiobook = !!(item && item.audiobook);
+    const val = (s) => (isAudiobook ? (s.minutes || 0) : (s.page || 0));
     const W = 300, H = 70, PAD = 6;
-    const maxPage = Math.max(item.totalPages || 0, ...sessions.map(s => s.page || 0), 1);
+    const maxPage = Math.max((isAudiobook ? item.totalMinutes : item.totalPages) || 0, ...sessions.map(val), 1);
     const xStep = (W - PAD * 2) / (sessions.length - 1);
     const pts = sessions.map((s, i) => {
       const x = PAD + i * xStep;
-      const y = H - PAD - ((s.page || 0) / maxPage) * (H - PAD * 2);
+      const y = H - PAD - (val(s) / maxPage) * (H - PAD * 2);
       return [x, y];
     });
     const linePath = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
@@ -657,13 +727,16 @@ body::after {
       '<path class="book-chart-line" d="' + linePath + '"/>';
   }
 
-  // Logs (or updates today's entry for) a dated page-count snapshot so the
-  // reading-pace chart has one point per day instead of one per edit.
+  // Logs (or updates today's entry for) a dated page-count (or, for an
+  // audiobook, minutes-listened) snapshot so the reading-pace chart has one
+  // point per day instead of one per edit.
   function logPageSession(item) {
     const todayKey = new Date().toISOString().slice(0, 10);
     const sessions = Array.isArray(item.sessions) ? item.sessions : [];
     const idx = sessions.findIndex(s => s.date === todayKey);
-    const entry = { date: todayKey, page: item.currentPage, ts: Date.now() };
+    const entry = item.audiobook
+      ? { date: todayKey, minutes: item.currentMinutes, ts: Date.now() }
+      : { date: todayKey, page: item.currentPage, ts: Date.now() };
     if (idx >= 0) sessions[idx] = entry; else sessions.push(entry);
     item.sessions = sessions;
   }
@@ -688,6 +761,10 @@ body::after {
     progressNumEl.textContent = (item.progress || 0) + '%';
     currentPageEl.value = item.currentPage || '';
     totalPagesEl.value = item.totalPages || '';
+    audiobookEl.checked = !!item.audiobook;
+    minutesToHrMin(item.currentMinutes || 0, currentHrEl, currentMinEl);
+    minutesToHrMin(item.totalMinutes || 0, totalHrEl, totalMinEl);
+    updateFormatFields();
     updatePagesSummary();
     updateTypeFields();
     renderBookChart(item);
@@ -714,9 +791,16 @@ body::after {
     item.notes = notesEl.value;
     item.updatedAt = Date.now();
     if (item.type === 'book') {
-      item.totalPages = Number(totalPagesEl.value) || 0;
-      item.currentPage = Number(currentPageEl.value) || 0;
-      item.progress = item.totalPages > 0 ? Math.round((item.currentPage / item.totalPages) * 100) : 0;
+      item.audiobook = audiobookEl.checked;
+      if (item.audiobook) {
+        item.totalMinutes = hrMinToMinutes(totalHrEl, totalMinEl);
+        item.currentMinutes = hrMinToMinutes(currentHrEl, currentMinEl);
+        item.progress = item.totalMinutes > 0 ? Math.round((item.currentMinutes / item.totalMinutes) * 100) : 0;
+      } else {
+        item.totalPages = Number(totalPagesEl.value) || 0;
+        item.currentPage = Number(currentPageEl.value) || 0;
+        item.progress = item.totalPages > 0 ? Math.round((item.currentPage / item.totalPages) * 100) : 0;
+      }
       logPageSession(item);
     } else {
       item.progress = Number(progressEl.value) || 0;
@@ -745,7 +829,8 @@ body::after {
       id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       title: '', type: newTypeEl.value, status: 'want',
       author: '', link: '', progress: 0, rating: 0, notes: '',
-      currentPage: 0, totalPages: 0, sessions: [],
+      audiobook: false, currentPage: 0, totalPages: 0,
+      currentMinutes: 0, totalMinutes: 0, sessions: [],
       updatedAt: Date.now()
     };
     items.push(item);
@@ -764,10 +849,12 @@ body::after {
   });
   progressEl.addEventListener('change', persistOpen);
 
-  [currentPageEl, totalPagesEl].forEach(el => {
+  [currentPageEl, totalPagesEl, currentHrEl, currentMinEl, totalHrEl, totalMinEl].forEach(el => {
     el.addEventListener('input', updatePagesSummary);
     el.addEventListener('blur', persistOpen);
   });
+
+  audiobookEl.addEventListener('change', () => { updateFormatFields(); updatePagesSummary(); persistOpen(); });
 
   starsEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.editor-star');
@@ -855,7 +942,9 @@ body::after {
     const items = readLS('reading:items', []) || [];
     const list = (Array.isArray(items) ? items : []).map(it => ({
       title: it.title, type: it.type, author: it.author, status: it.status,
-      progress: it.progress, currentPage: it.currentPage, totalPages: it.totalPages,
+      progress: it.progress, audiobook: it.audiobook,
+      currentPage: it.currentPage, totalPages: it.totalPages,
+      currentMinutes: it.currentMinutes, totalMinutes: it.totalMinutes,
       rating: it.rating, notes: (it.notes || '').slice(0, 300)
     }));
     let ctx = { today: new Date().toDateString(), list: list };
@@ -865,7 +954,8 @@ body::after {
   }
   const SYS = "You are Nova, the user's personal reading & learning companion living inside their dashboard. "
     + "You can see their reading list — books, courses, articles, and videos they want to read, are reading, or have finished, "
-    + "including author/creator, status, page progress (for books), star ratings, and their own notes. "
+    + "including author/creator, status, progress (page-based for a print/ebook, or currentMinutes/totalMinutes "
+    + "for a book with audiobook:true, tracked by time listened instead), star ratings, and their own notes. "
     + "Use their taste (genres/authors/topics they rated highly, what they're currently into) to recommend what to read, watch, or take next — "
     + "you can and should recommend things NOT on their list too, using your own knowledge, not just what's already there. "
     + "Help them decide what to start next, discuss whatever they're currently reading, or suggest similar titles to ones they rated highly. "

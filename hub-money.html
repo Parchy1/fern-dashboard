@@ -246,17 +246,31 @@ body::after {
     // reading.html logs sessions keyed by a UTC-ISO date string, not the
     // local-date helpers used elsewhere in this file — match it exactly.
     const todayK = new Date().toISOString().slice(0, 10);
-    let pagesToday = 0, any = false;
+    let pagesToday = 0, minutesToday = 0, any = false;
     items.forEach(it => {
       const sessions = (it.sessions || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
       const idx = sessions.findIndex(s => s.date === todayK);
       if (idx === -1) return;
       any = true;
-      const priorPage = idx > 0 ? sessions[idx - 1].page : 0;
-      const delta = sessions[idx].page - priorPage;
-      if (delta > 0) pagesToday += delta;
+      // An audiobook logs minutes listened instead of a page number — same
+      // day-over-day delta math, just a different field to diff.
+      if (it.audiobook) {
+        const priorMin = idx > 0 ? (sessions[idx - 1].minutes || 0) : 0;
+        const delta = (sessions[idx].minutes || 0) - priorMin;
+        if (delta > 0) minutesToday += delta;
+      } else {
+        const priorPage = idx > 0 ? (sessions[idx - 1].page || 0) : 0;
+        const delta = (sessions[idx].page || 0) - priorPage;
+        if (delta > 0) pagesToday += delta;
+      }
     });
-    if (any) { setTileSub('reading.html', pagesToday + ' page' + (pagesToday === 1 ? '' : 's') + ' read today'); return; }
+    if (any) {
+      const bits = [];
+      if (pagesToday > 0) bits.push(pagesToday + ' page' + (pagesToday === 1 ? '' : 's'));
+      if (minutesToday > 0) bits.push(minutesToday + ' min listened');
+      setTileSub('reading.html', (bits.length ? bits.join(' + ') : 'reading logged') + ' today');
+      return;
+    }
     const inProgress = items.find(it => it.status === 'in-progress');
     if (inProgress && inProgress.title) setTileSub('reading.html', 'Reading: ' + inProgress.title);
   }
