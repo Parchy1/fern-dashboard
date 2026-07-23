@@ -37,7 +37,7 @@
 //                           today's Calendar events, Gmail unread summary,
 //                           and recent Drive files are read from the
 //                           locked-down google_tokens table (see
-//                           api/google-token-sync.js) and added to context.
+//                           api/google.js) and added to context.
 //                           Missing/expired/disconnected Google just means
 //                           that context is silently omitted, never an error.
 //
@@ -1451,7 +1451,7 @@ const TOOL_EXECUTORS = {
 // table with the public anon key, fine for to-do text but not for a live
 // Google credential. This table (google_tokens) has no anon-key policies
 // at all; only the service_role key (below) can touch it. See
-// api/google-token-sync.js for the write side and the one-time SQL setup.
+// api/google.js for the write side and the one-time SQL setup.
 async function readGoogleTokens() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey || !process.env.SUPABASE_URL) return null;

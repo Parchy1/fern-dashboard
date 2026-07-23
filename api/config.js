@@ -3,9 +3,9 @@
 // public Supabase config on `window` from Vercel env vars:
 //   SUPABASE_URL        (your project URL)
 //   SUPABASE_ANON_KEY   (the public anon / publishable key)
-//   GOOGLE_SYNC_SECRET  (see api/google-token-sync.js)
+//   GOOGLE_SYNC_SECRET  (see api/google.js)
 //   NOTES_EMBED_SECRET  (see api/notes-embed.js)
-//   PLAID_SYNC_SECRET   (see api/plaid-link-token.js)
+//   PLAID_SYNC_SECRET   (see api/plaid.js)
 //
 // Loaded via <script src="/api/config"></script> in the <head>
 // BEFORE sync.js / topbar.js. If the env vars aren't set (or the
@@ -19,7 +19,7 @@
 // against casual abuse (a stranger running up your OpenAI bill, in
 // NOTES_EMBED_SECRET's case) — neither protects confidentiality on its
 // own. For Google tokens that's the google_tokens table having no
-// anon-key policies at all (see api/google-token-sync.js); note content
+// anon-key policies at all (see api/google.js); note content
 // never leaves localStorage/the normal 'notes' sync row in the first
 // place, so there's nothing extra to protect there beyond the vectors
 // themselves, which reveal nothing readable on their own.

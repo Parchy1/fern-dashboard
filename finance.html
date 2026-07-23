@@ -4820,8 +4820,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // PLAID BANK SYNC — connects a real bank account via Plaid Link and
   // pulls new transactions as review-before-logging suggestions, the
   // exact same UX pattern as the Gmail-scanned receipts above. Plaid
-  // access tokens live server-side only (see api/plaid-exchange-token.js
-  // and api/plaid-sync-transactions.js) — this page never sees or stores
+  // access tokens live server-side only (see api/plaid.js) — this page
+  // never sees or stores
   // a real bank credential, only the resulting transaction suggestions
   // (and a non-sensitive "connected to <bank>" display flag).
   // ============================================================

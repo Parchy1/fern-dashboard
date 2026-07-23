@@ -1,4 +1,4 @@
-import handler from '../api/plaid-exchange-token.js';
+import handler from '../api/plaid.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -30,11 +30,11 @@ function mockRes() {
   // ---- auth / validation ----
   {
     const res = mockRes();
-    await handler({ method: 'POST', headers: {}, body: { publicToken: 'pt-1' } }, res);
+    await handler({ method: 'POST', headers: {}, body: { publicToken: 'pt-1' }, query: { action: 'exchange-token' } }, res);
     assertEq(res._status, 401, 'missing auth is 401');
 
     const res2 = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: {} }, res2);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: {}, query: { action: 'exchange-token' } }, res2);
     assertEq(res2._status, 400, 'missing publicToken is a 400');
   }
 
@@ -42,7 +42,7 @@ function mockRes() {
   {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: { publicToken: 'pt-1' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: { publicToken: 'pt-1' }, query: { action: 'exchange-token' } }, res);
     assertEq(res._status, 500, 'missing SUPABASE_SERVICE_ROLE_KEY is a 500');
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-key';
   }
@@ -66,6 +66,7 @@ function mockRes() {
     await handler({
       method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' },
       body: { publicToken: 'public-sandbox-abc', institutionName: 'Chase' },
+      query: { action: 'exchange-token' },
     }, res);
     assertEq(res._status, 200, 'a valid exchange returns 200');
     assertEq(res._body, { ok: true, institutionName: 'Chase' }, 'the institution name is echoed back for display');
@@ -84,7 +85,7 @@ function mockRes() {
       throw new Error('unexpected fetch: ' + url);
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: { publicToken: 'bad-token' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, body: { publicToken: 'bad-token' }, query: { action: 'exchange-token' } }, res);
     assertEq(res._status, 200, 'a Plaid exchange failure still responds 200');
     assertEq(res._body, { ok: false, error: 'invalid public_token' }, 'the Plaid error message is surfaced, and nothing gets written since we never reach the Supabase call');
   }
