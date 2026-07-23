@@ -320,19 +320,26 @@ body::after {
     // local-date keys used elsewhere — match it exactly, same as the
     // home-screen Today snapshot does for this same domain.
     const utcKeys = new Set(days.map(d => d.toISOString().slice(0, 10)));
-    let pages = 0, any = false;
+    let pages = 0, minutes = 0, any = false;
     items.forEach(it => {
       const sessions = (it.sessions || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
       sessions.forEach((s, i) => {
         if (!utcKeys.has(s.date)) return;
         any = true;
-        const prior = i > 0 ? sessions[i - 1].page : 0;
-        const delta = s.page - prior;
-        if (delta > 0) pages += delta;
+        // An audiobook logs minutes listened instead of a page number.
+        if (it.audiobook) {
+          const prior = i > 0 ? (sessions[i - 1].minutes || 0) : 0;
+          const delta = (s.minutes || 0) - prior;
+          if (delta > 0) minutes += delta;
+        } else {
+          const prior = i > 0 ? (sessions[i - 1].page || 0) : 0;
+          const delta = (s.page || 0) - prior;
+          if (delta > 0) pages += delta;
+        }
       });
     });
     if (!any) return null;
-    return { pages };
+    return { pages, minutes };
   }
   function peakStat(days) {
     const daily = storeGet('peak:daily');
@@ -414,7 +421,16 @@ body::after {
       c1.avgNic > 0 ? (c1.avgNic + 'mg/day nicotine avg') : 'caffeine avg'));
 
     const r1 = readingStat(curDays), r0 = readingStat(priorDays);
-    if (r1) cards.push(card('Reading', r1.pages + ' pages', r0 ? deltaRow(r1.pages - r0.pages, '', 1) : '', 'read this period'));
+    if (r1) {
+      // Whichever unit actually has activity this period — pages take
+      // priority when both are nonzero, since a page count is the more
+      // familiar "reading" figure and mixing the two into one delta would
+      // be misleading (10 pages + 5 fewer minutes isn't a single number).
+      const usesMinutes = r1.pages === 0 && r1.minutes > 0;
+      const val = usesMinutes ? r1.minutes : r1.pages;
+      const priorVal = r0 ? (usesMinutes ? r0.minutes : r0.pages) : null;
+      cards.push(card('Reading', val + (usesMinutes ? ' min listened' : ' pages'), priorVal != null ? deltaRow(val - priorVal, '', 1) : '', 'read this period'));
+    }
 
     const b1 = businessStat(curDays), b0 = businessStat(priorDays);
     if (b1) cards.push(card('Business', '$' + Math.round(b1.revenue).toLocaleString(), b0 ? deltaRow(Math.round(b1.revenue - b0.revenue), '', 1) : '',
@@ -441,7 +457,8 @@ body::after {
     const s1 = supplementsStat(curDays), s0 = supplementsStat(priorDays); if (s1) push('Supplement adherence', s1.rate + '%', s0 && s0.rate + '%');
     const w1 = waterStat(curDays), w0 = waterStat(priorDays); if (w1) push('Water adherence', w1.rate + '%', w0 && w0.rate + '%');
     const c1 = stimulantStat(curDays), c0 = stimulantStat(priorDays); if (c1) push('Avg daily caffeine', c1.avgCaf + 'mg', c0 && (c0.avgCaf + 'mg'));
-    const r1 = readingStat(curDays), r0 = readingStat(priorDays); if (r1) push('Pages read', r1.pages, r0 && r0.pages);
+    const r1 = readingStat(curDays), r0 = readingStat(priorDays);
+    if (r1) push('Pages read', r1.pages + (r1.minutes > 0 ? (' (plus ' + r1.minutes + ' min of audiobook listening)') : ''), r0 && r0.pages);
     const b1 = businessStat(curDays), b0 = businessStat(priorDays); if (b1) push('Business revenue', '$' + Math.round(b1.revenue), b0 && ('$' + Math.round(b0.revenue)));
     return lines.join('\n');
   }

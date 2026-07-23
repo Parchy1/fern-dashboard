@@ -190,19 +190,26 @@ body::after {
     // reading.html logs sessions keyed by a UTC-ISO date string, not the
     // local-date keys used elsewhere — match it exactly, same as review.html.
     const utcKeys = new Set(days.map(d => d.toISOString().slice(0, 10)));
-    let pages = 0, any = false;
+    let pages = 0, minutes = 0, any = false;
     items.forEach(it => {
       const sessions = (it.sessions || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
       sessions.forEach((s, i) => {
         if (!utcKeys.has(s.date)) return;
         any = true;
-        const prior = i > 0 ? sessions[i - 1].page : 0;
-        const delta = s.page - prior;
-        if (delta > 0) pages += delta;
+        // An audiobook logs minutes listened instead of a page number.
+        if (it.audiobook) {
+          const prior = i > 0 ? (sessions[i - 1].minutes || 0) : 0;
+          const delta = (s.minutes || 0) - prior;
+          if (delta > 0) minutes += delta;
+        } else {
+          const prior = i > 0 ? (sessions[i - 1].page || 0) : 0;
+          const delta = (s.page || 0) - prior;
+          if (delta > 0) pages += delta;
+        }
       });
     });
     if (!any) return null;
-    return { pages };
+    return { pages, minutes };
   }
   function peakStat(days) {
     const daily = storeGet('peak:daily');
@@ -325,7 +332,12 @@ body::after {
     if (t) cards.push(card('To-Dos', t.rate + '%', t.done + '/' + t.total + ' completed'));
 
     const r = readingStat(days);
-    if (r) cards.push(card('Reading', r.pages.toLocaleString() + ' pages', 'read over the last year'));
+    if (r) {
+      const bits = [];
+      if (r.pages > 0) bits.push(r.pages.toLocaleString() + ' pages');
+      if (r.minutes > 0) bits.push(r.minutes.toLocaleString() + ' min listened');
+      cards.push(card('Reading', bits.length ? bits.join(' + ') : '0 pages', 'read over the last year'));
+    }
 
     const s = sleepStat(days);
     if (s) cards.push(card('Sleep', s.avgHours + 'h avg' + (s.avgQuality != null ? (' · quality ' + s.avgQuality + '/5') : ''), 'logged ' + s.loggedDays + '/' + s.totalDays + ' nights'));
@@ -360,7 +372,7 @@ body::after {
     const h = habitsStat(days); if (h) push('Habit completion', h.rate + '%');
     const lh = longestHabitStreak(days); if (lh) push('Longest habit streak', lh.days + ' days (' + lh.label + ')');
     const t = todosStat(days); if (t) push('To-do completion', t.rate + '%');
-    const r = readingStat(days); if (r) push('Pages read', r.pages);
+    const r = readingStat(days); if (r) push('Pages read', r.pages + (r.minutes > 0 ? (' (plus ' + r.minutes + ' min of audiobook listening)') : ''));
     const s = sleepStat(days); if (s) push('Avg sleep', s.avgHours + 'h' + (s.avgQuality != null ? (', quality ' + s.avgQuality + '/5') : '') + ' (logged ' + s.loggedDays + '/' + s.totalDays + ' nights)');
     const pk = peakStat(days); if (pk) push('Avg peak/energy score', pk.avg + ' (' + peakTier(pk.avg) + ')');
     const nw = netWorthChangeStat(windowStart.getTime()); if (nw) push('Net worth', 'USD ' + Math.round(nw.current * yrUsdRate) + (nw.change != null ? (', change over the year ' + (nw.change >= 0 ? '+' : '') + Math.round(nw.change * yrUsdRate)) : ''));
