@@ -113,7 +113,7 @@ function mockRes() {
   // ---- polish: happy path, uses a generous max_tokens so long entries don't
   // get silently truncated ----
   {
-    let claudeAuth = null, claudeSystem = null, claudeMaxTokens = null;
+    let claudeAuth = null, claudeSystem = null, claudeMaxTokens = null, claudeModel = null;
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('api.anthropic.com/v1/messages')) {
@@ -121,6 +121,7 @@ function mockRes() {
         claudeAuth = opts.headers['x-api-key'];
         claudeSystem = parsed.system;
         claudeMaxTokens = parsed.max_tokens;
+        claudeModel = parsed.model;
         return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'Today was pretty good, I think.' }] }) };
       }
       throw new Error('unexpected fetch: ' + u);
@@ -131,6 +132,7 @@ function mockRes() {
     assertEq(claudeAuth, 'anthropic-key-1', 'Claude call uses ANTHROPIC_API_KEY');
     assertTrue(claudeSystem.includes('Rewrite the following raw speech-to-text transcript'), 'the polish system prompt is used, not the reflect one');
     assertTrue(claudeMaxTokens >= 8192, 'max_tokens is generous enough to not truncate a long journal entry: ' + claudeMaxTokens);
+    assertEq(claudeModel, 'claude-haiku-4-5-20251001', 'polish is a mechanical rewrite task, so it uses the cheaper Haiku model');
     assertEq(res._body.polished, 'Today was pretty good, I think.', 'the polished text is returned');
   }
 
@@ -152,7 +154,7 @@ function mockRes() {
 
   // ---- reflect: happy path, pulls in dashboard context ----
   {
-    let claudeUserMsg = null, claudeSystem = null;
+    let claudeUserMsg = null, claudeSystem = null, claudeModel = null;
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/')) return { ok: true, json: async () => ({}) }; // buildContext's readRow calls
@@ -160,6 +162,7 @@ function mockRes() {
         const parsed = JSON.parse(opts.body);
         claudeUserMsg = parsed.messages[0].content;
         claudeSystem = parsed.system;
+        claudeModel = parsed.model;
         return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'That sounds like a lot to carry today.' }] }) };
       }
       throw new Error('unexpected fetch: ' + u);
@@ -170,6 +173,7 @@ function mockRes() {
     assertEq(res._body.reflection, 'That sounds like a lot to carry today.', 'the reflection text is returned');
     assertTrue(claudeUserMsg.includes('rough day at work'), 'the note text is included in the prompt sent to Claude');
     assertTrue(claudeUserMsg.includes('Background context on my life'), 'dashboard context is included in the prompt, not just the bare note text');
+    assertEq(claudeModel, 'claude-sonnet-5', 'reflect stays on Sonnet — it is rare (on-demand only) and the tone genuinely matters, unlike the mechanical polish rewrite');
     assertTrue(claudeSystem.includes('journaling companion'), 'the reflect system prompt is used, not the polish one');
     assertTrue(claudeSystem.includes('crisis line'), 'the safety guardrail language is present in the system prompt');
   }

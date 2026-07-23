@@ -54,7 +54,7 @@ function mockRes() {
     const result = await callClaude('sk-test', { finance: {} }, 'log a $5 coffee');
     assertEq(result.text, 'Done — logged $5 coffee.', 'callClaude returns the final text after a tool_use round-trip');
     assertEq(call, 2, 'exactly two Anthropic calls: one that requested the tool, one with the tool result');
-    assertEq(result.usage, { inputTokens: 1100, outputTokens: 70 }, 'usage is summed across BOTH Anthropic calls in the round-trip, not just the final one');
+    assertEq(result.usage, { inputTokens: 1100, outputTokens: 70, cacheWriteTokens: 0, cacheReadTokens: 0 }, 'usage is summed across BOTH Anthropic calls in the round-trip, not just the final one');
     const secondReq = seenRequests[1];
     const toolResultMsg = secondReq.messages[secondReq.messages.length - 1];
     assertEq(toolResultMsg.role, 'user', 'the tool result is sent back as a user-role message per the Messages API tool-use protocol');

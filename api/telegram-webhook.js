@@ -225,20 +225,34 @@ const USAGE_HISTORY_DAYS = 90; // days of daily breakdown kept before pruning �
 // can change and this has no way to know that on its own.
 function inputPricePerMTok() { return Number(process.env.ANTHROPIC_INPUT_PRICE_PER_MTOK) || 3; }
 function outputPricePerMTok() { return Number(process.env.ANTHROPIC_OUTPUT_PRICE_PER_MTOK) || 15; }
+// Prompt-cache tokens aren't priced at the base input rate — a cache WRITE
+// costs a premium over it (1.25x, for the default 5-minute ephemeral TTL
+// used here), while a cache READ is billed at a steep discount (0.1x). These
+// ratios are a fixed part of Anthropic's pricing structure, not a dollar
+// figure that drifts the way the base per-token prices do, so they aren't
+// made configurable the way inputPricePerMTok/outputPricePerMTok are.
+function cacheWritePricePerMTok() { return inputPricePerMTok() * 1.25; }
+function cacheReadPricePerMTok() { return inputPricePerMTok() * 0.1; }
 
-function estimateCostUSD(inputTokens, outputTokens) {
-  return (inputTokens / 1e6) * inputPricePerMTok() + (outputTokens / 1e6) * outputPricePerMTok();
+function estimateCostUSD(inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens) {
+  return (inputTokens / 1e6) * inputPricePerMTok()
+    + (outputTokens / 1e6) * outputPricePerMTok()
+    + ((cacheWriteTokens || 0) / 1e6) * cacheWritePricePerMTok()
+    + ((cacheReadTokens || 0) / 1e6) * cacheReadPricePerMTok();
 }
 function round2(n) { return Math.round(n * 100) / 100; }
 
 async function recordApiUsage(usage) {
-  if (!usage || (!usage.inputTokens && !usage.outputTokens)) return;
+  if (!usage || (!usage.inputTokens && !usage.outputTokens && !usage.cacheWriteTokens && !usage.cacheReadTokens)) return;
   const data = await readRow(USAGE_KEY);
   const byDate = data.byDate || {};
   const today = plainDateKey();
-  const day = byDate[today] || { inputTokens: 0, outputTokens: 0, calls: 0 };
+  const day = byDate[today] || { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, calls: 0 };
   day.inputTokens += usage.inputTokens;
   day.outputTokens += usage.outputTokens;
+  // || 0 guards reading a day-bucket recorded before caching existed.
+  day.cacheWriteTokens = (day.cacheWriteTokens || 0) + (usage.cacheWriteTokens || 0);
+  day.cacheReadTokens = (day.cacheReadTokens || 0) + (usage.cacheReadTokens || 0);
   day.calls += 1;
   byDate[today] = day;
   const cutoff = new Date();
@@ -248,6 +262,8 @@ async function recordApiUsage(usage) {
     byDate,
     totalInputTokens: (data.totalInputTokens || 0) + usage.inputTokens,
     totalOutputTokens: (data.totalOutputTokens || 0) + usage.outputTokens,
+    totalCacheWriteTokens: (data.totalCacheWriteTokens || 0) + (usage.cacheWriteTokens || 0),
+    totalCacheReadTokens: (data.totalCacheReadTokens || 0) + (usage.cacheReadTokens || 0),
     totalCalls: (data.totalCalls || 0) + 1,
   });
 }
@@ -259,19 +275,21 @@ async function recordApiUsage(usage) {
 function summarizeApiUsage(data) {
   if (!data || !data.totalCalls) return null;
   const byDate = data.byDate || {};
-  const today = byDate[plainDateKey()] || { inputTokens: 0, outputTokens: 0, calls: 0 };
+  const today = byDate[plainDateKey()] || { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, calls: 0 };
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
   const last30 = Object.keys(byDate).reduce((acc, k) => {
     if (new Date(k + 'T00:00:00') >= cutoff) {
-      acc.inputTokens += byDate[k].inputTokens; acc.outputTokens += byDate[k].outputTokens; acc.calls += byDate[k].calls;
+      acc.inputTokens += byDate[k].inputTokens; acc.outputTokens += byDate[k].outputTokens;
+      acc.cacheWriteTokens += (byDate[k].cacheWriteTokens || 0); acc.cacheReadTokens += (byDate[k].cacheReadTokens || 0);
+      acc.calls += byDate[k].calls;
     }
     return acc;
-  }, { inputTokens: 0, outputTokens: 0, calls: 0 });
+  }, { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, calls: 0 });
   return {
-    today: { calls: today.calls, estimatedCostUSD: round2(estimateCostUSD(today.inputTokens, today.outputTokens)) },
-    last30Days: { calls: last30.calls, estimatedCostUSD: round2(estimateCostUSD(last30.inputTokens, last30.outputTokens)) },
-    allTime: { calls: data.totalCalls, estimatedCostUSD: round2(estimateCostUSD(data.totalInputTokens || 0, data.totalOutputTokens || 0)) },
+    today: { calls: today.calls, estimatedCostUSD: round2(estimateCostUSD(today.inputTokens, today.outputTokens, today.cacheWriteTokens, today.cacheReadTokens)) },
+    last30Days: { calls: last30.calls, estimatedCostUSD: round2(estimateCostUSD(last30.inputTokens, last30.outputTokens, last30.cacheWriteTokens, last30.cacheReadTokens)) },
+    allTime: { calls: data.totalCalls, estimatedCostUSD: round2(estimateCostUSD(data.totalInputTokens || 0, data.totalOutputTokens || 0, data.totalCacheWriteTokens || 0, data.totalCacheReadTokens || 0)) },
   };
 }
 
@@ -687,6 +705,12 @@ const TOOLS = [
     },
   },
 ];
+// The tool schema is identical on every single call — mark it as a cache
+// breakpoint so Anthropic's prompt caching can reuse it instead of
+// re-billing ~7k tokens of static JSON schema on every message. Mutated
+// once here at module load, not per-request — TOOLS isn't exported or
+// touched anywhere else.
+TOOLS[TOOLS.length - 1].cache_control = { type: 'ephemeral' };
 
 async function execLogPurchase(args) {
   const currency = PUR_CCY_KEYS.includes(args.currency) ? args.currency : 'USD';
@@ -1655,15 +1679,24 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
 async function callClaude(apiKey, context, userContent, priorHistory) {
   const messages = (priorHistory || []).concat([{ role: 'user', content: userContent }]);
   let lastText = '';
-  const usage = { inputTokens: 0, outputTokens: 0 };
+  const usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
   for (let iter = 0; iter < 4; iter++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
-        system: SYS + JSON.stringify(context),
+        // SYS (the instructions) never changes between calls; the JSON
+        // dashboard snapshot after it does, every time. Splitting them into
+        // separate system blocks — rather than one concatenated string —
+        // lets the cache_control marker on the first block cache ~1.6k
+        // tokens of instructions without also trying (and failing) to cache
+        // the part that's different on every single request.
+        system: [
+          { type: 'text', text: SYS, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: JSON.stringify(context) },
+        ],
         tools: TOOLS,
         messages,
       }),
@@ -1673,6 +1706,8 @@ async function callClaude(apiKey, context, userContent, priorHistory) {
     if (json.usage) {
       usage.inputTokens += json.usage.input_tokens || 0;
       usage.outputTokens += json.usage.output_tokens || 0;
+      usage.cacheWriteTokens += json.usage.cache_creation_input_tokens || 0;
+      usage.cacheReadTokens += json.usage.cache_read_input_tokens || 0;
     }
     const textBlocks = json.content.filter(b => b.type === 'text').map(b => b.text);
     lastText = textBlocks.join('\n') || lastText;
