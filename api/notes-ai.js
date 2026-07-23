@@ -6,11 +6,20 @@
 // on-demand reflection), sharing NOTES_EMBED_SECRET with api/notes-embed.js
 // rather than minting a third/fourth secret for the same page.
 //
-// Body: { action: 'voice-note', audioBase64, mimeType }
-//   Transcribes browser-recorded audio (OpenAI Whisper) then rewrites the
-//   raw transcript into clean prose (Claude) in one round trip, so
-//   notes.html's mic button can just drop the final text straight into the
-//   note. Requires OPENAI_API_KEY + ANTHROPIC_API_KEY.
+// Body: { action: 'transcribe-chunk', audioBase64, mimeType }
+//   Transcribes ONE short chunk of browser-recorded audio (OpenAI Whisper).
+//   Deliberately chunk-at-a-time rather than one call for a whole recording:
+//   Vercel's Serverless Functions reject request bodies over ~4.5MB, which a
+//   single long voice-journal recording (sent as base64, ~33% larger than
+//   raw) blows past easily — notes.html records in a continuous loop of
+//   ~55s chunks instead, each well under that ceiling, so total recording
+//   length is effectively unbounded. Requires OPENAI_API_KEY.
+//
+// Body: { action: 'polish', text }
+//   Rewrites a raw transcript (the concatenation of every chunk above) into
+//   clean prose in the speaker's own voice, run once at the end of a
+//   recording rather than per-chunk (cheaper, and avoids the rewrite
+//   losing continuity across chunk boundaries). Requires ANTHROPIC_API_KEY.
 //
 // Body: { action: 'reflect', text }
 //   A short, supportive, on-demand reflection on the current note, given
@@ -23,6 +32,11 @@
 // ============================================================
 
 import { buildContext } from './telegram-webhook.js';
+
+// Default Vercel function timeout is too tight for a slow-connection audio
+// upload + Whisper round trip; each call here only ever handles one ~55s
+// chunk or a plain-text completion, but this leaves real margin either way.
+export const config = { maxDuration: 30 };
 
 function extensionForMime(mimeType) {
   const m = mimeType || '';
@@ -64,7 +78,10 @@ async function polishTranscript(apiKey, rawText) {
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-5',
-      max_tokens: 1024,
+      // Generous on purpose — a long journal entry can run well past a
+      // thousand words, and a truncated rewrite (this used to be capped at
+      // 1024 tokens, well under that) is worse than not polishing at all.
+      max_tokens: 8192,
       system: POLISH_SYS,
       messages: [{ role: 'user', content: rawText }],
     }),
@@ -124,18 +141,24 @@ export default async function handler(req, res) {
   if (!body || typeof body !== 'object') body = {};
 
   try {
-    if (body.action === 'voice-note') {
+    if (body.action === 'transcribe-chunk') {
       const openaiKey = process.env.OPENAI_API_KEY;
-      const anthropicKey = process.env.ANTHROPIC_API_KEY;
-      if (!openaiKey || !anthropicKey) return res.status(500).json({ ok: false, error: 'OPENAI_API_KEY / ANTHROPIC_API_KEY not configured' });
+      if (!openaiKey) return res.status(500).json({ ok: false, error: 'OPENAI_API_KEY not configured' });
       const audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64 : '';
       if (!audioBase64) return res.status(400).json({ ok: false, error: 'missing audioBase64' });
       const buffer = Buffer.from(audioBase64, 'base64');
       if (!buffer.length) return res.status(400).json({ ok: false, error: 'empty audio' });
       const transcript = await transcribeVoiceNote(openaiKey, buffer, body.mimeType);
-      if (!transcript.trim()) return res.status(200).json({ ok: true, transcript: '', polished: '' });
-      const polished = await polishTranscript(anthropicKey, transcript);
-      return res.status(200).json({ ok: true, transcript, polished });
+      return res.status(200).json({ ok: true, transcript });
+    }
+
+    if (body.action === 'polish') {
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) return res.status(200).json({ ok: true, polished: '' });
+      const polished = await polishTranscript(anthropicKey, text);
+      return res.status(200).json({ ok: true, polished });
     }
 
     if (body.action === 'reflect') {

@@ -730,10 +730,12 @@ Two more optional Notes features, both gated behind the same `NOTES_EMBED_SECRET
 search above — if that's already set up, these just need the API keys below and a redeploy,
 nothing new to secure.
 
-- **🎙️ Voice** — tap it in the note editor, speak, tap again to stop. Your speech is
-  transcribed (Whisper) and immediately rewritten into clean prose in your own voice (Claude) —
-  fixing filler words and run-ons, not summarizing or changing what you said — then dropped
-  straight into the note. Meant to make actually journaling regularly less friction than typing.
+- **🎙️ Voice** — tap it in the note editor, speak as long as you want, tap again to stop. No
+  length limit: it records in a continuous loop of ~55-second segments behind the scenes (each
+  transcribed as it finishes, appended into the note live so you can see it capturing what you
+  say as you talk), then does one pass at the end to rewrite the whole thing into clean prose in
+  your own voice — fixing filler words and run-ons, not summarizing or changing what you said.
+  Meant to make actually journaling regularly less friction than typing.
 - **💭 Reflect** — on demand, never automatic. Tap it on any note and the assistant reads what
   you wrote plus real context from the rest of your dashboard (the same data the Telegram
   assistant sees — to-dos, gym, finances, health, etc.) and responds with a short, genuine
