@@ -53,26 +53,27 @@ function mockRes() {
     assertEq(res._status, 400, 'an unrecognized action is a 400');
   }
 
-  // ---- voice-note: validation ----
+  // ---- transcribe-chunk: validation ----
   {
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'voice-note' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'transcribe-chunk' } }, res);
     assertEq(res._status, 400, 'missing audioBase64 is a 400');
     assertEq(res._body.error, 'missing audioBase64', 'the specific validation error is surfaced');
   }
 
-  // ---- voice-note: missing server config ----
+  // ---- transcribe-chunk: missing server config ----
   {
     delete process.env.OPENAI_API_KEY;
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'voice-note', audioBase64: 'aGVsbG8=' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'transcribe-chunk', audioBase64: 'aGVsbG8=' } }, res);
     assertEq(res._status, 500, 'missing OPENAI_API_KEY is a 500');
     process.env.OPENAI_API_KEY = 'openai-key-1';
   }
 
-  // ---- voice-note: happy path (transcribe then polish) ----
+  // ---- transcribe-chunk: happy path (Whisper only, no polish call — kept
+  // cheap and fast since a long recording calls this once per ~55s chunk) ----
   {
-    let sawWhisperCall = false, sawClaudeCall = false, whisperAuth = null, claudeAuth = null, claudeSystem = null;
+    let sawWhisperCall = false, sawClaudeCall = false, whisperAuth = null;
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('api.openai.com/v1/audio/transcriptions')) {
@@ -80,40 +81,57 @@ function mockRes() {
         whisperAuth = opts.headers.authorization;
         return { ok: true, json: async () => ({ text: 'um so today was uh pretty good i think' }) };
       }
+      sawClaudeCall = true;
+      throw new Error('transcribe-chunk should never call Claude');
+    };
+    const res = mockRes();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'transcribe-chunk', audioBase64: 'aGVsbG8=', mimeType: 'audio/webm' } }, res);
+    assertEq(res._status, 200, 'a valid transcribe-chunk request returns 200');
+    assertTrue(sawWhisperCall, 'calls OpenAI Whisper to transcribe the audio');
+    assertEq(whisperAuth, 'Bearer openai-key-1', 'Whisper call uses OPENAI_API_KEY');
+    assertTrue(!sawClaudeCall, 'no Claude call happens per-chunk');
+    assertEq(res._body.transcript, 'um so today was uh pretty good i think', 'the raw transcript for this chunk is returned');
+  }
+
+  // ---- polish: validation ----
+  {
+    const res = mockRes();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'polish', text: '' } }, res);
+    assertEq(res._status, 200, 'blank text still returns 200 rather than erroring');
+    assertEq(res._body.polished, '', 'no polished text for blank input, and no Claude call was needed');
+  }
+
+  // ---- polish: missing server config ----
+  {
+    delete process.env.ANTHROPIC_API_KEY;
+    const res = mockRes();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'polish', text: 'hello there' } }, res);
+    assertEq(res._status, 500, 'missing ANTHROPIC_API_KEY is a 500');
+    process.env.ANTHROPIC_API_KEY = 'anthropic-key-1';
+  }
+
+  // ---- polish: happy path, uses a generous max_tokens so long entries don't
+  // get silently truncated ----
+  {
+    let claudeAuth = null, claudeSystem = null, claudeMaxTokens = null;
+    global.fetch = async (url, opts) => {
+      const u = String(url);
       if (u.includes('api.anthropic.com/v1/messages')) {
-        sawClaudeCall = true;
+        const parsed = JSON.parse(opts.body);
         claudeAuth = opts.headers['x-api-key'];
-        claudeSystem = JSON.parse(opts.body).system;
+        claudeSystem = parsed.system;
+        claudeMaxTokens = parsed.max_tokens;
         return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'Today was pretty good, I think.' }] }) };
       }
       throw new Error('unexpected fetch: ' + u);
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'voice-note', audioBase64: 'aGVsbG8=', mimeType: 'audio/webm' } }, res);
-    assertEq(res._status, 200, 'a valid voice-note request returns 200');
-    assertTrue(sawWhisperCall, 'calls OpenAI Whisper to transcribe the audio');
-    assertEq(whisperAuth, 'Bearer openai-key-1', 'Whisper call uses OPENAI_API_KEY');
-    assertTrue(sawClaudeCall, 'calls Claude to polish the raw transcript');
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'polish', text: 'um so today was uh pretty good i think' } }, res);
+    assertEq(res._status, 200, 'a valid polish request returns 200');
     assertEq(claudeAuth, 'anthropic-key-1', 'Claude call uses ANTHROPIC_API_KEY');
     assertTrue(claudeSystem.includes('Rewrite the following raw speech-to-text transcript'), 'the polish system prompt is used, not the reflect one');
-    assertEq(res._body.transcript, 'um so today was uh pretty good i think', 'the raw transcript is returned alongside the polished text');
+    assertTrue(claudeMaxTokens >= 8192, 'max_tokens is generous enough to not truncate a long journal entry: ' + claudeMaxTokens);
     assertEq(res._body.polished, 'Today was pretty good, I think.', 'the polished text is returned');
-  }
-
-  // ---- voice-note: a blank transcript skips the polish call entirely ----
-  {
-    let claudeCalled = false;
-    global.fetch = async (url) => {
-      const u = String(url);
-      if (u.includes('audio/transcriptions')) return { ok: true, json: async () => ({ text: '   ' }) };
-      claudeCalled = true;
-      throw new Error('should not reach Claude for a blank transcript');
-    };
-    const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-notes-secret' }, body: { action: 'voice-note', audioBase64: 'aGVsbG8=' } }, res);
-    assertEq(res._status, 200, 'a blank transcript still returns 200');
-    assertEq(res._body.polished, '', 'no polished text when nothing was said');
-    assertTrue(!claudeCalled, 'Claude is never called for an empty transcript');
   }
 
   // ---- reflect: validation ----

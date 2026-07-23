@@ -357,9 +357,28 @@ body::after {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
   }
 
-  let mediaRecorder = null;
-  let recordedChunks = [];
+  // Recording happens in a continuous loop of short (~55s) chunks, each
+  // transcribed as soon as it finishes, rather than one long recording sent
+  // as a single request. Two real limits forced this: Vercel rejects
+  // request bodies over ~4.5MB (a single 10-minute recording as base64
+  // blows past that easily), and restarting a fresh MediaRecorder per chunk
+  // (rather than one recorder's `timeslice` option) is what actually
+  // produces independently-decodable audio files — a single recorder's
+  // incremental timeslice chunks share one WebM container header that only
+  // lives in the first chunk, so the rest aren't valid audio on their own.
+  // Net effect: total recording length is no longer bounded by anything but
+  // how long you want to talk, and each chunk's transcript is appended into
+  // the note as it arrives — so if something fails partway through, whatever
+  // was already captured is already saved, not lost.
+  const CHUNK_MS = 55000;
+
+  let micStream = null;
+  let chunkRecorder = null;
+  let stopRequested = false;
   let isRecording = false;
+  let voiceSessionStartLength = 0;
+  let chunkCount = 0;
+  let stopResolve = null;
 
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
@@ -374,66 +393,127 @@ body::after {
     });
   }
 
-  // Transcribe (Whisper) then rewrite into clean prose (Claude) happen
-  // server-side in one round trip — see api/notes-ai.js's 'voice-note'
-  // action — so this just appends whatever text comes back onto the note.
-  async function handleRecordingStopped() {
-    if (!recordedChunks.length) { voiceNoteStatus.textContent = ''; return; }
-    const mimeType = recordedChunks[0].type || 'audio/webm';
-    const blob = new Blob(recordedChunks, { type: mimeType });
-    recordedChunks = [];
+  function appendToBody(text) {
+    if (!text) return;
+    bodyEl.value = bodyEl.value.trim() ? bodyEl.value.replace(/\s+$/, '') + '\n\n' + text : text;
+    scheduleAutosave();
+  }
+
+  async function transcribeChunk(blob, mimeType) {
+    const audioBase64 = await blobToBase64(blob);
+    if (!audioBase64) return '';
+    const result = await notesAiCall('transcribe-chunk', { audioBase64: audioBase64, mimeType: mimeType });
+    if (!result || !result.ok) throw new Error((result && result.error) || "couldn't transcribe that segment");
+    return (result.transcript || '').trim();
+  }
+
+  // One MediaRecorder instance covers exactly one chunk; when it stops
+  // (either the CHUNK_MS timer or the user hitting Stop), its own blob is
+  // transcribed and appended, and — unless this was the final chunk — a
+  // brand-new recorder immediately starts the next one on the same stream.
+  function recordOneChunk() {
+    const chunkBlobs = [];
+    chunkRecorder = new MediaRecorder(micStream, recorderOptions());
+    chunkRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunkBlobs.push(e.data); };
+    chunkRecorder.onstop = async () => {
+      const mimeType = chunkRecorder.mimeType || 'audio/webm';
+      const isFinal = stopRequested;
+      if (!isFinal) recordOneChunk(); // keep talking uninterrupted while this chunk transcribes
+      if (chunkBlobs.length) {
+        chunkCount++;
+        voiceNoteStatus.textContent = isFinal ? 'Transcribing last part…' : ('Recording… (' + chunkCount + ' segment' + (chunkCount === 1 ? '' : 's') + ' captured)');
+        try {
+          const transcript = await transcribeChunk(new Blob(chunkBlobs, { type: mimeType }), mimeType);
+          appendToBody(transcript);
+        } catch (e) {
+          appendToBody(''); // no-op, but keeps the shape consistent if extended later
+          voiceNoteStatus.textContent = "Couldn't transcribe one segment (" + (e && e.message ? e.message : 'unknown error') + ') — the rest kept recording.';
+        }
+      }
+      if (isFinal) await finishRecording();
+    };
+    chunkRecorder.start();
+    chunkTimer = setTimeout(() => { if (chunkRecorder && chunkRecorder.state === 'recording') chunkRecorder.stop(); }, CHUNK_MS);
+  }
+
+  function recorderOptions() {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+    return mimeType ? { mimeType: mimeType } : {};
+  }
+
+  let chunkTimer = null;
+
+  // Once every chunk's raw transcript is in the note, do ONE polish pass
+  // over the whole thing the recording session added (not the note's
+  // pre-existing content), rewriting it into clean prose — run once at the
+  // end rather than per-chunk so the rewrite has full context and isn't
+  // stitched together from independently-polished fragments.
+  async function finishRecording() {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+    isRecording = false;
+    voiceNoteBtn.textContent = '🎙️ Voice';
+    voiceNoteBtn.classList.remove('recording');
     voiceNoteBtn.disabled = true;
-    voiceNoteStatus.textContent = 'Transcribing…';
+
+    const rawSession = bodyEl.value.slice(voiceSessionStartLength).trim();
+    if (!rawSession) {
+      voiceNoteStatus.textContent = "Didn't catch anything — try again.";
+      voiceNoteBtn.disabled = false;
+      if (stopResolve) { const r = stopResolve; stopResolve = null; r(); }
+      return;
+    }
+    voiceNoteStatus.textContent = 'Cleaning up the writing…';
     try {
-      const audioBase64 = await blobToBase64(blob);
-      const result = await notesAiCall('voice-note', { audioBase64: audioBase64, mimeType: mimeType });
-      if (!result || !result.ok) {
-        voiceNoteStatus.textContent = (result && result.error) ? result.error : "Couldn't transcribe just now.";
-        return;
+      const result = await notesAiCall('polish', { text: rawSession });
+      if (result && result.ok && result.polished) {
+        bodyEl.value = bodyEl.value.slice(0, voiceSessionStartLength) + result.polished;
+        scheduleAutosave();
       }
-      const text = (result.polished || result.transcript || '').trim();
-      if (!text) {
-        voiceNoteStatus.textContent = "Didn't catch anything — try again.";
-        return;
-      }
-      bodyEl.value = bodyEl.value.trim() ? bodyEl.value.replace(/\s+$/, '') + '\n\n' + text : text;
-      scheduleAutosave();
+      // A failed/empty polish just leaves the raw transcript in place —
+      // still useful, better than losing it.
       voiceNoteStatus.textContent = '';
     } catch (e) {
-      voiceNoteStatus.textContent = "Couldn't transcribe just now — check your connection.";
+      voiceNoteStatus.textContent = '';
     } finally {
       voiceNoteBtn.disabled = false;
+      if (stopResolve) { const r = stopResolve; stopResolve = null; r(); }
     }
   }
 
   async function startRecording() {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    recordedChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
-      : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
-    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      handleRecordingStopped();
-    };
-    mediaRecorder.start();
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stopRequested = false;
+    chunkCount = 0;
+    chunkRecorder = null;
+    voiceSessionStartLength = bodyEl.value.length;
     isRecording = true;
     voiceNoteBtn.textContent = '⏹ Stop';
     voiceNoteBtn.classList.add('recording');
     voiceNoteStatus.textContent = 'Recording…';
+    recordOneChunk();
   }
 
+  // Returns a promise that resolves once the whole stop→transcribe-last-
+  // chunk→polish pipeline finishes, so callers that need the note's final
+  // content (closing the editor) can wait for it instead of racing it —
+  // see closeEditor(), which would otherwise persist the note BEFORE the
+  // last chunk's text ever lands, then silently drop it once it does
+  // arrive (persistOpen() no-ops once openId has already been cleared).
   function stopRecording() {
-    if (mediaRecorder && isRecording) mediaRecorder.stop();
-    isRecording = false;
-    voiceNoteBtn.textContent = '🎙️ Voice';
-    voiceNoteBtn.classList.remove('recording');
+    stopRequested = true;
+    clearTimeout(chunkTimer);
+    return new Promise((resolve) => {
+      stopResolve = resolve;
+      try { if (chunkRecorder && chunkRecorder.state === 'recording') chunkRecorder.stop(); }
+      catch (e) { stopResolve = null; resolve(); }
+    });
   }
 
   if (voiceNoteBtn) {
     voiceNoteBtn.addEventListener('click', async () => {
-      if (isRecording) { stopRecording(); return; }
+      if (isRecording) { await stopRecording(); return; }
       if (!micSupported()) { voiceNoteStatus.textContent = 'Voice recording not supported in this browser.'; return; }
       try { await startRecording(); }
       catch (e) { voiceNoteStatus.textContent = 'Microphone permission denied or unavailable.'; }
@@ -589,8 +669,11 @@ body::after {
     scheduleEmbed(notes[idx]);
   }
 
-  function closeEditor() {
-    if (isRecording) stopRecording();
+  async function closeEditor() {
+    if (isRecording) {
+      voiceNoteStatus.textContent = 'Finishing up the recording…';
+      await stopRecording();
+    }
     persistOpen();
     openId = null;
     editorView.style.display = 'none';
@@ -634,6 +717,9 @@ body::after {
     if (openId == null) return;
     const note = load().find(n => n.id === openId);
     if (!confirm('Delete "' + (note && note.title ? note.title : 'Untitled') + '"?')) return;
+    // Discard rather than wait for any in-progress recording — the note is
+    // being deleted outright, so there's nothing left to append it to.
+    if (isRecording) stopRecording();
     save(load().filter(n => n.id !== openId));
     scheduleEmbedDelete(openId);
     openId = null;
