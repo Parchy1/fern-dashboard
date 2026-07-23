@@ -6,6 +6,7 @@
 //   GOOGLE_SYNC_SECRET  (see api/google.js)
 //   NOTES_EMBED_SECRET  (see api/notes-embed.js)
 //   PLAID_SYNC_SECRET   (see api/plaid.js)
+//   YOUTUBE_LOOKUP_SECRET (see api/youtube-duration.js)
 //
 // Loaded via <script src="/api/config"></script> in the <head>
 // BEFORE sync.js / topbar.js. If the env vars aren't set (or the
@@ -30,6 +31,7 @@ export default function handler(req, res) {
   const googleSyncSecret = process.env.GOOGLE_SYNC_SECRET || '';
   const notesEmbedSecret = process.env.NOTES_EMBED_SECRET || '';
   const plaidSyncSecret = process.env.PLAID_SYNC_SECRET || '';
+  const youtubeLookupSecret = process.env.YOUTUBE_LOOKUP_SECRET || '';
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).send(
@@ -37,6 +39,7 @@ export default function handler(req, res) {
     'window.DASH_SUPABASE_KEY=' + JSON.stringify(key) + ';' +
     'window.DASH_GOOGLE_SYNC_SECRET=' + JSON.stringify(googleSyncSecret) + ';' +
     'window.DASH_NOTES_EMBED_SECRET=' + JSON.stringify(notesEmbedSecret) + ';' +
-    'window.DASH_PLAID_SYNC_SECRET=' + JSON.stringify(plaidSyncSecret) + ';'
+    'window.DASH_PLAID_SYNC_SECRET=' + JSON.stringify(plaidSyncSecret) + ';' +
+    'window.DASH_YOUTUBE_LOOKUP_SECRET=' + JSON.stringify(youtubeLookupSecret) + ';'
   );
 }

@@ -777,6 +777,32 @@ nothing new to secure.
 
 ---
 
+## 13. Auto-fill audiobook runtime from a YouTube link (optional)
+
+If you listen to audiobooks on YouTube, mark a book as an audiobook (step above), paste the
+video's link in the **Link** field, and hit **🔗 Fetch length from YouTube** — it looks up the
+real runtime instead of you finding and typing "14h 22m" by hand. It only fetches the *total*
+length; how far you've actually listened stays a manual entry, same as before, since there's no
+way to know that without watching alongside you.
+
+1. Get a **YouTube Data API v3** key: **console.cloud.google.com** → create (or pick) a project →
+   **APIs & Services → Library** → enable "YouTube Data API v3" → **Credentials** → **Create
+   Credentials → API key**. Free tier is 10,000 units/day; this lookup costs 1 unit per call, so
+   personal use never gets close.
+2. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `YOUTUBE_API_KEY` | the key from step 1 — server-side only |
+| `YOUTUBE_LOOKUP_SECRET` | any random string — abuse-prevention only, same trade-off as `NOTES_EMBED_SECRET`/`PLAID_SYNC_SECRET` (served to the browser, so not a real secret; the point is stopping a stranger from burning your API quota) |
+
+   Redeploy after adding.
+3. On **Reading**, check **🎧 This is an audiobook** on any book, paste its YouTube link in
+   **Link**, and hit **🔗 Fetch length from YouTube** (hidden entirely if the above isn't
+   configured).
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -792,4 +818,5 @@ nothing new to secure.
 10. (Optional) Semantic note search: enable pgvector + the SQL above + `OPENAI_API_KEY`/`NOTES_EMBED_SECRET` env vars, see step 10 above.
 11. (Optional) Bank auto-import: Plaid account + the `plaid_items` SQL + `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV`/`PLAID_SYNC_SECRET` env vars, see step 11 above.
 12. (Optional) Voice journaling & AI reflection in Notes: `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env vars (same ones as steps 8 & 10), see step 12 above.
-13. Change the password in `lock.js`. Done.
+13. (Optional) Auto-fill audiobook runtime from YouTube: `YOUTUBE_API_KEY`/`YOUTUBE_LOOKUP_SECRET` env vars, see step 13 above.
+14. Change the password in `lock.js`. Done.

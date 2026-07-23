@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="lock.js"></script>
+<script src="/api/config"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050506">
@@ -441,6 +442,10 @@ body::after {
               </div>
             </div>
           </div>
+          <div class="gm-input-wrap" id="ytFetchRow" style="display:none;margin-bottom:10px">
+            <button class="gm-ghost" id="ytFetchBtn" type="button">🔗 Fetch length from YouTube link</button>
+            <span class="editor-meta" id="ytFetchStatus"></span>
+          </div>
         </div>
 
         <div class="pages-progress-summary" id="pagesProgressSummary">0 / 0 pages · 0%</div>
@@ -537,6 +542,9 @@ body::after {
   const totalMinEl      = document.getElementById('editorTotalMin');
   const pagesSummaryEl  = document.getElementById('pagesProgressSummary');
   const pagesFillEl     = document.getElementById('pagesProgressFill');
+  const ytFetchRow      = document.getElementById('ytFetchRow');
+  const ytFetchBtn      = document.getElementById('ytFetchBtn');
+  const ytFetchStatus   = document.getElementById('ytFetchStatus');
   const bookChartSvg    = document.getElementById('bookChartSvg');
   const bookChartEmpty  = document.getElementById('bookChartEmpty');
   const starsEl    = document.getElementById('editorStars');
@@ -683,7 +691,48 @@ body::after {
     const isAudiobook = audiobookEl.checked;
     pagesFieldsWrap.style.display = isAudiobook ? 'none' : 'block';
     timeFieldsWrap.style.display = isAudiobook ? 'block' : 'none';
+    ytFetchRow.style.display = (isAudiobook && ytLookupConfigured()) ? 'flex' : 'none';
   }
+
+  // ---- Auto-fetch an audiobook's total runtime from a YouTube link
+  // (optional — degrades to plain manual entry if not configured) ----
+  function ytLookupConfigured() {
+    return !!(window.DASH_YOUTUBE_LOOKUP_SECRET);
+  }
+
+  ytFetchBtn.addEventListener('click', async () => {
+    const url = linkEl.value.trim();
+    if (!url) {
+      ytFetchStatus.textContent = 'Paste the YouTube link in the Link field above first.';
+      linkEl.focus();
+      return;
+    }
+    ytFetchBtn.disabled = true;
+    const origLabel = ytFetchBtn.textContent;
+    ytFetchBtn.textContent = 'Looking up…';
+    ytFetchStatus.textContent = '';
+    try {
+      const res = await fetch('/api/youtube-duration', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + window.DASH_YOUTUBE_LOOKUP_SECRET },
+        body: JSON.stringify({ url: url }),
+      });
+      const result = await res.json();
+      if (!result || !result.ok) {
+        ytFetchStatus.textContent = (result && result.error) ? result.error : "Couldn't look that up just now.";
+        return;
+      }
+      minutesToHrMin(result.minutes, totalHrEl, totalMinEl);
+      updatePagesSummary();
+      persistOpen();
+      ytFetchStatus.textContent = '✓ ' + fmtHM(result.minutes) + (result.title ? (' — ' + result.title) : '');
+    } catch (e) {
+      ytFetchStatus.textContent = "Couldn't reach the lookup just now — check your connection.";
+    } finally {
+      ytFetchBtn.disabled = false;
+      ytFetchBtn.textContent = origLabel;
+    }
+  });
 
   function updatePagesSummary() {
     if (audiobookEl.checked) {
