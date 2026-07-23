@@ -208,6 +208,24 @@ body::after {
 }
 .editor-meta { font-size: 11px; color: var(--text-tertiary); }
 
+.editor-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.editor-toolbar .gm-ghost.recording { border-color: var(--danger); color: var(--danger); }
+.reflect-box {
+  position: relative; margin-top: 12px; padding: 14px 30px 14px 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px; background: rgba(255,255,255,0.03);
+  font-size: 13px; line-height: 1.6; color: var(--text-primary);
+}
+.reflect-box-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-tertiary); margin-bottom: 6px;
+}
+.reflect-box-close {
+  position: absolute; top: 8px; right: 10px; border: 0; background: transparent;
+  color: var(--text-tertiary); font-size: 16px; line-height: 1; cursor: pointer; padding: 4px;
+}
+.reflect-box-close:hover { color: var(--text-primary); }
+
 @media (max-width: 480px) {
   body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
   .gm-card { padding: 16px; }
@@ -239,7 +257,13 @@ body::after {
     <div class="section-title">Edit Note</div>
     <div class="gm-card">
       <input class="editor-title" id="editorTitle" type="text" placeholder="Title" autocomplete="off">
+      <div class="editor-toolbar" id="editorToolbar" style="display:none">
+        <button class="gm-ghost" id="voiceNoteBtn" type="button" title="Speak a note — transcribed and cleaned up automatically">🎙️ Voice</button>
+        <button class="gm-ghost" id="reflectBtn" type="button" title="Get a short, on-demand reflection on this note">💭 Reflect</button>
+        <span class="editor-meta" id="voiceNoteStatus"></span>
+      </div>
       <textarea class="editor-body" id="editorBody" placeholder="Write something…"></textarea>
+      <div class="reflect-box" id="reflectBox" style="display:none"></div>
       <div class="editor-actions">
         <span class="editor-meta" id="editorMeta"></span>
         <div style="display:flex;gap:8px">
@@ -271,6 +295,11 @@ body::after {
   const backBtn     = document.getElementById('editorBackBtn');
   const semanticBtn    = document.getElementById('notesSemanticBtn');
   const semanticStatus = document.getElementById('notesSemanticStatus');
+  const editorToolbar  = document.getElementById('editorToolbar');
+  const voiceNoteBtn   = document.getElementById('voiceNoteBtn');
+  const voiceNoteStatus = document.getElementById('voiceNoteStatus');
+  const reflectBtn     = document.getElementById('reflectBtn');
+  const reflectBox     = document.getElementById('reflectBox');
 
   // ---- Semantic search (optional — degrades silently if not configured) ----
   // Note CONTENT never leaves localStorage/the normal sync row for this;
@@ -305,6 +334,145 @@ body::after {
   function scheduleEmbedDelete(noteId) {
     if (!notesEmbedConfigured()) return;
     notesEmbedCall('delete', { noteId: noteId }).catch(() => {});
+  }
+
+  // ---- Voice journaling + on-demand reflection (optional — same secret/config
+  // gate as semantic search, since api/notes-ai.js shares NOTES_EMBED_SECRET
+  // rather than needing its own) ----
+  async function notesAiCall(action, payload) {
+    if (!notesEmbedConfigured()) return null;
+    try {
+      const res = await fetch('/api/notes-ai', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + window.DASH_NOTES_EMBED_SECRET },
+        body: JSON.stringify(Object.assign({ action: action }, payload)),
+      });
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function micSupported() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  }
+
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let isRecording = false;
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result || '';
+        const comma = result.indexOf(',');
+        resolve(comma === -1 ? '' : result.slice(comma + 1));
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Transcribe (Whisper) then rewrite into clean prose (Claude) happen
+  // server-side in one round trip — see api/notes-ai.js's 'voice-note'
+  // action — so this just appends whatever text comes back onto the note.
+  async function handleRecordingStopped() {
+    if (!recordedChunks.length) { voiceNoteStatus.textContent = ''; return; }
+    const mimeType = recordedChunks[0].type || 'audio/webm';
+    const blob = new Blob(recordedChunks, { type: mimeType });
+    recordedChunks = [];
+    voiceNoteBtn.disabled = true;
+    voiceNoteStatus.textContent = 'Transcribing…';
+    try {
+      const audioBase64 = await blobToBase64(blob);
+      const result = await notesAiCall('voice-note', { audioBase64: audioBase64, mimeType: mimeType });
+      if (!result || !result.ok) {
+        voiceNoteStatus.textContent = (result && result.error) ? result.error : "Couldn't transcribe just now.";
+        return;
+      }
+      const text = (result.polished || result.transcript || '').trim();
+      if (!text) {
+        voiceNoteStatus.textContent = "Didn't catch anything — try again.";
+        return;
+      }
+      bodyEl.value = bodyEl.value.trim() ? bodyEl.value.replace(/\s+$/, '') + '\n\n' + text : text;
+      scheduleAutosave();
+      voiceNoteStatus.textContent = '';
+    } catch (e) {
+      voiceNoteStatus.textContent = "Couldn't transcribe just now — check your connection.";
+    } finally {
+      voiceNoteBtn.disabled = false;
+    }
+  }
+
+  async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      handleRecordingStopped();
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    voiceNoteBtn.textContent = '⏹ Stop';
+    voiceNoteBtn.classList.add('recording');
+    voiceNoteStatus.textContent = 'Recording…';
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && isRecording) mediaRecorder.stop();
+    isRecording = false;
+    voiceNoteBtn.textContent = '🎙️ Voice';
+    voiceNoteBtn.classList.remove('recording');
+  }
+
+  if (voiceNoteBtn) {
+    voiceNoteBtn.addEventListener('click', async () => {
+      if (isRecording) { stopRecording(); return; }
+      if (!micSupported()) { voiceNoteStatus.textContent = 'Voice recording not supported in this browser.'; return; }
+      try { await startRecording(); }
+      catch (e) { voiceNoteStatus.textContent = 'Microphone permission denied or unavailable.'; }
+    });
+  }
+
+  function renderReflection(text) {
+    reflectBox.innerHTML = '';
+    const close = document.createElement('button');
+    close.className = 'reflect-box-close';
+    close.type = 'button';
+    close.textContent = '×';
+    close.addEventListener('click', () => { reflectBox.style.display = 'none'; });
+    const label = document.createElement('div');
+    label.className = 'reflect-box-label';
+    label.textContent = '💭 Reflection';
+    const body = document.createElement('div');
+    body.textContent = text;
+    reflectBox.append(close, label, body);
+    reflectBox.style.display = 'block';
+  }
+
+  if (reflectBtn) {
+    reflectBtn.addEventListener('click', async () => {
+      const text = bodyEl.value.trim();
+      if (!text) { bodyEl.focus(); return; }
+      reflectBtn.disabled = true;
+      const origLabel = reflectBtn.textContent;
+      reflectBtn.textContent = 'Reflecting…';
+      reflectBox.style.display = 'none';
+      const result = await notesAiCall('reflect', { text: text });
+      reflectBtn.disabled = false;
+      reflectBtn.textContent = origLabel;
+      if (!result || !result.ok) {
+        renderReflection((result && result.error) ? result.error : "Couldn't get a reflection just now — check your connection.");
+        return;
+      }
+      renderReflection(result.reflection);
+    });
   }
 
   let openId = null;
@@ -393,6 +561,8 @@ body::after {
     titleEl.value = note.title || '';
     bodyEl.value = note.body || '';
     metaEl.textContent = 'Last edited ' + fmtTime(note.updatedAt);
+    voiceNoteStatus.textContent = '';
+    reflectBox.style.display = 'none';
     listView.style.display = 'none';
     editorView.style.display = 'block';
     titleEl.focus();
@@ -420,6 +590,7 @@ body::after {
   }
 
   function closeEditor() {
+    if (isRecording) stopRecording();
     persistOpen();
     openId = null;
     editorView.style.display = 'none';
@@ -478,6 +649,9 @@ body::after {
     semanticStatus.style.display = 'none';
     render();
   });
+
+  if (editorToolbar && notesEmbedConfigured()) editorToolbar.style.display = 'flex';
+  if (voiceNoteBtn && !micSupported()) voiceNoteBtn.style.display = 'none';
 
   if (semanticBtn) {
     if (!notesEmbedConfigured()) {

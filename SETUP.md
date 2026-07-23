@@ -724,6 +724,43 @@ automatic.
 
 ---
 
+## 12. Voice journaling & AI reflection in Notes (optional)
+
+Two more optional Notes features, both gated behind the same `NOTES_EMBED_SECRET` as semantic
+search above — if that's already set up, these just need the API keys below and a redeploy,
+nothing new to secure.
+
+- **🎙️ Voice** — tap it in the note editor, speak, tap again to stop. Your speech is
+  transcribed (Whisper) and immediately rewritten into clean prose in your own voice (Claude) —
+  fixing filler words and run-ons, not summarizing or changing what you said — then dropped
+  straight into the note. Meant to make actually journaling regularly less friction than typing.
+- **💭 Reflect** — on demand, never automatic. Tap it on any note and the assistant reads what
+  you wrote plus real context from the rest of your dashboard (the same data the Telegram
+  assistant sees — to-dos, gym, finances, health, etc.) and responds with a short, genuine
+  reflection, not generic encouragement. It's deliberately not a therapist and won't diagnose —
+  for anything that sounds like real crisis, it'll gently point toward a real person or a crisis
+  line (988 in the US) alongside whatever else it says, without making that the whole response
+  for an ordinary tough day.
+
+1. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `OPENAI_API_KEY` | same key as semantic search (step 10) — powers the Whisper transcription |
+| `ANTHROPIC_API_KEY` | same key as the Telegram Assistant (step 8) — powers both the writing polish and the reflection |
+
+   `NOTES_EMBED_SECRET` is the same one from step 10 — nothing new there if that's set up.
+   Redeploy after adding.
+2. Open **Notes** → open (or start) any note — **🎙️ Voice** and **💭 Reflect** appear above the
+   text box (hidden entirely if the above isn't configured). The mic button also hides itself on
+   a browser without microphone/recording support.
+
+> Note content for both of these is sent to OpenAI (for transcription) and/or Anthropic (for the
+> polish/reflection) at the moment you use them — same trust model as the rest of this app's AI
+> features (the Telegram assistant, the Gmail receipt scanner), not a new one.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -738,4 +775,5 @@ automatic.
 9. (Optional) Voice/location Shortcuts: `SHORTCUTS_WEBHOOK_SECRET` env var + iOS Shortcuts, see step 9 above.
 10. (Optional) Semantic note search: enable pgvector + the SQL above + `OPENAI_API_KEY`/`NOTES_EMBED_SECRET` env vars, see step 10 above.
 11. (Optional) Bank auto-import: Plaid account + the `plaid_items` SQL + `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV`/`PLAID_SYNC_SECRET` env vars, see step 11 above.
-12. Change the password in `lock.js`. Done.
+12. (Optional) Voice journaling & AI reflection in Notes: `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env vars (same ones as steps 8 & 10), see step 12 above.
+13. Change the password in `lock.js`. Done.
