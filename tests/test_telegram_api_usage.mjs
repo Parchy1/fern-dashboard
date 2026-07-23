@@ -211,6 +211,87 @@ function makeFakeSupabase(seed) {
     delete process.env.ANTHROPIC_OUTPUT_PRICE_PER_MTOK;
   }
 
+  // ==================== prompt-cache tokens are tracked and priced separately from plain input tokens ====================
+  {
+    const rows = { goals: {} };
+    global.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('/rest/v1/app_state')) {
+        if (!opts || !opts.method) {
+          const key = decodeURIComponent(u.match(/key=eq\.([^&]+)/)[1]);
+          return { ok: true, json: async () => [{ data: rows[key] || {} }] };
+        }
+        const body = JSON.parse(opts.body);
+        rows[body.key] = body.data;
+        return { ok: true, json: async () => ({}) };
+      }
+      if (u.includes('api.anthropic.com')) {
+        const sentBody = JSON.parse(opts.body);
+        assertTrue(Array.isArray(sentBody.system), 'the system prompt is sent as blocks, not one concatenated string');
+        assertTrue(sentBody.system[0].cache_control && sentBody.system[0].cache_control.type === 'ephemeral', 'the static SYS block carries a cache_control marker');
+        assertTrue(!sentBody.system[1].cache_control, 'the dynamic dashboard-data block is NOT marked for caching (it changes every call)');
+        assertTrue(sentBody.tools[sentBody.tools.length - 1].cache_control && sentBody.tools[sentBody.tools.length - 1].cache_control.type === 'ephemeral', 'the tools schema carries a cache_control marker on its last entry');
+        assertEq(sentBody.model, 'claude-haiku-4-5-20251001', 'the Telegram assistant calls the cheaper Haiku model, not Sonnet');
+        return {
+          ok: true,
+          json: async () => ({
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 50, output_tokens: 100, cache_creation_input_tokens: 8_600, cache_read_input_tokens: 0 },
+            content: [{ type: 'text', text: 'Hey there.' }],
+          }),
+        };
+      }
+      if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true }) };
+      throw new Error('unexpected fetch: ' + u);
+    };
+    const res = mockRes();
+    await handler({ method: 'POST', headers, body: { message: { chat: { id: 555 }, text: 'first message, cold cache' } } }, res);
+    assertEq(res._status, 200, 'the exchange succeeds');
+    const usageRow = rows['telegram-usage'];
+    assertEq(usageRow.totalCacheWriteTokens, 8_600, 'cache-write tokens (a cold cache) are recorded separately from plain input tokens');
+    assertEq(usageRow.totalCacheReadTokens, 0, 'no cache-read tokens yet on a cold cache');
+    const context = await buildContext();
+    // 50 in * $3/MTok + 100 out * $15/MTok + 8600 cache-write * ($3 * 1.25)/MTok
+    // = 0.00015 + 0.0015 + 0.03225 = 0.0339 -> rounds to 0.03
+    assertEq(context.apiUsage.today.estimatedCostUSD, 0.03, 'a cache WRITE is costed at a premium over plain input tokens, not ignored or treated as free');
+  }
+
+  // ==================== a warm cache read is billed at a steep discount, not the full input rate ====================
+  {
+    const rows = { goals: {}, 'telegram-usage': { byDate: {}, totalInputTokens: 0, totalOutputTokens: 0, totalCacheWriteTokens: 0, totalCacheReadTokens: 0, totalCalls: 0 } };
+    global.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('/rest/v1/app_state')) {
+        if (!opts || !opts.method) {
+          const key = decodeURIComponent(u.match(/key=eq\.([^&]+)/)[1]);
+          return { ok: true, json: async () => [{ data: rows[key] || {} }] };
+        }
+        const body = JSON.parse(opts.body);
+        rows[body.key] = body.data;
+        return { ok: true, json: async () => ({}) };
+      }
+      if (u.includes('api.anthropic.com')) {
+        return {
+          ok: true,
+          json: async () => ({
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 50, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 8_600 },
+            content: [{ type: 'text', text: 'Hey again.' }],
+          }),
+        };
+      }
+      if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true }) };
+      throw new Error('unexpected fetch: ' + u);
+    };
+    const res = mockRes();
+    await handler({ method: 'POST', headers, body: { message: { chat: { id: 555 }, text: 'second message, warm cache' } } }, res);
+    assertEq(res._status, 200, 'the exchange succeeds');
+    const context = await buildContext();
+    // 50 in * $3/MTok + 100 out * $15/MTok + 8600 cache-read * ($3 * 0.1)/MTok
+    // = 0.00015 + 0.0015 + 0.00258 = 0.00423 -> rounds to 0.0
+    assertEq(context.apiUsage.today.estimatedCostUSD, 0, 'a cache READ is billed at a steep discount, so a warm-cache exchange costs a fraction of a cold one');
+  }
+
   global.fetch = origFetch;
   console.log('\n---', pass, 'passed,', fail, 'failed ---');
   process.exit(fail > 0 ? 1 : 0);

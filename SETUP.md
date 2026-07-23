@@ -496,6 +496,20 @@ assistant"** steps further down, after the core setup below.
 > per million tokens), not a real invoice figure — Anthropic's actual pricing can change and this
 > has no way to know that on its own, so update those env vars if it drifts. Check
 > **console.anthropic.com**'s usage dashboard for the authoritative number.
+>
+> The assistant runs on **Claude Haiku** rather than a larger model, specifically because this
+> whole loop is mostly structured tool-calling (pick the right tool, fill in the right fields)
+> rather than deep reasoning — Haiku handles that well for a fraction of the cost. The
+> $3/$15-per-MTok defaults above were originally calibrated for a pricier model; if you want the
+> self-reported estimate to stay accurate, update those two env vars to Haiku's actual current
+> rate from **anthropic.com/pricing**.
+>
+> It also uses **prompt caching**: the tool schema and instructions (a few thousand tokens, and
+> identical on every single message) are marked as a cache breakpoint, so a call within a few
+> minutes of the last one re-reads that part from cache at a steep discount instead of paying
+> full price for it again. The usage tracker above accounts for this correctly — cache writes and
+> cache reads are priced differently from a plain input token, not lumped in as if they were the
+> same thing.
 
 ### Connect Google to the assistant (optional, needs step 5 done first)
 

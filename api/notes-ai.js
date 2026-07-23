@@ -77,7 +77,12 @@ async function polishTranscript(apiKey, rawText) {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-sonnet-5',
+      // Haiku, not Sonnet — this is a mechanical rewrite (fix filler words,
+      // keep the meaning) with no real judgment call in it, and it runs
+      // once per recording session, so it's a cheap place to save cost
+      // without touching output quality. reflectOnNote below stays on
+      // Sonnet — it's rare (on-demand only) and the tone genuinely matters.
+      model: 'claude-haiku-4-5-20251001',
       // Generous on purpose — a long journal entry can run well past a
       // thousand words, and a truncated rewrite (this used to be capped at
       // 1024 tokens, well under that) is worse than not polishing at all.
