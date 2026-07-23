@@ -1,4 +1,4 @@
-import handler, { mapPlaidTransaction } from '../api/plaid-sync-transactions.js';
+import handler, { mapPlaidTransaction } from '../api/plaid.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -61,7 +61,7 @@ function mockRes() {
   // ---- auth ----
   {
     const res = mockRes();
-    await handler({ method: 'POST', headers: {} }, res);
+    await handler({ method: 'POST', headers: {}, query: { action: 'sync-transactions' } }, res);
     assertEq(res._status, 401, 'missing auth is 401');
   }
 
@@ -72,7 +72,7 @@ function mockRes() {
       throw new Error('unexpected fetch: ' + url);
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'sync-transactions' } }, res);
     assertEq(res._status, 200, 'no connection yet still responds 200');
     assertEq(res._body, { ok: false, error: 'no bank connected yet' }, 'a clear "not connected" message is returned rather than a Plaid API error');
   }
@@ -106,7 +106,7 @@ function mockRes() {
       throw new Error('unexpected fetch: ' + u);
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'sync-transactions' } }, res);
     assertEq(res._status, 200, 'a valid sync returns 200');
     assertEq(syncBody.cursor, 'old-cursor', 'the PREVIOUSLY stored cursor is sent to Plaid, so only genuinely new transactions come back');
     assertEq(res._body.suggestions.length, 1, 'only the one real (positive-amount) purchase is returned as a suggestion, the refund is filtered out');
@@ -134,7 +134,7 @@ function mockRes() {
       throw new Error('unexpected fetch: ' + u);
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'sync-transactions' } }, res);
     assertEq(syncCallCount, 2, 'the sync loop makes a second call when has_more is true on the first page');
     assertEq(res._body.suggestions.length, 2, 'transactions from BOTH pages are combined into the final suggestions list');
   }

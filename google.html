@@ -185,7 +185,7 @@ body {
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
   // Also pushes the fresh token to the server (best-effort, never blocks
   // or throws) so the Telegram assistant — which runs with no browser
-  // involved — has a copy to work with. See api/google-token-sync.js for
+  // involved — has a copy to work with. See api/google.js for
   // where this lands and why it's a separate, locked-down table rather
   // than the shared app_state one everything else syncs through.
   function save(t) {

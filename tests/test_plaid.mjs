@@ -1,4 +1,4 @@
-import handler from '../api/plaid-link-token.js';
+import handler from '../api/plaid.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -34,10 +34,10 @@ function mockRes() {
     await handler({ method: 'GET', headers: {} }, res2);
     assertEq(res2._status, 405, 'GET is rejected with 405');
     const res3 = mockRes();
-    await handler({ method: 'POST', headers: {} }, res3);
+    await handler({ method: 'POST', headers: {}, query: { action: 'link-token' } }, res3);
     assertEq(res3._status, 401, 'missing Authorization header is 401');
     const res4 = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer wrong' } }, res4);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer wrong' }, query: { action: 'link-token' } }, res4);
     assertEq(res4._status, 401, 'wrong bearer secret is 401');
   }
 
@@ -45,7 +45,7 @@ function mockRes() {
   {
     delete process.env.PLAID_CLIENT_ID;
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'link-token' } }, res);
     assertEq(res._status, 500, 'missing PLAID_CLIENT_ID is a 500');
     process.env.PLAID_CLIENT_ID = 'client123';
   }
@@ -60,7 +60,7 @@ function mockRes() {
       return { ok: true, json: async () => ({ link_token: 'link-sandbox-token-1', expiration: '2026-01-01T00:00:00Z' }) };
     };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'link-token' } }, res);
     assertEq(res._status, 200, 'a valid request returns 200');
     assertEq(res._body, { ok: true, linkToken: 'link-sandbox-token-1' }, 'the link token is returned under linkToken');
     assertTrue(seenUrl.includes('sandbox.plaid.com'), 'defaults to the Plaid SANDBOX host when PLAID_ENV is unset: ' + seenUrl);
@@ -74,7 +74,7 @@ function mockRes() {
     let seenUrl = null;
     global.fetch = async (url) => { seenUrl = String(url); return { ok: true, json: async () => ({ link_token: 'lt' }) }; };
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'link-token' } }, res);
     assertTrue(seenUrl.includes('production.plaid.com'), 'PLAID_ENV=production routes to the production Plaid host: ' + seenUrl);
     delete process.env.PLAID_ENV;
   }
@@ -83,7 +83,7 @@ function mockRes() {
   {
     global.fetch = async () => ({ ok: false, json: async () => ({ error_message: 'invalid client_id' }) });
     const res = mockRes();
-    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' } }, res);
+    await handler({ method: 'POST', headers: { authorization: 'Bearer shh-plaid-secret' }, query: { action: 'link-token' } }, res);
     assertEq(res._status, 200, 'a Plaid-side error still responds 200 (not a hard failure)');
     assertEq(res._body, { ok: false, error: 'invalid client_id' }, 'the Plaid error message is surfaced');
   }

@@ -17,7 +17,7 @@
 // and passes vectors back and forth, it never sees or reorders note
 // content itself.
 //
-// Like google-token-sync.js's GOOGLE_SYNC_SECRET, NOTES_EMBED_SECRET is
+// Like google.js's GOOGLE_SYNC_SECRET, NOTES_EMBED_SECRET is
 // abuse-prevention only (it's served to the browser via /api/config, so it
 // isn't a real secret once shipped) — it exists so a stranger who finds
 // this URL can't rack up your OpenAI bill, not to protect confidentiality.
