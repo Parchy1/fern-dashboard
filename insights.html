@@ -58,6 +58,20 @@
 .skip-row:last-child { margin-bottom: 0; }
 .skip-name { color: var(--text-primary); font-weight: 600; }
 .skip-rate { color: var(--text-tertiary); font-size: 12.5px; }
+
+.mode-badge {
+  display: inline-block; padding: 4px 12px; border-radius: 999px;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+}
+.mode-redline { background: rgba(255,84,112,0.14); color: #FF5470; }
+.mode-recovery { background: rgba(94,234,212,0.14); color: #5EEAD4; }
+.mode-beast { background: rgba(251,191,36,0.14); color: #FBBF24; }
+.mode-steady { background: rgba(var(--hud-rgb), 0.14); color: var(--hud); }
+.mode-bar-row { margin-bottom: 10px; }
+.mode-bar-row:last-child { margin-bottom: 0; }
+.mode-bar-label { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; }
+.mode-bar-track { height: 8px; border-radius: 4px; background: rgba(var(--hud-rgb), 0.08); overflow: hidden; }
+.mode-bar-fill { height: 100%; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -80,6 +94,16 @@
     <div class="gm-card">
       <ul class="pattern-list" id="patternList"></ul>
       <div class="empty-state" id="patternEmpty" style="display:none">Not enough history yet to spot a real pattern — check back after a few more weeks of logging.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Mode Breakdown</div>
+    <div class="gm-card" id="currentModeCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+    <div class="gm-card" id="modeBreakdownCard">
+      <div class="pe-empty">Gathering data…</div>
     </div>
   </div>
 
@@ -531,12 +555,85 @@
       .sort((a, b) => a.rate - b.rate);
   }
 
+  // ============================================================
+  // Mode Breakdown (Alter Ego system) — passively inferred, never
+  // self-tagged. The original idea was for the user to manually log
+  // "which mode am I in right now"; that gets abandoned in practice, so
+  // instead each day is classified from signals ALREADY logged elsewhere:
+  // sleep quality, stress/feeling check-ins, workouts, habit/to-do
+  // completion. Classification is mutually exclusive with a fixed
+  // priority order so every day lands in exactly one mode:
+  //   1. Redline  — poor sleep or high stress: a day that needs recovery,
+  //      checked first since it overrides everything else.
+  //   2. Recovery — a workout day without also being flagged Redline.
+  //   3. Beast    — high habit/to-do completion with no rough signal.
+  //   4. Steady   — the default when nothing stands out either way.
+  // ============================================================
+
+  const MODE_LABELS = {
+    redline: 'Redline Mode',
+    recovery: 'Recovery Mode',
+    beast: 'Beast Mode',
+    steady: 'Steady Mode',
+  };
+  const MODE_DESCRIPTIONS = {
+    redline: 'Poor sleep or high stress — a day that called for easing off, not pushing through.',
+    recovery: 'A workout day without a rough sleep/stress signal — actively investing in recovery.',
+    beast: 'High habit/to-do completion with nothing dragging on you — a high-output day.',
+    steady: 'No signal strong enough to stand out either way — an ordinary day.',
+  };
+
+  // A day only counts toward the breakdown if it has SOME real signal —
+  // otherwise a fully-unlogged day would silently pad the "Steady" bucket
+  // (factors.workoutDone defaults to false, not null, on days with zero
+  // gym data at all, so it alone can't tell a real rest day from no data).
+  function dayHasModeSignal(dayRow) {
+    return dayRow.sleepQuality != null || dayRow.outcomeStress != null || dayRow.outcomeFeeling != null
+      || dayRow.habitRate != null || dayRow.todoRate != null || !!dayRow.factors.workoutDone;
+  }
+
+  function classifyDayMode(dayRow) {
+    if ((dayRow.sleepQuality != null && dayRow.sleepQuality <= 2) || (dayRow.outcomeStress != null && dayRow.outcomeStress >= 4)) {
+      return 'redline';
+    }
+    if (dayRow.factors.workoutDone) return 'recovery';
+    if ((dayRow.habitRate != null && dayRow.habitRate >= 0.8) || (dayRow.todoRate != null && dayRow.todoRate >= 0.8)) {
+      return 'beast';
+    }
+    return 'steady';
+  }
+
+  function computeModeBreakdown(dayRows) {
+    const counts = { redline: 0, recovery: 0, beast: 0, steady: 0 };
+    let total = 0;
+    (dayRows || []).forEach(r => {
+      if (!dayHasModeSignal(r)) return;
+      counts[classifyDayMode(r)]++;
+      total++;
+    });
+    if (!total) return null;
+    const rates = {};
+    Object.keys(counts).forEach(k => { rates[k] = counts[k] / total; });
+    return { counts, rates, total };
+  }
+
+  // dayRows must be most-recent-first — returns the mode of the most
+  // recent day that actually has a real signal to classify.
+  function computeCurrentMode(dayRows) {
+    for (let i = 0; i < (dayRows || []).length; i++) {
+      if (dayHasModeSignal(dayRows[i])) return classifyDayMode(dayRows[i]);
+    }
+    return null;
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
     computeTimeToGoal, computeDrift, computeOverallAdherence, computeAdherenceTrend, computeHabitAdherence,
+    classifyDayMode, computeModeBreakdown, computeCurrentMode,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
     WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
+    MODE_LABELS,
   };
 
   // ---- Rendering ----
@@ -589,6 +686,35 @@
       li.innerHTML = '<span class="pattern-icon">📉</span><span>Bad days tend to follow: <b>' + FACTOR_LABELS[e.factorKey] + '</b> — ' + describeEffect(e) + '</span>';
       listEl.appendChild(li);
     });
+  }
+
+  const MODE_BAR_COLORS = { redline: '#FF5470', recovery: '#5EEAD4', beast: '#FBBF24', steady: 'var(--hud)' };
+
+  function renderCurrentMode(dayRows) {
+    const el = document.getElementById('currentModeCard');
+    const mode = computeCurrentMode(dayRows);
+    if (!mode) {
+      el.innerHTML = '<div class="pe-empty">Not enough recent data logged to infer today\'s mode.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="pe-headline">Right now: <span class="mode-badge mode-' + mode + '">' + MODE_LABELS[mode]
+      + '</span></div><div class="pe-detail">' + MODE_DESCRIPTIONS[mode] + '</div>';
+  }
+
+  function renderModeBreakdown(dayRows) {
+    const el = document.getElementById('modeBreakdownCard');
+    const breakdown = computeModeBreakdown(dayRows);
+    if (!breakdown) {
+      el.innerHTML = '<div class="pe-empty">Not enough logged history yet to break down your modes.</div>';
+      return;
+    }
+    const order = ['beast', 'recovery', 'steady', 'redline'];
+    const bars = order.map(k => {
+      const pct = Math.round(breakdown.rates[k] * 100);
+      return '<div class="mode-bar-row"><div class="mode-bar-label"><span>' + MODE_LABELS[k] + '</span><span>' + pct + '%</span></div>'
+        + '<div class="mode-bar-track"><div class="mode-bar-fill" style="width:' + pct + '%;background:' + MODE_BAR_COLORS[k] + '"></div></div></div>';
+    }).join('');
+    el.innerHTML = '<div class="pe-headline">Over the last ' + breakdown.total + ' logged days</div>' + bars;
   }
 
   function renderWeightProjection(rowsByKey) {
@@ -818,6 +944,8 @@
       const dayRows = buildDayRows(rowsByKey, dateKeys);
       renderLimiter(dayRows);
       renderPatterns(dayRows);
+      renderCurrentMode(dayRows);
+      renderModeBreakdown(dayRows);
       renderWeightProjection(rowsByKey);
       renderSleepDebt(dayRows);
       renderBurnoutRisk(dayRows);

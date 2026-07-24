@@ -946,6 +946,18 @@ adherence % blending habit and to-do completion, whether that's trending up or d
 two weeks vs. before, and which specific habits get skipped most often so it's not just an
 abstract percentage.
 
+A **Mode Breakdown** ("Alter Ego" system) passively classifies each logged day into one of four
+modes — no manual tagging, ever. It's inferred entirely from data already logged elsewhere:
+
+- **Redline Mode** — poor sleep (2/5 or below) or high stress (4/5+): a day that called for easing
+  off, checked first since it overrides everything else.
+- **Recovery Mode** — a logged workout day without also being Redline.
+- **Beast Mode** — high habit or to-do completion (80%+) with nothing rough going on.
+- **Steady Mode** — the default when nothing stands out either way.
+
+Shows your inferred mode right now plus a breakdown of the last 60 logged days across all four —
+days with zero real data logged at all are excluded rather than padding the Steady count.
+
 This page is being built out further with more sections — check back as those land.
 
 ---
