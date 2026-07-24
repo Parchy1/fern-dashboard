@@ -219,6 +219,38 @@ function computeTimeToGoal(trend, targetValue) {
   assertEq(risk4.level, 'Unknown', 'insufficient data reports an Unknown level rather than guessing Low');
 }
 
+const DRIFT_RECENT_DAYS = 14;
+const DRIFT_BASELINE_DAYS = 60;
+const DRIFT_MIN_SAMPLES = 7;
+const DRIFT_RELATIVE_DROP = 0.25;
+const DRIFT_MIN_METRICS = 2;
+
+const DRIFT_METRICS = [
+  { field: 'workoutDone', get: r => r.factors.workoutDone ? 1 : 0, phrase: (r, b) => 'workouts (' + Math.round(r * 100) + '% of days vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'habitRate', get: r => r.habitRate, phrase: (r, b) => 'habit completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'todoRate', get: r => r.todoRate, phrase: (r, b) => 'to-do completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'sleepQuality', get: r => r.sleepQuality, phrase: (r, b) => 'sleep quality (' + r.toFixed(1) + '/5 vs ' + b.toFixed(1) + '/5 before)' },
+];
+
+function computeDrift(dayRows) {
+  const recent = dayRows.slice(0, DRIFT_RECENT_DAYS);
+  const baseline = dayRows.slice(DRIFT_RECENT_DAYS, DRIFT_BASELINE_DAYS);
+  const drifted = [];
+  DRIFT_METRICS.forEach(m => {
+    const recentVals = recent.map(m.get).filter(v => v != null);
+    const baselineVals = baseline.map(m.get).filter(v => v != null);
+    if (recentVals.length < DRIFT_MIN_SAMPLES || baselineVals.length < DRIFT_MIN_SAMPLES) return;
+    const recentAvg = avg(recentVals), baselineAvg = avg(baselineVals);
+    if (!(baselineAvg > 0)) return;
+    const relDrop = (baselineAvg - recentAvg) / baselineAvg;
+    if (relDrop >= DRIFT_RELATIVE_DROP) {
+      drifted.push({ field: m.field, recentAvg, baselineAvg, relDrop, phrase: m.phrase(recentAvg, baselineAvg) });
+    }
+  });
+  drifted.sort((a, b) => b.relDrop - a.relDrop);
+  return drifted;
+}
+
 // ==================== computeTimeToGoal ====================
 {
   const risingTrend = { slopePerDay: 10, currentEstimate: 1000 };
@@ -241,6 +273,56 @@ function computeTimeToGoal(trend, targetValue) {
 
   assertEq(computeTimeToGoal(null, 100), null, 'no trend at all returns null rather than a fake result');
   assertEq(computeTimeToGoal(risingTrend, null), null, 'no target value returns null');
+}
+
+// ==================== computeDrift ====================
+{
+  function mkRow(workoutDone, habitRate, sleepQuality) {
+    return { factors: { workoutDone }, habitRate, todoRate: null, sleepQuality };
+  }
+
+  // A real drift: workouts and habit completion both stop in the most recent 14 days,
+  // after 46 days of consistent baseline (index 14..59).
+  {
+    const dayRows = [];
+    for (let i = 0; i < 14; i++) dayRows.push(mkRow(false, 0, null));
+    for (let i = 14; i < 60; i++) dayRows.push(mkRow(true, 1, null));
+    const drifted = computeDrift(dayRows);
+    assertTrue(drifted.length >= 2, 'both workouts and habit completion are flagged as drifted');
+    assertTrue(drifted.some(d => d.field === 'workoutDone'), 'workout rate is one of the drifted metrics');
+    assertTrue(drifted.some(d => d.field === 'habitRate'), 'habit rate is one of the drifted metrics');
+  }
+
+  // No drift: recent matches baseline throughout.
+  {
+    const dayRows = [];
+    for (let i = 0; i < 60; i++) dayRows.push(mkRow(true, 1, 4));
+    assertEq(computeDrift(dayRows).length, 0, 'no metrics are flagged when recent matches baseline');
+  }
+
+  // Only one metric drifting is reported, but that alone isn't a full "drift" (DRIFT_MIN_METRICS check
+  // belongs to the caller, computeDriftInsight-equivalent — this just verifies computeDrift's own count).
+  {
+    const dayRows = [];
+    for (let i = 0; i < 14; i++) dayRows.push(mkRow(false, 1, null)); // only workouts drop
+    for (let i = 14; i < 60; i++) dayRows.push(mkRow(true, 1, null));
+    const drifted = computeDrift(dayRows);
+    assertEq(drifted.length, 1, 'only the workout metric alone is flagged as drifted');
+    assertTrue(drifted.length < DRIFT_MIN_METRICS, 'a single drifted metric is below the multi-metric threshold used for a real alert');
+  }
+
+  // Too few samples on one side excludes a nullable metric rather than guessing
+  // (workoutDone is never null itself, so this exercises habitRate/sleepQuality instead).
+  {
+    const dayRows = [];
+    for (let i = 0; i < 60; i++) dayRows.push(mkRow(true, null, null));
+    // Only 2 of the 14 recent days have a real habitRate logged — below DRIFT_MIN_SAMPLES.
+    dayRows[0].habitRate = 0.1;
+    dayRows[1].habitRate = 0.1;
+    for (let i = 14; i < 60; i++) dayRows[i].habitRate = 1;
+    const drifted = computeDrift(dayRows);
+    assertTrue(!drifted.some(d => d.field === 'habitRate'), 'habitRate is excluded when the recent window has too few real data points, even though the baseline is well-sampled');
+  }
 }
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');

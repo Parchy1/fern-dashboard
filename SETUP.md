@@ -271,6 +271,11 @@ a passive readout. Needs nothing extra to set up (same Peak/Caffeine/Gym data al
 it only shows up once there's at least 5 days of history on both sides of the comparison, and
 picks at most one line so it doesn't turn into a stats dump.
 
+It can also add a 🌊 line when Insights' drift detection fires — the last 14 days have slipped
+from your last couple months' baseline across at least two of workouts/habits/to-dos/sleep
+quality. Same data, no extra setup; computed inline during the same briefing check, no additional
+Supabase reads.
+
 **A separate "haven't heard from you" nudge** fires once nothing in the dashboard has changed for
 `INACTIVITY_NUDGE_DAYS` days (default 3) — a quiet "no pressure, just checking in" message, not a
 guilt trip. It looks across every synced domain, not just to-dos, so it stays accurate without
@@ -927,8 +932,15 @@ weight from Gym's weigh-ins) to project when you'd hit it at the current rate, a
 the goal is above or below your current value (gaining vs. losing, saving vs. paying down).
 Goals sync across devices the same way everything else here does.
 
-This page is being built out further with more sections (drift detection, and more) — check back
-as those land.
+A **Drift Detection** card is a longer-horizon companion to Burnout Risk above: instead of "is
+this week worse than last week," it asks "have your own patterns quietly slipped from your own
+baseline" — comparing the last 14 days to the ~46 days before that across workouts, habit
+completion, to-do completion, and sleep quality, and only calling it "drift" when at least two of
+those move together (so one off week doesn't trigger a false alarm). The same check also runs
+server-side and, if it fires, adds a 🌊 line to the daily morning briefing/Telegram nudge — so a
+real slip surfaces proactively instead of only when you happen to open this page.
+
+This page is being built out further with more sections — check back as those land.
 
 ---
 

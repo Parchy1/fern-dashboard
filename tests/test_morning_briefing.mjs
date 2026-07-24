@@ -1,6 +1,7 @@
 import handler, {
   shouldSendMorningBriefing, composeMorningBriefing,
   computeCaffeineSleepInsight, computeGymCheckinInsight, computeActionableInsight,
+  computeDriftDayRows, computeDrift, computeDriftInsight,
 } from '../api/send-reminders.js';
 
 let pass = 0, fail = 0;
@@ -159,6 +160,107 @@ function freezeClockAt(hour, minute) {
       const shown = computeActionableInsight({}, peakData2, gymData, false);
       assertTrue(!!shown && shown.toLowerCase().includes('workout'), 'gym/mood nudge shows when no workout is logged yet today');
     }
+  }
+
+  // ==================== drift detection (pure) ====================
+  {
+    function datesBack(n, todayPlain) {
+      const [y, m, d] = todayPlain.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        out.push(dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'));
+        dt.setDate(dt.getDate() - 1);
+      }
+      return out;
+    }
+
+    const todayPlain = '2026-03-15';
+    const dateKeys = datesBack(60, todayPlain); // most-recent-first, index 0 = today
+
+    // ---- computeDriftDayRows ----
+    {
+      const goalsData = {
+        'habits:defs': [{ id: 'h1' }, { id: 'h2' }],
+        'habits:log': { h1: { [dateKeys[0]]: true } },
+      };
+      goalsData['goals:' + dateKeys[0]] = [{ text: 'a', done: true }, { text: 'b', done: false }];
+      const gymData = { po_coach_workout_done: { [dateKeys[0]]: true } };
+      const peakData = { 'peak:morning': { [dateKeys[0]]: { sleepQuality: 3 } } };
+      const rows = computeDriftDayRows(dateKeys.slice(0, 2), goalsData, gymData, peakData);
+      assertEq(rows[0].workoutDone, 1, 'a logged workout day is 1');
+      assertEq(rows[1].workoutDone, 0, 'a day with no logged workout is 0');
+      assertEq(rows[0].habitRate, 0.5, 'habitRate reflects 1 of 2 habits done');
+      assertEq(rows[0].todoRate, 0.5, 'todoRate reflects 1 of 2 to-dos done');
+      assertEq(rows[0].sleepQuality, 3, 'sleepQuality is carried through from the morning entry');
+      assertEq(rows[1].sleepQuality, null, 'a day with no morning entry has a null sleepQuality');
+    }
+
+    // ---- a real drift: workouts + habit completion both stop recently ----
+    {
+      const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
+      const gymData = { po_coach_workout_done: {} };
+      const peakData = { 'peak:morning': {} };
+      // Baseline (days 14-59 back, 46 days): workout and habit done every day.
+      for (let i = 14; i < 60; i++) {
+        gymData.po_coach_workout_done[dateKeys[i]] = true;
+        goalsData['habits:log'].h1[dateKeys[i]] = true;
+      }
+      // Recent (days 0-13): neither logged at all.
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const drifted = computeDrift(dayRows);
+      assertTrue(drifted.length >= 2, 'both workouts and habit completion are flagged as drifted');
+      assertTrue(drifted.some(d => d.field === 'workoutDone'), 'workout rate is one of the drifted metrics');
+      assertTrue(drifted.some(d => d.field === 'habitRate'), 'habit rate is one of the drifted metrics');
+
+      const insight = computeDriftInsight(dayRows);
+      assertTrue(!!insight && insight.toLowerCase().includes('drifted'), 'a real multi-metric drift produces a one-line insight');
+    }
+
+    // ---- no drift: recent matches baseline ----
+    {
+      const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
+      const gymData = { po_coach_workout_done: {} };
+      const peakData = { 'peak:morning': {} };
+      dateKeys.forEach(k => { gymData.po_coach_workout_done[k] = true; goalsData['habits:log'].h1[k] = true; });
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      assertEq(computeDrift(dayRows).length, 0, 'no metrics are flagged when recent matches baseline');
+      assertEq(computeDriftInsight(dayRows), null, 'no insight at all when nothing has drifted');
+    }
+
+    // ---- only one metric drifting: not enough on its own to call it "drift" ----
+    {
+      const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
+      const gymData = { po_coach_workout_done: {} };
+      const peakData = { 'peak:morning': {} };
+      for (let i = 14; i < 60; i++) { gymData.po_coach_workout_done[dateKeys[i]] = true; goalsData['habits:log'].h1[dateKeys[i]] = true; }
+      // Habit completion stays intact through the recent window too; only workouts drop.
+      for (let i = 0; i < 14; i++) goalsData['habits:log'].h1[dateKeys[i]] = true;
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const drifted = computeDrift(dayRows);
+      assertEq(drifted.length, 1, 'only the workout metric alone is flagged as drifted');
+      assertEq(computeDriftInsight(dayRows), null, 'a single drifted metric alone does not produce an insight (avoids single-metric noise)');
+    }
+
+    // ---- too few samples on either side ----
+    {
+      const goalsData = {}; const gymData = { po_coach_workout_done: {} }; const peakData = { 'peak:morning': {} };
+      gymData.po_coach_workout_done[dateKeys[0]] = true;
+      gymData.po_coach_workout_done[dateKeys[1]] = true;
+      gymData.po_coach_workout_done[dateKeys[20]] = true;
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      assertEq(computeDrift(dayRows).length, 0, 'too few logged days on either side of a metric excludes it rather than guessing');
+    }
+  }
+
+  // ==================== composeMorningBriefing driftInsight param ====================
+  {
+    const withDrift = composeMorningBriefing(['Gym'], null, 0, null, 'Test drift line.');
+    assertTrue(withDrift.includes('🌊 Test drift line.'), 'a drift insight is appended as its own line');
+    const withoutDrift = composeMorningBriefing(['Gym'], null, 0, null, null);
+    assertTrue(!withoutDrift.includes('🌊'), 'no drift line at all when none is passed');
+    const withBoth = composeMorningBriefing(['Gym'], null, 0, 'Actionable line.', 'Drift line.');
+    assertTrue(withBoth.includes('💡 Actionable line.') && withBoth.includes('🌊 Drift line.'), 'both insight lines can appear together, each on its own line');
   }
 
   // ==================== composeMorningBriefing actionableInsight param ====================
