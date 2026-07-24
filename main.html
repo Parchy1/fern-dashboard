@@ -415,6 +415,42 @@
 }
 .gm-queue-btn:disabled { cursor: not-allowed; opacity: 0.3; }
 
+.gm-leverage-btn {
+  border: 0; background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  opacity: 0.55;
+  transition: opacity 0.2s, color 0.2s, transform 0.1s;
+}
+.gm-leverage-btn:hover { opacity: 1; }
+.gm-leverage-btn.gm-leverage-active {
+  color: var(--hud);
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(var(--hud-rgb),0.65));
+}
+.gm-leverage-btn:disabled { cursor: not-allowed; opacity: 0.3; }
+
+.leverage-callout {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: rgba(var(--hud-rgb), 0.08);
+  border: 1px solid var(--hud-line);
+}
+.leverage-callout.show { display: flex; }
+.leverage-callout .leverage-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--hud); flex-shrink: 0;
+}
+.leverage-callout .leverage-text { font-size: 14px; color: var(--text-primary); font-weight: 600; }
+.leverage-callout.leverage-done .leverage-text { text-decoration: line-through; color: var(--text-tertiary); }
+
 .goal-delete {
   border: 0; background: transparent;
   color: var(--text-tertiary);
@@ -695,6 +731,10 @@
         </div>
       </div>
       <div class="gm-bar" id="gmBar"></div>
+      <div class="leverage-callout" id="leverageCallout">
+        <span class="leverage-label">🎯 Leverage Task</span>
+        <span class="leverage-text" id="leverageText"></span>
+      </div>
       <ul id="goalList" class="goal-list gm-list"></ul>
       <div id="emptyState" class="empty-state">No goals for today yet — add one below.</div>
       <button type="button" id="gmPushBtn" class="gm-push-btn" style="display:none;">Push remaining to tomorrow</button>
@@ -865,6 +905,17 @@
     return Array.isArray(g) ? g : [];
   }
   function setGoals(key, list) { storeSet(key, list); }
+
+  // Exactly one leverage task allowed per day's list — mutates in place,
+  // clearing any previous pick before setting (or toggling off if the
+  // same item is clicked again). Out-of-range idx is a no-op.
+  function toggleLeverageTask(list, idx) {
+    if (!list[idx]) return list;
+    const turningOn = !list[idx].leverage;
+    list.forEach(g => { delete g.leverage; });
+    if (turningOn) list[idx].leverage = true;
+    return list;
+  }
 
   // ---------- rollover: pull undone older goals into today ----------
   function rollover() {
@@ -1223,6 +1274,23 @@
     });
     li.appendChild(queueBtn);
 
+    // Exactly one leverage task per day — "the one thing that matters most,"
+    // not a second priority tier. Marking a new one clears any previous
+    // pick for the same day rather than allowing several at once.
+    const leverageBtn = document.createElement('button');
+    leverageBtn.type = 'button';
+    leverageBtn.className = 'gm-leverage-btn' + (goal.leverage ? ' gm-leverage-active' : '');
+    leverageBtn.textContent = '⭐';
+    leverageBtn.title = "Mark as today's Leverage Task (the one thing that matters most)";
+    if (readOnly) leverageBtn.disabled = true;
+    leverageBtn.addEventListener('click', () => {
+      const list = getGoals(key);
+      toggleLeverageTask(list, idx);
+      setGoals(key, list);
+      reload();
+    });
+    li.appendChild(leverageBtn);
+
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'goal-delete';
@@ -1268,6 +1336,17 @@
 
     const pushBtn = document.getElementById('gmPushBtn');
     pushBtn.style.display = (total > 0 && done < total) ? 'block' : 'none';
+
+    renderLeverageCallout(goals);
+  }
+
+  function renderLeverageCallout(goals) {
+    const callout = document.getElementById('leverageCallout');
+    const leverageGoal = goals.find(g => g.leverage);
+    if (!leverageGoal) { callout.classList.remove('show', 'leverage-done'); return; }
+    document.getElementById('leverageText').textContent = leverageGoal.text;
+    callout.classList.add('show');
+    callout.classList.toggle('leverage-done', !!leverageGoal.done);
   }
 
   function renderStreak() {
