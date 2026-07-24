@@ -133,6 +133,23 @@ function computeBottleneck(dayRows) {
   return negative.length ? negative[0] : null;
 }
 
+function buildLaggedDayRows(dayRows) {
+  const out = [];
+  for (let i = 0; i < dayRows.length - 1; i++) {
+    out.push({
+      dateKey: dayRows[i].dateKey,
+      outcomeFeeling: dayRows[i].outcomeFeeling,
+      outcomeStress: dayRows[i].outcomeStress,
+      factors: dayRows[i + 1].factors,
+    });
+  }
+  return out;
+}
+
+function computeEmotionalTriggers(dayRows) {
+  return computeAllEffects(buildLaggedDayRows(dayRows)).filter(e => e.goodnessDiff < 0);
+}
+
 // ==================== lastNDateKeys / dateKeyFromDate ====================
 {
   const keys = lastNDateKeys(5);
@@ -226,6 +243,32 @@ function computeBottleneck(dayRows) {
   for (let i = 0; i < 6; i++) dayRows.push({ dateKey: 'n' + i, outcomeFeeling: 2.5, outcomeStress: null, factors: { workoutDone: false } });
   const bottleneck = computeBottleneck(dayRows);
   assertEq(bottleneck, null, 'a purely positive pattern (nothing actively hurting) reports no bottleneck');
+}
+
+// ==================== buildLaggedDayRows / computeEmotionalTriggers ====================
+{
+  // 13 most-recent-first day rows, designed so every consecutive (today, yesterday)
+  // pair lands in one of two clean buckets: yesterday had late caffeine -> today's
+  // feeling is poor (2); yesterday had no late caffeine -> today's feeling is good (4).
+  const dayRows = [];
+  for (let i = 0; i <= 12; i++) {
+    const outcomeFeeling = i <= 5 ? 2 : (i <= 11 ? 4 : null);
+    const lateCaffeine = (i >= 1 && i <= 6) ? true : (i >= 7 && i <= 12) ? false : undefined;
+    dayRows.push({ dateKey: 'd' + i, outcomeFeeling, outcomeStress: null, factors: { lateCaffeine } });
+  }
+
+  const lagged = buildLaggedDayRows(dayRows);
+  assertEq(lagged.length, 12, 'produces N-1 lagged rows from N day rows');
+  assertEq(lagged[0].factors.lateCaffeine, true, "a lagged row's factors come from the PRECEDING day, not the same day");
+  assertEq(lagged[0].outcomeFeeling, 2, "a lagged row's outcome stays the day's own outcome, not the preceding day's");
+
+  const triggers = computeEmotionalTriggers(dayRows);
+  assertTrue(triggers.length >= 1, 'a real day-ahead trigger is found');
+  assertEq(triggers[0].factorKey, 'lateCaffeine', 'late caffeine the day before is identified as the trigger');
+  assertTrue(triggers[0].goodnessDiff < 0, "a trigger's goodnessDiff is always negative (the prior factor makes the next day worse)");
+  assertTrue(triggers.every(t => t.goodnessDiff < 0), 'computeEmotionalTriggers only ever returns negative effects, never positive ones');
+
+  assertEq(computeEmotionalTriggers([{ dateKey: 'x', outcomeFeeling: 3, outcomeStress: null, factors: {} }]), [], 'a single day row (nothing to lag against) returns no triggers');
 }
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');

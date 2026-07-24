@@ -958,6 +958,12 @@ modes — no manual tagging, ever. It's inferred entirely from data already logg
 Shows your inferred mode right now plus a breakdown of the last 60 logged days across all four —
 days with zero real data logged at all are excluded rather than padding the Steady count.
 
+An **Emotional Triggers** section maps day-ahead precursors instead of same-day correlations —
+does YESTERDAY's late caffeine, poor sleep, missed habits, etc. predict how TODAY actually feels?
+Reuses the exact same bucket-comparison engine as Biggest Limiter above, just fed a day-shifted
+dataset, and only surfaces the negative effects (things that make the next day worse) since
+positive same-day patterns already show up in Patterns.
+
 This page is being built out further with more sections — check back as those land.
 
 ---
