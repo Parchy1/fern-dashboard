@@ -11,144 +11,20 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
+<link rel="stylesheet" href="design-system.css">
 
 <style>
-:root {
-  --text-primary: #FAFAFA;
-  --text-secondary: #B8B6B0;
-  --text-tertiary: #76746E;
-  --success: #6BE3A4;
-  --warning: #F2C063;
-  --danger:  #FF6B6B;
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-
-* { box-sizing: border-box; }
-html, body {
-  margin: 0; padding: 0;
-  background: #050506;
-  color: var(--text-secondary);
-  font-family: var(--font);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-body {
-  min-height: 100vh;
-  position: relative;
-  overflow-x: hidden;
-  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
-}
-body::before {
-  content: '';
-  position: fixed; inset: 0;
-  background:
-    radial-gradient(circle at 82% 14%, rgba(224, 118, 88, 0.16), transparent 45%),
-    radial-gradient(circle at 18% 90%, rgba(180, 180, 200, 0.06), transparent 50%);
-  filter: blur(40px);
-  pointer-events: none;
-  z-index: -2;
-  animation: drift 36s ease-in-out infinite alternate;
-}
-body::after {
-  content: '';
-  position: fixed; inset: 0;
-  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
-  background-size: 3px 3px;
-  pointer-events: none;
-  z-index: -1;
-}
-@keyframes drift {
-  0%   { transform: translate3d(0,0,0); }
-  100% { transform: translate3d(-22px, 14px, 0); }
-}
-
-.page { max-width: 1100px; margin: 0 auto; }
-
-.dash-title {
-  margin: 0 0 14px;
-  font-size: 28px; font-weight: 700;
-  letter-spacing: -0.025em;
-  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-@media (max-width: 480px) { .dash-title { font-size: 22px; } }
-
-.section { margin-top: 8px; }
-.section-title {
-  font-size: 10.5px; font-weight: 700;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--text-tertiary);
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 12px;
-}
-.section-title::before {
-  content: ''; width: 18px; height: 1px;
-  background: var(--text-tertiary); opacity: 0.6;
-}
-.section-title::after {
-  content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent);
-}
-
-.gm-card {
-  position: relative;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 14px;
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
-  overflow: hidden;
-}
-
-.empty-state {
-  text-align: center; font-size: 12px; font-style: italic;
-  color: var(--text-tertiary); padding: 14px 0;
-}
-
-.gm-input-wrap {
-  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-}
-.gm-input, .gm-select {
-  flex: 1; min-width: 0;
+/* Page-specific only — shared tokens/components now live in design-system.css. */
+.gm-select {
+  flex: none; width: auto; cursor: pointer;
   padding: 11px 14px;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px; background: rgba(0,0,0,0.28);
+  border: 1px solid var(--hud-line);
+  border-radius: 10px; background: rgba(0,0,0,0.28);
   color: var(--text-primary);
   font-family: inherit; font-size: 14px; outline: none;
   transition: border-color 0.2s, background 0.2s;
 }
-.gm-input::placeholder { color: var(--text-tertiary); }
-.gm-input:focus, .gm-select:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
-.gm-select { flex: none; width: auto; cursor: pointer; }
-
-.gm-add {
-  padding: 11px 20px; border: 0; border-radius: 12px;
-  background: linear-gradient(180deg, #FFFFFF 0%, #E8E5DD 100%);
-  color: #0A0A0B; font-family: inherit; font-size: 13px; font-weight: 700;
-  cursor: pointer; white-space: nowrap;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.9),
-    0 2px 8px rgba(0,0,0,0.35),
-    0 8px 22px rgba(0,0,0,0.25);
-  transition: transform 0.1s, filter 0.15s;
-}
-.gm-add:hover { filter: brightness(1.06); transform: translateY(-1px); }
-.gm-add:active { transform: translateY(0); }
-
-.gm-ghost {
-  padding: 11px 18px;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px; background: rgba(255,255,255,0.04);
-  color: var(--text-primary);
-  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.gm-ghost:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); }
+.gm-select:focus { border-color: var(--hud); background: rgba(0,0,0,0.36); }
 
 /* ---- Reading-list specific ---- */
 .filter-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
