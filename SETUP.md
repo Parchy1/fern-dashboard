@@ -996,6 +996,20 @@ next time a similar situation comes up.
 
 ---
 
+## 20. Skill Stack Tracker
+
+No setup — Reflect hub → **🏗️ Skill Stack**. Track any named skill you're deliberately building
+(a language, an instrument, a tool, anything) with logged practice sessions, distinct from the
+dashboard's existing global XP/level system (a single overall total across every action) —
+this is per-skill, scoped to time you actually choose to log, with hour-based mastery staging:
+
+- Novice (0h) → Beginner (10h+) → Intermediate (50h+) → Advanced (200h+) → Expert (1000h+)
+
+Each skill card shows total hours, session count, when you last practiced, and a progress bar
+toward the next stage. Add a skill, log minutes as you practice, delete when you're done with it.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -1018,4 +1032,5 @@ next time a similar situation comes up.
 17. Insights: nothing to set up — 🧭 Insights on the Reflect hub, see step 17 above.
 18. Daily Leverage Task: nothing to set up — ⭐ button on any to-do item, see step 18 above.
 19. Mistake / Risk Log: nothing to set up — ⚠️ Mistake Log on the Reflect hub, see step 19 above.
-20. Change the password in `lock.js`. Done.
+20. Skill Stack Tracker: nothing to set up — 🏗️ Skill Stack on the Reflect hub, see step 20 above.
+21. Change the password in `lock.js`. Done.

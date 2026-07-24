@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Skill Stack · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<link rel="stylesheet" href="design-system.css">
+
+<style>
+/* Page-specific only — shared tokens/components live in design-system.css. */
+.gm-status { font-size: 11px; color: var(--text-tertiary); min-height: 14px; margin-top: 8px; }
+
+.skill-card {
+  padding: 14px; margin-bottom: 10px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+.skill-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.skill-name { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.skill-category { font-size: 11px; color: var(--text-tertiary); }
+.skill-stage {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+  margin-left: auto;
+}
+.stage-novice       { background: rgba(255,255,255,0.08); color: var(--text-tertiary); }
+.stage-beginner     { background: rgba(94,234,212,0.15); color: #5EEAD4; }
+.stage-intermediate { background: rgba(34,211,245,0.15); color: var(--hud); }
+.stage-advanced     { background: rgba(251,191,36,0.15); color: #FBBF24; }
+.stage-expert       { background: rgba(255,84,112,0.15); color: #FF5470; }
+.skill-meta { font-size: 12.5px; color: var(--text-tertiary); margin-bottom: 10px; }
+.skill-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin-bottom: 10px; }
+.skill-track-fill { height: 100%; border-radius: 3px; background: var(--hud); }
+.skill-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.skill-log-form { display: none; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.skill-log-form.open { display: flex; }
+.skill-minutes-input { width: 90px; }
+.skill-note-input { flex: 1; min-width: 140px; }
+.skill-delete {
+  border: 0; background: transparent; color: var(--text-tertiary);
+  font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+  transition: color 0.15s;
+}
+.skill-delete:hover { color: #FF5470; }
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Dashboard</a>
+  <h1 class="dash-title">Skill Stack</h1>
+
+  <div class="section">
+    <div class="section-title">Add a skill</div>
+    <div class="gm-card">
+      <div class="gm-input-wrap">
+        <input class="gm-input" id="skillNameInput" type="text" placeholder="e.g. Public Speaking, Spanish, Excel…" autocomplete="off">
+        <input class="gm-input" id="skillCategoryInput" type="text" placeholder="Category (optional)" autocomplete="off" style="max-width:180px">
+        <button type="button" id="skillAddBtn" class="gm-add">+ Add</button>
+      </div>
+      <div class="gm-status" id="skillStatus"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Your Stack</div>
+    <div id="skillList"></div>
+    <div class="empty-state" id="skillEmpty">No skills added yet — add one above, then log practice time as you put it in.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const DEFS_KEY = 'skills:defs';
+  const SESSIONS_KEY = 'skills:sessions';
+
+  function load(key) {
+    try { return JSON.parse(localStorage.getItem(key)) || []; }
+    catch (e) { return []; }
+  }
+  function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+  // Hour-based mastery staging — a deliberately different lens from the
+  // dashboard's existing global XP/level system (gamify.js): that's one
+  // overall total across every logged action; this is per-named-skill,
+  // scoped to deliberate practice time you choose to log, so a skill you
+  // haven't touched stays honestly at "Novice" regardless of how much XP
+  // you've earned doing everything else.
+  const STAGE_THRESHOLDS = [
+    { stage: 'novice', minHours: 0, label: 'Novice' },
+    { stage: 'beginner', minHours: 10, label: 'Beginner' },
+    { stage: 'intermediate', minHours: 50, label: 'Intermediate' },
+    { stage: 'advanced', minHours: 200, label: 'Advanced' },
+    { stage: 'expert', minHours: 1000, label: 'Expert' },
+  ];
+
+  function stageForHours(hours) {
+    let result = STAGE_THRESHOLDS[0];
+    for (const t of STAGE_THRESHOLDS) {
+      if (hours >= t.minHours) result = t;
+    }
+    return result;
+  }
+
+  // Progress toward the NEXT stage (0..1), or null once at the top stage —
+  // used to fill a small progress bar per skill card.
+  function progressToNextStage(hours) {
+    const idx = STAGE_THRESHOLDS.findIndex(t => t.stage === stageForHours(hours).stage);
+    const next = STAGE_THRESHOLDS[idx + 1];
+    if (!next) return null;
+    const cur = STAGE_THRESHOLDS[idx];
+    return Math.max(0, Math.min(1, (hours - cur.minHours) / (next.minHours - cur.minHours)));
+  }
+
+  // Builds one summary row per skill def, aggregating its logged sessions —
+  // skills with zero sessions still appear (0 hours, Novice), sorted with
+  // the most recently practiced first and never-practiced skills last.
+  function buildSkillSummaries(defs, sessions) {
+    return (defs || []).map(def => {
+      const own = (sessions || []).filter(s => s.skillId === def.id);
+      const totalMinutes = own.reduce((a, s) => a + (s.minutes || 0), 0);
+      const totalHours = totalMinutes / 60;
+      const lastPracticedTs = own.length ? Math.max(...own.map(s => s.ts || 0)) : null;
+      return {
+        id: def.id,
+        name: def.name,
+        category: def.category || '',
+        totalHours,
+        sessionCount: own.length,
+        lastPracticedTs,
+        stage: stageForHours(totalHours),
+        progress: progressToNextStage(totalHours),
+      };
+    }).sort((a, b) => (b.lastPracticedTs || 0) - (a.lastPracticedTs || 0));
+  }
+
+  window.__skillsLogic = { stageForHours, progressToNextStage, buildSkillSummaries, STAGE_THRESHOLDS };
+
+  // ---- Rendering ----
+  let openLogFormId = null;
+
+  function fmtRelative(ts) {
+    if (!ts) return 'never practiced';
+    const days = Math.floor((Date.now() - ts) / 86400000);
+    if (days <= 0) return 'practiced today';
+    if (days === 1) return 'practiced yesterday';
+    return 'practiced ' + days + ' days ago';
+  }
+
+  function render() {
+    const defs = load(DEFS_KEY);
+    const sessions = load(SESSIONS_KEY);
+    const summaries = buildSkillSummaries(defs, sessions);
+    const listEl = document.getElementById('skillList');
+    const emptyEl = document.getElementById('skillEmpty');
+    listEl.innerHTML = '';
+    emptyEl.style.display = summaries.length ? 'none' : 'block';
+
+    summaries.forEach(sum => {
+      const card = document.createElement('div');
+      card.className = 'skill-card';
+
+      const top = document.createElement('div');
+      top.className = 'skill-top';
+      const name = document.createElement('span');
+      name.className = 'skill-name';
+      name.textContent = sum.name;
+      top.appendChild(name);
+      if (sum.category) {
+        const cat = document.createElement('span');
+        cat.className = 'skill-category';
+        cat.textContent = sum.category;
+        top.appendChild(cat);
+      }
+      const stageBadge = document.createElement('span');
+      stageBadge.className = 'skill-stage stage-' + sum.stage.stage;
+      stageBadge.textContent = sum.stage.label;
+      top.appendChild(stageBadge);
+      card.appendChild(top);
+
+      const meta = document.createElement('div');
+      meta.className = 'skill-meta';
+      meta.textContent = sum.totalHours.toFixed(1) + 'h logged · ' + sum.sessionCount + ' session' + (sum.sessionCount === 1 ? '' : 's') + ' · ' + fmtRelative(sum.lastPracticedTs);
+      card.appendChild(meta);
+
+      if (sum.progress != null) {
+        const track = document.createElement('div');
+        track.className = 'skill-track';
+        const fill = document.createElement('div');
+        fill.className = 'skill-track-fill';
+        fill.style.width = Math.round(sum.progress * 100) + '%';
+        track.appendChild(fill);
+        card.appendChild(track);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'skill-actions';
+
+      const logBtn = document.createElement('button');
+      logBtn.type = 'button';
+      logBtn.className = 'gm-add';
+      logBtn.textContent = '+ Log session';
+      logBtn.addEventListener('click', () => {
+        openLogFormId = openLogFormId === sum.id ? null : sum.id;
+        render();
+      });
+      actions.appendChild(logBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'skill-delete';
+      delBtn.setAttribute('aria-label', 'Delete skill');
+      delBtn.textContent = '×';
+      delBtn.addEventListener('click', () => {
+        if (!confirm('Delete "' + sum.name + '" and all its logged sessions?')) return;
+        save(DEFS_KEY, load(DEFS_KEY).filter(d => d.id !== sum.id));
+        save(SESSIONS_KEY, load(SESSIONS_KEY).filter(s => s.skillId !== sum.id));
+        render();
+      });
+      actions.appendChild(delBtn);
+
+      card.appendChild(actions);
+
+      const form = document.createElement('div');
+      form.className = 'skill-log-form' + (openLogFormId === sum.id ? ' open' : '');
+      const minutesInput = document.createElement('input');
+      minutesInput.type = 'number';
+      minutesInput.className = 'gm-input skill-minutes-input';
+      minutesInput.placeholder = 'Minutes';
+      minutesInput.min = '1';
+      const noteInput = document.createElement('input');
+      noteInput.type = 'text';
+      noteInput.className = 'gm-input skill-note-input';
+      noteInput.placeholder = 'Note (optional)';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'gm-add';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => {
+        const minutes = parseInt(minutesInput.value, 10);
+        if (!minutes || minutes <= 0) { showStatus('Enter minutes practiced.'); return; }
+        const all = load(SESSIONS_KEY);
+        all.push({ id: 'sk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), skillId: sum.id, ts: Date.now(), minutes, note: noteInput.value.trim() });
+        save(SESSIONS_KEY, all);
+        openLogFormId = null;
+        render();
+        showStatus('Session logged ✓');
+      });
+      form.appendChild(minutesInput);
+      form.appendChild(noteInput);
+      form.appendChild(saveBtn);
+      card.appendChild(form);
+
+      listEl.appendChild(card);
+    });
+  }
+
+  function showStatus(message) {
+    const el = document.getElementById('skillStatus');
+    el.textContent = message;
+    setTimeout(() => { el.textContent = ''; }, 2200);
+  }
+
+  document.getElementById('skillAddBtn').addEventListener('click', () => {
+    const nameEl = document.getElementById('skillNameInput');
+    const catEl = document.getElementById('skillCategoryInput');
+    const name = nameEl.value.trim();
+    if (!name) { showStatus('Name the skill first.'); return; }
+    const defs = load(DEFS_KEY);
+    defs.push({ id: 'skill_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), name, category: catEl.value.trim(), createdAt: Date.now() });
+    save(DEFS_KEY, defs);
+    nameEl.value = '';
+    catEl.value = '';
+    render();
+    showStatus('Added ✓');
+  });
+
+  render();
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.initCloudSync) return;
+    window.initCloudSync({
+      appKey: 'skills',
+      syncedKeys: [DEFS_KEY, SESSIONS_KEY],
+      onApplied: () => render(),
+    });
+  });
+})();
+</script>
+</body>
+</html>
