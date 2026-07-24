@@ -109,6 +109,17 @@ function computeBurnoutRisk(dayRows) {
   return { level, signals, insufficientData: false };
 }
 
+function computeTimeToGoal(trend, targetValue) {
+  if (!trend || targetValue == null || isNaN(targetValue)) return null;
+  const diff = targetValue - trend.currentEstimate;
+  if (Math.abs(diff) < 1e-9) return { reached: true, onTrack: true, daysNeeded: 0 };
+  if (trend.slopePerDay === 0 || Math.sign(trend.slopePerDay) !== Math.sign(diff)) {
+    return { reached: false, onTrack: false, daysNeeded: null };
+  }
+  const daysNeeded = diff / trend.slopePerDay;
+  return { reached: false, onTrack: true, daysNeeded, etaDate: new Date(Date.now() + daysNeeded * 86400000) };
+}
+
 // ==================== computeLinearTrend ====================
 {
   const dayMs = 86400000;
@@ -206,6 +217,30 @@ function computeBurnoutRisk(dayRows) {
   const risk4 = computeBurnoutRisk([]);
   assertTrue(risk4.insufficientData === true, 'no data at all is reported as insufficient rather than a fake Low');
   assertEq(risk4.level, 'Unknown', 'insufficient data reports an Unknown level rather than guessing Low');
+}
+
+// ==================== computeTimeToGoal ====================
+{
+  const risingTrend = { slopePerDay: 10, currentEstimate: 1000 };
+  const result = computeTimeToGoal(risingTrend, 1500);
+  assertTrue(!!result && result.onTrack, 'a target above current value with a rising trend is on track');
+  assertClose(result.daysNeeded, 50, 'days needed is (target - current) / slopePerDay');
+  assertTrue(result.etaDate instanceof Date, 'an eta date is produced');
+
+  const fallingTrend = { slopePerDay: -0.2, currentEstimate: 180 };
+  const weightResult = computeTimeToGoal(fallingTrend, 170);
+  assertTrue(!!weightResult && weightResult.onTrack, 'a target below current value with a falling trend is on track (weight loss)');
+  assertClose(weightResult.daysNeeded, 50, 'days needed works the same way for a decreasing metric');
+
+  const wrongDirection = computeTimeToGoal(risingTrend, 500);
+  assertTrue(!!wrongDirection && !wrongDirection.onTrack, 'a target below current value while the trend is rising is reported as not on track');
+  assertEq(wrongDirection.daysNeeded, null, 'not-on-track results have no daysNeeded');
+
+  const already = computeTimeToGoal(risingTrend, 1000);
+  assertTrue(!!already && already.reached, 'a target equal to the current value is reported as already reached');
+
+  assertEq(computeTimeToGoal(null, 100), null, 'no trend at all returns null rather than a fake result');
+  assertEq(computeTimeToGoal(risingTrend, null), null, 'no target value returns null');
 }
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');

@@ -8,6 +8,7 @@
 <title>Insights · Dashboard</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
 <link rel="stylesheet" href="design-system.css">
 
 <style>
@@ -40,6 +41,12 @@
 .br-low { background: rgba(63,224,168,0.14); color: #3FE0A8; }
 .br-moderate { background: rgba(251,191,36,0.14); color: #FBBF24; }
 .br-elevated { background: rgba(255,84,112,0.14); color: #FF5470; }
+
+.goal-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.goal-row:last-child { margin-bottom: 0; }
+.goal-label { font-size: 13px; color: var(--text-secondary); min-width: 130px; }
+.goal-row .gm-input { max-width: 160px; }
+.lc-status { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; min-height: 14px; }
 </style>
 </head>
 <body>
@@ -75,6 +82,27 @@
     </div>
     <div class="gm-card" id="burnoutRiskCard">
       <div class="pe-empty">Gathering data…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Time to Goal</div>
+    <div class="gm-card">
+      <div class="goal-row">
+        <span class="goal-label">Net worth goal</span>
+        <input class="gm-input" id="goalNetWorth" type="number" step="0.01" placeholder="e.g. 50000">
+      </div>
+      <div class="goal-row">
+        <span class="goal-label">Target weight</span>
+        <input class="gm-input" id="goalWeight" type="number" step="0.1" placeholder="e.g. 170">
+      </div>
+      <div class="lc-status" id="goalStatus"></div>
+    </div>
+    <div class="gm-card" id="goalNetWorthResult">
+      <div class="pe-empty">Set a net worth goal above to see a projected date.</div>
+    </div>
+    <div class="gm-card" id="goalWeightResult">
+      <div class="pe-empty">Set a target weight above to see a projected date.</div>
     </div>
   </div>
 
@@ -358,11 +386,38 @@
     return { level, signals, insufficientData: false };
   }
 
+  // ============================================================
+  // Time-to-goal estimator.
+  //
+  // Reuses the same trend line (computeLinearTrend) already built above —
+  // a goal is just "when does the trend line cross this value" for
+  // whichever metric the trend is over (net worth, weight, ...). Works
+  // regardless of whether the goal is above or below the current value
+  // (e.g. a weight-loss target vs a net-worth target) by requiring the
+  // trend's direction to actually match the direction of travel needed.
+  // The one thing this genuinely can't infer passively is the target
+  // number itself — that's a one-time goal to state, not a recurring log.
+  // ============================================================
+
+  const NW_TREND_WINDOW_DAYS = 180;
+
+  function computeTimeToGoal(trend, targetValue) {
+    if (!trend || targetValue == null || isNaN(targetValue)) return null;
+    const diff = targetValue - trend.currentEstimate;
+    if (Math.abs(diff) < 1e-9) return { reached: true, onTrack: true, daysNeeded: 0 };
+    if (trend.slopePerDay === 0 || Math.sign(trend.slopePerDay) !== Math.sign(diff)) {
+      return { reached: false, onTrack: false, daysNeeded: null };
+    }
+    const daysNeeded = diff / trend.slopePerDay;
+    return { reached: false, onTrack: true, daysNeeded, etaDate: new Date(Date.now() + daysNeeded * 86400000) };
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
+    computeTimeToGoal,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
-    WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS,
+    WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
   };
 
   // ---- Rendering ----
@@ -467,6 +522,105 @@
     el.innerHTML = html;
   }
 
+  // ---- Time-to-goal wiring ----
+  const GOAL_STORE_KEY = 'insights:goals';
+  let nwTrend = null, weightTrend = null;
+
+  function loadGoals() {
+    try { return JSON.parse(localStorage.getItem(GOAL_STORE_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveGoals(goals) {
+    localStorage.setItem(GOAL_STORE_KEY, JSON.stringify(goals));
+  }
+
+  function fmtETA(daysNeeded, etaDate) {
+    const dateLabel = etaDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const roundedDays = Math.round(daysNeeded);
+    const span = roundedDays < 30
+      ? (roundedDays <= 1 ? '~1 day' : '~' + roundedDays + ' days')
+      : (() => { const m = Math.round(daysNeeded / 30.44); return '~' + m + ' month' + (m === 1 ? '' : 's'); })();
+    return 'At the current rate, you\'d hit this around <b>' + dateLabel + '</b> (' + span + ').';
+  }
+
+  function renderGoalResult(elId, trend, targetValue, unitLabel) {
+    const el = document.getElementById(elId);
+    if (targetValue == null || isNaN(targetValue)) {
+      el.innerHTML = '<div class="pe-empty">Set a target above to see a projected date.</div>';
+      return;
+    }
+    if (!trend) {
+      el.innerHTML = '<div class="pe-empty">Not enough tracked history yet to project — needs at least a couple of logged data points over a few days.</div>';
+      return;
+    }
+    const result = computeTimeToGoal(trend, targetValue);
+    if (result.reached) {
+      el.innerHTML = '<div class="pe-headline">Already there 🎯</div><div class="pe-detail">You\'re already at or past this target.</div>';
+      return;
+    }
+    if (!result.onTrack) {
+      el.innerHTML = '<div class="pe-headline">Not currently on track</div><div class="pe-detail">The recent trend isn\'t moving toward this target, so it can\'t be projected forward right now.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="pe-headline">' + targetValue + unitLabel + ' goal</div><div class="pe-detail">' + fmtETA(result.daysNeeded, result.etaDate) + '</div>';
+  }
+
+  function renderGoals(rowsByKey) {
+    const nwHistory = (rowsByKey.finance || {})['nw:history'] || [];
+    nwTrend = computeLinearTrend(nwHistory, NW_TREND_WINDOW_DAYS);
+    const weights = (rowsByKey['po-coach'] || {})['po_coach_weights'] || [];
+    weightTrend = computeLinearTrend(weightEntriesToPoints(weights), WEIGHT_TREND_WINDOW_DAYS);
+
+    const goals = loadGoals();
+    const nwInput = document.getElementById('goalNetWorth');
+    const weightInput = document.getElementById('goalWeight');
+    if (goals.netWorth != null) nwInput.value = goals.netWorth;
+    if (goals.weight != null) weightInput.value = goals.weight;
+
+    renderGoalResult('goalNetWorthResult', nwTrend, goals.netWorth, '');
+    renderGoalResult('goalWeightResult', weightTrend, goals.weight, ' lb');
+  }
+
+  function wireGoalInputs() {
+    const nwInput = document.getElementById('goalNetWorth');
+    const weightInput = document.getElementById('goalWeight');
+    const statusEl = document.getElementById('goalStatus');
+    let saveTimer = null;
+    function onChange() {
+      statusEl.textContent = '';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const nwVal = nwInput.value === '' ? null : parseFloat(nwInput.value);
+        const weightVal = weightInput.value === '' ? null : parseFloat(weightInput.value);
+        saveGoals({ netWorth: isNaN(nwVal) ? null : nwVal, weight: isNaN(weightVal) ? null : weightVal });
+        renderGoalResult('goalNetWorthResult', nwTrend, isNaN(nwVal) ? null : nwVal, '');
+        renderGoalResult('goalWeightResult', weightTrend, isNaN(weightVal) ? null : weightVal, ' lb');
+        statusEl.textContent = 'Saved ✓';
+        setTimeout(() => { statusEl.textContent = ''; }, 1800);
+      }, 500);
+    }
+    nwInput.addEventListener('input', onChange);
+    weightInput.addEventListener('input', onChange);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireGoalInputs();
+    if (!window.initCloudSync) return;
+    window.initCloudSync({
+      appKey: 'insights',
+      syncedKeys: [GOAL_STORE_KEY],
+      onApplied: () => {
+        const goals = loadGoals();
+        const nwInput = document.getElementById('goalNetWorth');
+        const weightInput = document.getElementById('goalWeight');
+        nwInput.value = goals.netWorth != null ? goals.netWorth : '';
+        weightInput.value = goals.weight != null ? goals.weight : '';
+        renderGoalResult('goalNetWorthResult', nwTrend, goals.netWorth, '');
+        renderGoalResult('goalWeightResult', weightTrend, goals.weight, ' lb');
+      },
+    });
+  });
+
   // ---- Wiring ----
   const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
@@ -491,6 +645,7 @@
       renderWeightProjection(rowsByKey);
       renderSleepDebt(dayRows);
       renderBurnoutRisk(dayRows);
+      renderGoals(rowsByKey);
     } catch (e) {
       document.getElementById('limiterHeadline').textContent = "Couldn't load your data — check your connection.";
     }

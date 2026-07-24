@@ -920,8 +920,15 @@ requires logging anything new, it's all built from data the other trackers alrea
   sleep quality, slipping habit/to-do consistency) and reports Low / Moderate / Elevated. Needs at
   least one comparable pair of weeks with overlapping data.
 
-This page is being built out further with more sections (time-to-goal estimates, drift detection,
-and more) — check back as those land.
+A **Time to Goal** section lets you set a net worth goal and/or a target weight — the one thing
+here that can't be inferred passively, since it's a number only you can state. Once set, it
+reuses the same trend-line math as the predictive cards above (net worth from Finance's history,
+weight from Gym's weigh-ins) to project when you'd hit it at the current rate, and works whether
+the goal is above or below your current value (gaining vs. losing, saving vs. paying down).
+Goals sync across devices the same way everything else here does.
+
+This page is being built out further with more sections (drift detection, and more) — check back
+as those land.
 
 ---
 
