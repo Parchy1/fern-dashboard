@@ -29,6 +29,17 @@
 .pattern-icon { flex-shrink: 0; font-size: 15px; line-height: 1.4; }
 .pattern-row.good { border-color: rgba(63,224,168,0.25); }
 .pattern-row.bad { border-color: rgba(255,84,112,0.22); }
+
+.pe-headline { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.pe-detail { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; }
+.pe-empty { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; }
+.br-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+}
+.br-low { background: rgba(63,224,168,0.14); color: #3FE0A8; }
+.br-moderate { background: rgba(251,191,36,0.14); color: #FBBF24; }
+.br-elevated { background: rgba(255,84,112,0.14); color: #FF5470; }
 </style>
 </head>
 <body>
@@ -51,6 +62,19 @@
     <div class="gm-card">
       <ul class="pattern-list" id="patternList"></ul>
       <div class="empty-state" id="patternEmpty" style="display:none">Not enough history yet to spot a real pattern — check back after a few more weeks of logging.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Predictive Engine</div>
+    <div class="gm-card" id="weightProjectionCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+    <div class="gm-card" id="sleepDebtCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+    <div class="gm-card" id="burnoutRiskCard">
+      <div class="pe-empty">Gathering data…</div>
     </div>
   </div>
 
@@ -152,11 +176,17 @@
       const habitRate = habitTotal ? habitDone / habitTotal : null;
       const goalsToday = goalsData['goals:' + dateKey] || [];
       const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
+      const consistencyParts = [habitRate, todoRate].filter(v => v != null);
 
       return {
         dateKey,
         outcomeFeeling: feelings && feelings.length ? avg(feelings) : null,
         outcomeStress: stresses && stresses.length ? avg(stresses) : null,
+        sleepQuality: sleepQuality != null ? sleepQuality : null,
+        sleepHours: sleepHours != null ? sleepHours : null,
+        habitRate: habitRate,
+        todoRate: todoRate,
+        consistencyRate: consistencyParts.length ? avg(consistencyParts) : null,
         factors: {
           goodSleepQuality: sleepQuality != null ? sleepQuality >= 4 : null,
           poorSleepQuality: sleepQuality != null ? sleepQuality <= 2 : null,
@@ -215,9 +245,124 @@
     return negative.length ? negative[0] : null;
   }
 
+  // ============================================================
+  // Predictive engine: weight projection, sleep debt, burnout risk.
+  //
+  // Weight projection reuses the exact linear-regression-trend approach
+  // finance.html already uses for net-worth forecasting (least-squares fit
+  // over a trailing window, projected forward) — same math, different
+  // metric. Sleep debt and burnout risk are plain aggregations over the
+  // day-row dataset already built above, so none of this needs new manual
+  // logging — it all comes from data the tracker pages already collect.
+  // ============================================================
+
+  const WEIGHT_TREND_WINDOW_DAYS = 45;
+  const WEIGHT_PROJECT_DAYS = 30;
+  const WEIGHT_MIN_POINTS = 3;
+  const SLEEP_DEBT_WINDOW_DAYS = 14;
+  const SLEEP_DEBT_MIN_NIGHTS = 5;
+  const TARGET_SLEEP_HOURS = 8;
+  const BURNOUT_TREND_DIFF = { stress: 0.5, sleepQuality: 0.5, consistency: 0.15 };
+
+  // Least-squares line through {t (ms), v} points within a trailing window.
+  // Returns slope-per-day and the trend line's estimate at the most recent
+  // point (rather than the raw last sample, which smooths out noise).
+  function computeLinearTrend(points, windowDays) {
+    const cutoff = windowDays != null ? Date.now() - windowDays * 86400000 : -Infinity;
+    const pts = (points || [])
+      .filter(p => p && typeof p.t === 'number' && typeof p.v === 'number' && !isNaN(p.t) && p.t >= cutoff)
+      .sort((a, b) => a.t - b.t);
+    if (pts.length < 2) return null;
+    const t0 = pts[0].t;
+    const xs = pts.map(p => (p.t - t0) / 86400000);
+    const ys = pts.map(p => p.v);
+    const n = xs.length;
+    const sumX = xs.reduce((a, b) => a + b, 0);
+    const sumY = ys.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+    const sumXX = xs.reduce((a, x) => a + x * x, 0);
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    const lastX = xs[xs.length - 1];
+    return { slopePerDay: slope, currentEstimate: slope * lastX + intercept, n };
+  }
+
+  function weightEntriesToPoints(entries) {
+    return (entries || [])
+      .filter(e => e && e.dateKey && typeof e.weight === 'number')
+      .map(e => ({ t: new Date(e.dateKey).getTime(), v: e.weight }))
+      .filter(p => !isNaN(p.t));
+  }
+
+  function computeWeightProjection(weightEntries, windowDays, projectDays) {
+    const trend = computeLinearTrend(weightEntriesToPoints(weightEntries), windowDays);
+    if (!trend || trend.n < WEIGHT_MIN_POINTS) return null;
+    return {
+      currentEstimate: trend.currentEstimate,
+      slopePerDay: trend.slopePerDay,
+      slopePerWeek: trend.slopePerDay * 7,
+      projectedValue: trend.currentEstimate + trend.slopePerDay * projectDays,
+      projectDays,
+      n: trend.n,
+    };
+  }
+
+  // dayRows should be a most-recent-first slice (e.g. dayRows.slice(0,14)).
+  function computeSleepDebt(dayRows, targetHours) {
+    targetHours = targetHours == null ? TARGET_SLEEP_HOURS : targetHours;
+    const nights = (dayRows || []).filter(r => typeof r.sleepHours === 'number');
+    if (!nights.length) return null;
+    const totalDebt = nights.reduce((a, r) => a + Math.max(0, targetHours - r.sleepHours), 0);
+    return { totalDebt, nights: nights.length, targetHours, avgDebtPerNight: totalDebt / nights.length };
+  }
+
+  // Compares the most recent 7 days to the 7 before that across three
+  // signals (rising stress, declining sleep quality, slipping habit/to-do
+  // consistency) — all derived passively from data already logged, no new
+  // manual input required. dayRows must be most-recent-first.
+  function computeBurnoutRisk(dayRows) {
+    const recent = (dayRows || []).slice(0, 7);
+    const prior = (dayRows || []).slice(7, 14);
+    function avgField(rows, field) {
+      const vals = rows.map(r => r[field]).filter(v => v != null);
+      return vals.length ? avg(vals) : null;
+    }
+    const recentStress = avgField(recent, 'outcomeStress');
+    const priorStress = avgField(prior, 'outcomeStress');
+    const recentSleepQ = avgField(recent, 'sleepQuality');
+    const priorSleepQ = avgField(prior, 'sleepQuality');
+    const recentConsistency = avgField(recent, 'consistencyRate');
+    const priorConsistency = avgField(prior, 'consistencyRate');
+
+    const signals = [];
+    if (recentStress != null && priorStress != null && (recentStress - priorStress) >= BURNOUT_TREND_DIFF.stress) {
+      signals.push('stress has been trending up this week');
+    }
+    if (recentSleepQ != null && priorSleepQ != null && (priorSleepQ - recentSleepQ) >= BURNOUT_TREND_DIFF.sleepQuality) {
+      signals.push('sleep quality has been trending down this week');
+    }
+    if (recentConsistency != null && priorConsistency != null && (priorConsistency - recentConsistency) >= BURNOUT_TREND_DIFF.consistency) {
+      signals.push('habit/to-do consistency has slipped this week');
+    }
+
+    const comparisonsAvailable = [
+      recentStress != null && priorStress != null,
+      recentSleepQ != null && priorSleepQ != null,
+      recentConsistency != null && priorConsistency != null,
+    ].filter(Boolean).length;
+    if (!comparisonsAvailable) return { level: 'Unknown', signals: [], insufficientData: true };
+
+    const level = signals.length >= 2 ? 'Elevated' : signals.length === 1 ? 'Moderate' : 'Low';
+    return { level, signals, insufficientData: false };
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
+    computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
+    WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS,
   };
 
   // ---- Rendering ----
@@ -272,6 +417,56 @@
     });
   }
 
+  function renderWeightProjection(rowsByKey) {
+    const el = document.getElementById('weightProjectionCard');
+    const weights = (rowsByKey['po-coach'] || {})['po_coach_weights'] || [];
+    const projection = computeWeightProjection(weights, WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS);
+    if (!projection) {
+      el.innerHTML = '<div class="pe-empty">Not enough weigh-ins yet — log weight a few times in Gym to see a trend.</div>';
+      return;
+    }
+    const perWeek = projection.slopePerWeek;
+    const rateText = Math.abs(perWeek) < 0.05
+      ? 'holding steady'
+      : ((perWeek < 0 ? 'losing ' : 'gaining ') + Math.abs(perWeek).toFixed(1) + ' lb/week');
+    el.innerHTML =
+      '<div class="pe-headline">Currently ' + rateText + '</div>' +
+      '<div class="pe-detail">At this rate, in ' + projection.projectDays + ' days you\'d be around <b>'
+      + projection.projectedValue.toFixed(1) + ' lb</b> (currently ~' + projection.currentEstimate.toFixed(1)
+      + ' lb, based on ' + projection.n + ' weigh-ins).</div>';
+  }
+
+  function renderSleepDebt(dayRows) {
+    const el = document.getElementById('sleepDebtCard');
+    const recentNights = dayRows.slice(0, SLEEP_DEBT_WINDOW_DAYS);
+    const debt = computeSleepDebt(recentNights, TARGET_SLEEP_HOURS);
+    if (!debt || debt.nights < SLEEP_DEBT_MIN_NIGHTS) {
+      el.innerHTML = '<div class="pe-empty">Not enough sleep logs yet — log wake-ups in Peak to see your sleep debt.</div>';
+      return;
+    }
+    el.innerHTML =
+      '<div class="pe-headline">' + debt.totalDebt.toFixed(1) + ' hours behind</div>' +
+      '<div class="pe-detail">Over the last ' + debt.nights + ' logged nights, you averaged '
+      + debt.avgDebtPerNight.toFixed(1) + 'h under your ' + debt.targetHours + 'h target per night.</div>';
+  }
+
+  function renderBurnoutRisk(dayRows) {
+    const el = document.getElementById('burnoutRiskCard');
+    const risk = computeBurnoutRisk(dayRows);
+    if (risk.insufficientData) {
+      el.innerHTML = '<div class="pe-empty">Not enough recent history yet — needs at least two comparable weeks of check-ins, sleep, or habit data.</div>';
+      return;
+    }
+    const cls = risk.level === 'Elevated' ? 'br-elevated' : risk.level === 'Moderate' ? 'br-moderate' : 'br-low';
+    let html = '<div class="pe-headline"><span class="br-badge ' + cls + '">' + risk.level + '</span></div>';
+    if (risk.signals.length) {
+      html += '<div class="pe-detail">' + risk.signals.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('. ') + '.</div>';
+    } else {
+      html += '<div class="pe-detail">No worrying trends this week compared to last.</div>';
+    }
+    el.innerHTML = html;
+  }
+
   // ---- Wiring ----
   const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
@@ -293,6 +488,9 @@
       const dayRows = buildDayRows(rowsByKey, dateKeys);
       renderLimiter(dayRows);
       renderPatterns(dayRows);
+      renderWeightProjection(rowsByKey);
+      renderSleepDebt(dayRows);
+      renderBurnoutRisk(dayRows);
     } catch (e) {
       document.getElementById('limiterHeadline').textContent = "Couldn't load your data — check your connection.";
     }
