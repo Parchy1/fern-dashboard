@@ -98,6 +98,14 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Emotional Triggers</div>
+    <div class="gm-card">
+      <ul class="pattern-list" id="triggerList"></ul>
+      <div class="empty-state" id="triggerEmpty" style="display:none">Not enough history yet to spot a real day-ahead trigger — check back after a few more weeks of logging.</div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Mode Breakdown</div>
     <div class="gm-card" id="currentModeCard">
       <div class="pe-empty">Gathering data…</div>
@@ -626,11 +634,45 @@
     return null;
   }
 
+  // ============================================================
+  // Emotional Trigger Mapping — passively inferred, never self-tagged.
+  // The original idea was for the user to tag "what triggered my mood"
+  // in the moment, which gets abandoned in practice; instead this looks
+  // for PRECURSORS already present in the data — does YESTERDAY's factor
+  // (sleep, workout, caffeine, habit/to-do completion) predict TODAY's
+  // feeling/stress? Reuses the exact same bucket-comparison engine as
+  // Biggest Limiter (computeFactorEffect/computeAllEffects) fed a
+  // day-shifted dataset, so same-day correlation becomes a real day-ahead
+  // trigger with no new statistical logic to maintain.
+  // ============================================================
+
+  // dayRows must be most-recent-first (array adjacency == calendar
+  // adjacency, since lastNDateKeys() steps back one day at a time).
+  function buildLaggedDayRows(dayRows) {
+    const out = [];
+    for (let i = 0; i < dayRows.length - 1; i++) {
+      out.push({
+        dateKey: dayRows[i].dateKey,
+        outcomeFeeling: dayRows[i].outcomeFeeling,
+        outcomeStress: dayRows[i].outcomeStress,
+        factors: dayRows[i + 1].factors,
+      });
+    }
+    return out;
+  }
+
+  // Only the NEGATIVE effects matter here — a "trigger" is something that
+  // precedes a worse day, not a positive precursor (those already surface
+  // in Patterns above).
+  function computeEmotionalTriggers(dayRows) {
+    return computeAllEffects(buildLaggedDayRows(dayRows)).filter(e => e.goodnessDiff < 0);
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
     computeTimeToGoal, computeDrift, computeOverallAdherence, computeAdherenceTrend, computeHabitAdherence,
-    classifyDayMode, computeModeBreakdown, computeCurrentMode,
+    classifyDayMode, computeModeBreakdown, computeCurrentMode, buildLaggedDayRows, computeEmotionalTriggers,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
     WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
     MODE_LABELS,
@@ -684,6 +726,30 @@
       const li = document.createElement('li');
       li.className = 'pattern-row bad';
       li.innerHTML = '<span class="pattern-icon">📉</span><span>Bad days tend to follow: <b>' + FACTOR_LABELS[e.factorKey] + '</b> — ' + describeEffect(e) + '</span>';
+      listEl.appendChild(li);
+    });
+  }
+
+  function describeTrigger(effect) {
+    const label = FACTOR_LABELS[effect.factorKey];
+    const outcomeName = effect.outcome === 'stress' ? 'stress' : 'feeling';
+    return 'The day after ' + label + ', your ' + outcomeName + ' averaged '
+      + effect.avgWith.toFixed(1) + '/5 vs ' + effect.avgWithout.toFixed(1) + '/5 otherwise ('
+      + effect.nWith + ' vs ' + effect.nWithout + ' days).';
+  }
+
+  function renderEmotionalTriggers(dayRows) {
+    const listEl = document.getElementById('triggerList');
+    const emptyEl = document.getElementById('triggerEmpty');
+    const triggers = computeEmotionalTriggers(dayRows);
+    listEl.innerHTML = '';
+    if (!triggers.length) { emptyEl.style.display = 'block'; return; }
+    emptyEl.style.display = 'none';
+    triggers.slice(0, 3).forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'pattern-row bad';
+      li.innerHTML = '<span class="pattern-icon">⚡</span><span><b>' + FACTOR_LABELS[e.factorKey]
+        + '</b> tends to trigger a worse next day — ' + describeTrigger(e) + '</span>';
       listEl.appendChild(li);
     });
   }
@@ -944,6 +1010,7 @@
       const dayRows = buildDayRows(rowsByKey, dateKeys);
       renderLimiter(dayRows);
       renderPatterns(dayRows);
+      renderEmotionalTriggers(dayRows);
       renderCurrentMode(dayRows);
       renderModeBreakdown(dayRows);
       renderWeightProjection(rowsByKey);
