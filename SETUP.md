@@ -964,6 +964,13 @@ Reuses the exact same bucket-comparison engine as Biggest Limiter above, just fe
 dataset, and only surfaces the negative effects (things that make the next day worse) since
 positive same-day patterns already show up in Patterns.
 
+A **Night Score** is the evening/night counterpart to the home screen's Today Score, which only
+covers daytime behaviors (to-dos, habits, workouts) and has no read at all on how the night
+itself went. Weighted composite of sleep hours vs. an 8-hour target, sleep quality, and whether
+caffeine was cut off before 2pm — shown as last night's score plus a 7-night average for context.
+Same "leave a dimension out entirely rather than score it as a zero" principle as Today Score: the
+caffeine dimension only counts at all if you've actually logged caffeine at least once.
+
 This page is being built out further with more sections — check back as those land.
 
 ---

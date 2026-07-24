@@ -106,6 +106,13 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Night Score</div>
+    <div class="gm-card" id="nightScoreCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Mode Breakdown</div>
     <div class="gm-card" id="currentModeCard">
       <div class="pe-empty">Gathering data…</div>
@@ -668,14 +675,58 @@
     return computeAllEffects(buildLaggedDayRows(dayRows)).filter(e => e.goodnessDiff < 0);
   }
 
+  // ============================================================
+  // Night Score — the evening/night counterpart to index.html's Today
+  // Score, which covers daytime behaviors (to-dos, habits, workouts) but
+  // has no read at all on how the NIGHT itself went. A weighted composite
+  // of sleep hours vs. a target, sleep quality, and whether caffeine was
+  // cut off before 2pm — all already logged via Peak/Caffeine, no new
+  // tracking required. Same "leave a dimension out entirely rather than
+  // score it as a zero" principle as Today Score: the caffeine dimension
+  // only counts if the user has ever actually logged caffeine at all.
+  // ============================================================
+
+  const NIGHT_SCORE_TARGET_HOURS = 8;
+  const NIGHT_SCORE_WINDOW_DAYS = 7;
+
+  function tierForNightScore(s) {
+    if (s >= 85) return 'Restorative night';
+    if (s >= 65) return 'Solid night';
+    if (s >= 45) return 'Rough night';
+    return 'Wrecked night';
+  }
+
+  // dayRow's sleepHours/sleepQuality already represent the night just
+  // ended (Peak's morning check-in tags them with the wake-up day), so no
+  // date-shifting is needed here — dayRow IS "last night" from that day's
+  // point of view.
+  function computeNightScore(dayRow, caffeineTracked) {
+    if (dayRow.sleepHours == null && dayRow.sleepQuality == null) return null;
+    const parts = [];
+    if (dayRow.sleepHours != null) parts.push({ weight: 35, ratio: Math.min(1, dayRow.sleepHours / NIGHT_SCORE_TARGET_HOURS) });
+    if (dayRow.sleepQuality != null) parts.push({ weight: 35, ratio: dayRow.sleepQuality / 5 });
+    if (caffeineTracked) parts.push({ weight: 30, ratio: dayRow.factors.lateCaffeine ? 0 : 1 });
+    const weightTotal = parts.reduce((a, p) => a + p.weight, 0);
+    const weightedSum = parts.reduce((a, p) => a + p.ratio * p.weight, 0);
+    return Math.round((weightedSum / weightTotal) * 100);
+  }
+
+  // dayRows must be most-recent-first.
+  function computeNightScoreTrend(dayRows, caffeineTracked, windowDays) {
+    const scores = dayRows.slice(0, windowDays).map(r => computeNightScore(r, caffeineTracked)).filter(s => s != null);
+    if (!scores.length) return null;
+    return { latest: scores[0], avg: avg(scores), n: scores.length };
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
     computeTimeToGoal, computeDrift, computeOverallAdherence, computeAdherenceTrend, computeHabitAdherence,
     classifyDayMode, computeModeBreakdown, computeCurrentMode, buildLaggedDayRows, computeEmotionalTriggers,
+    computeNightScore, computeNightScoreTrend, tierForNightScore,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
     WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
-    MODE_LABELS,
+    MODE_LABELS, NIGHT_SCORE_TARGET_HOURS, NIGHT_SCORE_WINDOW_DAYS,
   };
 
   // ---- Rendering ----
@@ -728,6 +779,19 @@
       li.innerHTML = '<span class="pattern-icon">📉</span><span>Bad days tend to follow: <b>' + FACTOR_LABELS[e.factorKey] + '</b> — ' + describeEffect(e) + '</span>';
       listEl.appendChild(li);
     });
+  }
+
+  function renderNightScore(dayRows, rowsByKey) {
+    const el = document.getElementById('nightScoreCard');
+    const caffeineTracked = ((rowsByKey.caffeine || {})['caf:logs'] || []).length > 0;
+    const trend = computeNightScoreTrend(dayRows, caffeineTracked, NIGHT_SCORE_WINDOW_DAYS);
+    if (!trend) {
+      el.innerHTML = '<div class="pe-empty">Log a morning check-in in Peak to see your Night Score.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="pe-headline">Last night: ' + trend.latest + '/100 — ' + tierForNightScore(trend.latest) + '</div>'
+      + '<div class="pe-detail">' + NIGHT_SCORE_WINDOW_DAYS + '-night average: ' + Math.round(trend.avg)
+      + '/100, based on ' + trend.n + ' logged night' + (trend.n === 1 ? '' : 's') + '.</div>';
   }
 
   function describeTrigger(effect) {
@@ -1011,6 +1075,7 @@
       renderLimiter(dayRows);
       renderPatterns(dayRows);
       renderEmotionalTriggers(dayRows);
+      renderNightScore(dayRows, rowsByKey);
       renderCurrentMode(dayRows);
       renderModeBreakdown(dayRows);
       renderWeightProjection(rowsByKey);
