@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Insights · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="design-system.css">
+
+<style>
+/* Page-specific only — shared tokens/components live in design-system.css. */
+.limiter-headline { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.limiter-detail { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin-bottom: 10px; }
+.limiter-fix {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+  padding: 12px 14px; border-radius: 10px;
+  background: rgba(var(--hud-rgb), 0.06); border: 1px solid var(--hud-line);
+}
+.pattern-list { list-style: none; margin: 0; padding: 0; }
+.pattern-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; margin-bottom: 6px;
+  background: rgba(var(--hud-rgb), 0.03); border: 1px solid var(--hud-line-soft);
+  border-radius: 10px; font-size: 13px; line-height: 1.5;
+}
+.pattern-icon { flex-shrink: 0; font-size: 15px; line-height: 1.4; }
+.pattern-row.good { border-color: rgba(63,224,168,0.25); }
+.pattern-row.bad { border-color: rgba(255,84,112,0.22); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <a class="back-link" href="index.html">← Dashboard</a>
+  <h1 class="dash-title">Insights</h1>
+
+  <div class="section">
+    <div class="section-title">Biggest Limiter</div>
+    <div class="gm-card" id="limiterCard">
+      <div class="limiter-headline" id="limiterHeadline">Gathering data…</div>
+      <div class="limiter-detail" id="limiterDetail"></div>
+      <div class="limiter-fix" id="limiterFix" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Patterns</div>
+    <div class="gm-card">
+      <ul class="pattern-list" id="patternList"></ul>
+      <div class="empty-state" id="patternEmpty" style="display:none">Not enough history yet to spot a real pattern — check back after a few more weeks of logging.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // Day-level dataset + bottleneck/pattern detector.
+  //
+  // Generalizes the caffeine/sleep and gym/mood correlations already used
+  // elsewhere (peak.html's Insights tab, the morning briefing's actionable
+  // line) into a ranked comparison across several candidate factors at
+  // once, instead of a couple of hardcoded pairs — same "two buckets,
+  // minimum sample size, meaningful difference" statistical approach, just
+  // run over every factor below and sorted by effect size so the single
+  // strongest one can be called out as "what's actually holding you back"
+  // rather than making you notice it yourself.
+  // ============================================================
+
+  const WINDOW_DAYS = 60;
+  const MIN_SAMPLES = 5;
+  const MEANINGFUL_DIFF = 0.4;
+
+  function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dateKeyFromDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+  function lastNDateKeys(n) {
+    const out = [];
+    const d = new Date();
+    for (let i = 0; i < n; i++) {
+      out.push(dateKeyFromDate(d));
+      d.setDate(d.getDate() - 1);
+    }
+    return out;
+  }
+
+  const FACTOR_LABELS = {
+    goodSleepQuality: 'good sleep quality (4-5/5)',
+    poorSleepQuality: 'poor sleep quality (1-2/5)',
+    lowSleepHours: 'under 6.5 hours of sleep',
+    workoutDone: 'a workout day',
+    lateCaffeine: 'caffeine at/after 2pm',
+    highHabitRate: 'high habit completion (80%+)',
+    lowHabitRate: 'low habit completion (under 50%)',
+    highTodoRate: 'high to-do completion (80%+)',
+    lowTodoRate: 'low to-do completion (under 40%)',
+  };
+
+  const FACTOR_FIXES = {
+    goodSleepQuality: 'Sleep quality is doing more for how you feel than almost anything else tracked here — worth protecting first.',
+    poorSleepQuality: 'Poor-sleep nights are dragging your days down — worth treating your wind-down routine as non-negotiable.',
+    lowSleepHours: 'Nights under 6.5 hours show up clearly the next day — worth protecting more sleep time.',
+    workoutDone: 'Workout days are consistently better days for you — worth prioritizing even a short session on rough weeks.',
+    lateCaffeine: 'Caffeine at/after 2pm shows up in how you feel — worth cutting it off earlier in the day.',
+    highHabitRate: 'Staying on top of your habits correlates with real days-feel-better outcomes, not just a streak number.',
+    lowHabitRate: 'Days you fall behind on habits tend to be rougher days.',
+    highTodoRate: 'Getting through your to-do list correlates with feeling better, not just being "productive."',
+    lowTodoRate: 'Days with a lot left undone on your list tend to be harder days.',
+  };
+
+  // ---- Build one row per day with binary factor signals + an outcome ----
+  function buildDayRows(rowsByKey, dateKeys) {
+    const peakData = rowsByKey.peak || {};
+    const morning = peakData['peak:morning'] || {};
+    const checkins = peakData['peak:checkins'] || [];
+    const gymData = rowsByKey['po-coach'] || {};
+    const doneDays = gymData['po_coach_workout_done'] || {};
+    const caffeineData = rowsByKey.caffeine || {};
+    const cafLogs = caffeineData['caf:logs'] || [];
+    const goalsData = rowsByKey.goals || {};
+    const habitDefs = goalsData['habits:defs'] || [];
+    const habitLog = goalsData['habits:log'] || {};
+
+    const feelingByDay = {}, stressByDay = {};
+    checkins.forEach(c => {
+      if (!c || !c.dateKey) return;
+      if (c.feeling) (feelingByDay[c.dateKey] = feelingByDay[c.dateKey] || []).push(c.feeling);
+      if (c.stress) (stressByDay[c.dateKey] = stressByDay[c.dateKey] || []).push(c.stress);
+    });
+
+    const lateCaffeineDays = new Set();
+    cafLogs.forEach(l => {
+      if (!l || !l.ts) return;
+      const d = new Date(l.ts);
+      if (d.getHours() >= 14) lateCaffeineDays.add(dateKeyFromDate(d));
+    });
+
+    return dateKeys.map(dateKey => {
+      const feelings = feelingByDay[dateKey], stresses = stressByDay[dateKey];
+      const morningEntry = morning[dateKey];
+      const sleepQuality = morningEntry ? morningEntry.sleepQuality : null;
+      const sleepHours = morningEntry ? morningEntry.sleepHours : null;
+      const habitTotal = habitDefs.length;
+      const habitDone = habitTotal ? habitDefs.filter(h => habitLog[h.id] && habitLog[h.id][dateKey]).length : 0;
+      const habitRate = habitTotal ? habitDone / habitTotal : null;
+      const goalsToday = goalsData['goals:' + dateKey] || [];
+      const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
+
+      return {
+        dateKey,
+        outcomeFeeling: feelings && feelings.length ? avg(feelings) : null,
+        outcomeStress: stresses && stresses.length ? avg(stresses) : null,
+        factors: {
+          goodSleepQuality: sleepQuality != null ? sleepQuality >= 4 : null,
+          poorSleepQuality: sleepQuality != null ? sleepQuality <= 2 : null,
+          lowSleepHours: sleepHours != null ? sleepHours < 6.5 : null,
+          workoutDone: !!doneDays[dateKey],
+          lateCaffeine: lateCaffeineDays.has(dateKey),
+          highHabitRate: habitRate != null ? habitRate >= 0.8 : null,
+          lowHabitRate: habitRate != null ? habitRate < 0.5 : null,
+          highTodoRate: todoRate != null ? todoRate >= 0.8 : null,
+          lowTodoRate: todoRate != null ? todoRate < 0.4 : null,
+        },
+      };
+    });
+  }
+
+  // goodnessDiff is normalized so positive ALWAYS means "this factor being
+  // present correlates with a better day", regardless of whether the
+  // outcome is feeling (higher = better) or stress (lower = better) — so
+  // callers never need to remember which direction a given outcome runs.
+  function computeFactorEffect(dayRows, factorKey, outcomeKey) {
+    const withF = [], withoutF = [];
+    dayRows.forEach(d => {
+      const f = d.factors[factorKey], o = d[outcomeKey];
+      if (f == null || o == null) return;
+      (f ? withF : withoutF).push(o);
+    });
+    if (withF.length < MIN_SAMPLES || withoutF.length < MIN_SAMPLES) return null;
+    const avgWith = avg(withF), avgWithout = avg(withoutF);
+    const rawDiff = avgWith - avgWithout;
+    const goodnessDiff = outcomeKey === 'outcomeStress' ? -rawDiff : rawDiff;
+    return {
+      factorKey, outcome: outcomeKey === 'outcomeStress' ? 'stress' : 'feeling',
+      avgWith, avgWithout, goodnessDiff, nWith: withF.length, nWithout: withoutF.length,
+    };
+  }
+
+  function computeAllEffects(dayRows) {
+    const results = [];
+    Object.keys(FACTOR_LABELS).forEach(factorKey => {
+      ['outcomeFeeling', 'outcomeStress'].forEach(outcomeKey => {
+        const effect = computeFactorEffect(dayRows, factorKey, outcomeKey);
+        if (effect && Math.abs(effect.goodnessDiff) >= MEANINGFUL_DIFF) results.push(effect);
+      });
+    });
+    // Strongest effect size first, regardless of direction.
+    results.sort((a, b) => Math.abs(b.goodnessDiff) - Math.abs(a.goodnessDiff));
+    return results;
+  }
+
+  // The single strongest NEGATIVE effect (factor's absence/presence is
+  // actively costing you) — this is "the bottleneck", distinct from the
+  // broader pattern list below which includes positive patterns too.
+  function computeBottleneck(dayRows) {
+    const effects = computeAllEffects(dayRows);
+    const negative = effects.filter(e => e.goodnessDiff < 0);
+    return negative.length ? negative[0] : null;
+  }
+
+  window.__insightsLogic = {
+    dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
+    FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
+  };
+
+  // ---- Rendering ----
+  function describeEffect(effect) {
+    const label = FACTOR_LABELS[effect.factorKey];
+    const outcomeName = effect.outcome === 'stress' ? 'stress' : 'feeling';
+    const unit = '/5';
+    return 'On days with ' + label + ', your ' + outcomeName + ' averaged '
+      + effect.avgWith.toFixed(1) + unit + ' vs ' + effect.avgWithout.toFixed(1) + unit + ' without ('
+      + effect.nWith + ' vs ' + effect.nWithout + ' days).';
+  }
+
+  function renderLimiter(dayRows) {
+    const headline = document.getElementById('limiterHeadline');
+    const detail = document.getElementById('limiterDetail');
+    const fix = document.getElementById('limiterFix');
+    const bottleneck = computeBottleneck(dayRows);
+    if (!bottleneck) {
+      headline.textContent = 'No clear limiter yet';
+      detail.textContent = 'Nothing tracked is dragging your days down by a meaningful amount right now — or there just isn\'t enough history yet (needs at least 5 days on each side of a comparison).';
+      fix.style.display = 'none';
+      return;
+    }
+    headline.textContent = 'Biggest limiter: ' + FACTOR_LABELS[bottleneck.factorKey];
+    detail.textContent = describeEffect(bottleneck);
+    const fixText = FACTOR_FIXES[bottleneck.factorKey];
+    if (fixText) { fix.textContent = '💡 ' + fixText; fix.style.display = 'block'; }
+    else { fix.style.display = 'none'; }
+  }
+
+  function renderPatterns(dayRows) {
+    const listEl = document.getElementById('patternList');
+    const emptyEl = document.getElementById('patternEmpty');
+    const effects = computeAllEffects(dayRows);
+    listEl.innerHTML = '';
+    if (!effects.length) { emptyEl.style.display = 'block'; return; }
+    emptyEl.style.display = 'none';
+    // Up to 2 positive ("you perform best when") + 2 negative ("bad days follow").
+    const positive = effects.filter(e => e.goodnessDiff > 0).slice(0, 2);
+    const negative = effects.filter(e => e.goodnessDiff < 0).slice(0, 2);
+    positive.forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'pattern-row good';
+      li.innerHTML = '<span class="pattern-icon">📈</span><span>You perform best when: <b>' + FACTOR_LABELS[e.factorKey] + '</b> — ' + describeEffect(e) + '</span>';
+      listEl.appendChild(li);
+    });
+    negative.forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'pattern-row bad';
+      li.innerHTML = '<span class="pattern-icon">📉</span><span>Bad days tend to follow: <b>' + FACTOR_LABELS[e.factorKey] + '</b> — ' + describeEffect(e) + '</span>';
+      listEl.appendChild(li);
+    });
+  }
+
+  // ---- Wiring ----
+  const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+  const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+
+  async function loadAndRender() {
+    if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.indexOf('PASTE-') === 0) {
+      document.getElementById('limiterHeadline').textContent = 'Cloud sync isn\'t configured on this device.';
+      return;
+    }
+    try {
+      const res = await fetch(SUPABASE_URL + '/rest/v1/app_state?select=key,data', {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+      });
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
+      const rows = await res.json();
+      const rowsByKey = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { if (r && r.key) rowsByKey[r.key] = r.data; });
+      const dateKeys = lastNDateKeys(WINDOW_DAYS);
+      const dayRows = buildDayRows(rowsByKey, dateKeys);
+      renderLimiter(dayRows);
+      renderPatterns(dayRows);
+    } catch (e) {
+      document.getElementById('limiterHeadline').textContent = "Couldn't load your data — check your connection.";
+    }
+  }
+
+  loadAndRender();
+})();
+</script>
+</body>
+</html>

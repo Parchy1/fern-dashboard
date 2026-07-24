@@ -894,6 +894,23 @@ notes cap above was fixed for. No setup — this is part of the Telegram Assista
 
 ---
 
+## 17. Insights (optional-by-nature — needs history to say anything)
+
+No setup — works automatically once Supabase sync (step 2) is configured, and once you've got
+enough logged history for it to say anything real. Reflect hub → **🧭 Insights**.
+
+Generalizes the caffeine/sleep and gym/mood correlations already used in Peak's Insights tab and
+the morning briefing's 💡 line into a ranked comparison across several factors at once (sleep
+quality/hours, workouts, late caffeine, habit/to-do completion) against how you actually felt —
+same "two buckets, minimum 5 days each side, meaningful difference" statistical approach, just
+run over everything instead of a couple of hardcoded pairs, so **Biggest Limiter** can name the
+single factor actually dragging your days down instead of you having to notice it, and
+**Patterns** surfaces the "you perform best when X" / "bad days follow Y" lines automatically.
+This page is being built out further with more sections (predictive projections, time-to-goal
+estimates, drift detection, and more) — check back as those land.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -913,4 +930,5 @@ notes cap above was fixed for. No setup — this is part of the Telegram Assista
 14. Data export/backup: nothing to set up — gear icon → Backup on the main page, see step 14 above.
 15. Dashboard-wide search: nothing to set up — 🔍 icon on the main page, see step 15 above.
 16. Life Context: nothing to set up — 🧠 Life Context box on the Reflect hub, see step 16 above.
-17. Change the password in `lock.js`. Done.
+17. Insights: nothing to set up — 🧭 Insights on the Reflect hub, see step 17 above.
+18. Change the password in `lock.js`. Done.
