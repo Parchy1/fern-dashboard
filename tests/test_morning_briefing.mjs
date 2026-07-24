@@ -190,7 +190,13 @@ function freezeClockAt(hour, minute) {
         const u = String(url);
         if (u.includes('/rest/v1/app_state')) {
           if (!opts || !opts.method) {
-            const key = decodeURIComponent(u.match(/key=eq\.([^&]+)/)[1]);
+            // The inactivity-nudge check's all-rows query has no "key=eq."
+            // filter at all — return no rows, which keeps
+            // computeDaysSinceActivity/shouldSendInactivityNudge a no-op so
+            // this integration test stays focused on the morning briefing.
+            const m = u.match(/key=eq\.([^&]+)/);
+            if (!m) return { ok: true, json: async () => [] };
+            const key = decodeURIComponent(m[1]);
             return { ok: true, json: async () => [{ data: rows[key] || null }] };
           }
           const body = JSON.parse(opts.body);

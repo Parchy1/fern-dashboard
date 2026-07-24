@@ -262,6 +262,13 @@ a passive readout. Needs nothing extra to set up (same Peak/Caffeine/Gym data al
 it only shows up once there's at least 5 days of history on both sides of the comparison, and
 picks at most one line so it doesn't turn into a stats dump.
 
+**A separate "haven't heard from you" nudge** fires once nothing in the dashboard has changed for
+`INACTIVITY_NUDGE_DAYS` days (default 3) — a quiet "no pressure, just checking in" message, not a
+guilt trip. It looks across every synced domain, not just to-dos, so it stays accurate without
+listing them out by hand. Repeats at most once every `INACTIVITY_NUDGE_DAYS` days while the
+silence continues, rather than nagging every tick once triggered. Nothing to configure beyond the
+optional env var.
+
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called
@@ -293,6 +300,7 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
 | `SMS_GATEWAY_TO` | your gateway address from step 2, e.g. `5551234567@vtext.com` |
 | `REMINDER_TIMEZONE` | your IANA timezone, e.g. `America/New_York` (default if unset) |
 | `BEDTIME_LOCAL` | 24h `HH:MM`, e.g. `23:00` (default if unset) — the cutoff for nagging, and the anchor for `(PM)`/evening items with no explicit time |
+| `INACTIVITY_NUDGE_DAYS` | optional, default `3` — how many quiet days trigger the "haven't heard from you" nudge, and how often it repeats while the silence continues |
 | `CRON_SECRET` | any random string — **strongly recommended**, see below |
 
 > Carrier gateways aren't as instant or reliable as real SMS — texts can occasionally arrive
