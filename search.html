@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Search · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root {
+  --text-primary: #FAFAFA;
+  --text-secondary: #B8B6B0;
+  --text-tertiary: #76746E;
+  --success: #6BE3A4;
+  --warning: #F2C063;
+  --danger:  #FF6B6B;
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: #050506;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100vh; position: relative; overflow-x: hidden;
+  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
+}
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background:
+    radial-gradient(circle at 82% 14%, rgba(224,118,88,0.16), transparent 45%),
+    radial-gradient(circle at 18% 90%, rgba(180,180,200,0.06), transparent 50%);
+  filter: blur(40px); pointer-events: none; z-index: -2;
+  animation: drift 36s ease-in-out infinite alternate;
+}
+body::after {
+  content: ''; position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
+  background-size: 3px 3px; pointer-events: none; z-index: -1;
+}
+@keyframes drift { 0%{transform:translate3d(0,0,0)} 100%{transform:translate3d(-22px,14px,0)} }
+
+.page { max-width: 700px; margin: 0 auto; }
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-tertiary); text-decoration: none; font-size: 13px; font-weight: 600;
+  margin-bottom: 14px; -webkit-tap-highlight-color: transparent;
+}
+.back-link:hover { color: var(--text-primary); }
+.dash-title {
+  margin: 0 0 14px; font-size: 28px; font-weight: 700; letter-spacing: -0.025em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+}
+.gm-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px; padding: 20px; margin-bottom: 14px;
+  backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.gm-input {
+  width: 100%; padding: 13px 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 15px; outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.gm-input::placeholder { color: var(--text-tertiary); }
+.gm-input:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.search-status { font-size: 12px; color: var(--text-tertiary); margin-top: 10px; }
+
+.result-list { list-style: none; margin: 0; padding: 0; }
+.result-row {
+  display: flex; align-items: flex-start; gap: 12px; text-decoration: none;
+  padding: 12px 14px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  transition: background 0.15s;
+}
+.result-row:hover { background: rgba(255,255,255,0.06); }
+.result-icon { font-size: 18px; line-height: 1.4; flex-shrink: 0; }
+.result-body { min-width: 0; flex: 1; }
+.result-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.result-type {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-tertiary); margin-left: 8px;
+}
+.result-snippet { font-size: 12.5px; color: var(--text-tertiary); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty-state { text-align: center; font-size: 12px; font-style: italic; color: var(--text-tertiary); padding: 24px 0; }
+
+@media (max-width: 480px) {
+  body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
+  .gm-card { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Dashboard</a>
+  <h1 class="dash-title">Search</h1>
+
+  <div class="gm-card">
+    <input class="gm-input" id="searchInput" type="text"
+           placeholder="Search notes, to-dos, reading, finance, business…" autocomplete="off" autofocus>
+    <div class="search-status" id="searchStatus">Loading your data…</div>
+  </div>
+
+  <ul class="result-list" id="resultList"></ul>
+  <div class="empty-state" id="emptyState" style="display:none">Type to search across your whole dashboard.</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Normalizers — each turns one app_state domain's raw data into a
+  // flat list of searchable items. Kept as small pure functions (rather
+  // than one giant loop) so a new domain is a new function + one line in
+  // buildSearchIndex(), not a rewrite of the whole thing. ----
+
+  function normalizeNotes(data) {
+    const items = (data && data['notes:items']) || [];
+    return items.map(n => ({
+      type: 'Note', icon: '📝', title: n.title || 'Untitled',
+      snippet: (n.body || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+      ts: n.updatedAt || 0, href: 'notes.html',
+      searchText: (n.title || '') + ' ' + (n.body || ''),
+    }));
+  }
+
+  function normalizeTodos(data) {
+    const out = [];
+    ((data && data['recur:defs']) || []).forEach(d => out.push({
+      type: 'Recurring', icon: '🔁', title: d.name,
+      snippet: d.freq ? ('Repeats ' + d.freq) : '', ts: 0, href: 'main.html', searchText: d.name || '',
+    }));
+    ((data && data['habits:defs']) || []).forEach(h => out.push({
+      type: 'Habit', icon: '✅', title: h.name, snippet: '', ts: 0, href: 'main.html', searchText: h.name || '',
+    }));
+    Object.keys(data || {}).forEach(k => {
+      if (k.indexOf('goals:') !== 0) return;
+      const dateKey = k.slice('goals:'.length);
+      (data[k] || []).forEach(g => {
+        if (!g || !g.text) return;
+        out.push({
+          type: 'To-do', icon: g.done ? '✔️' : '⬜', title: g.text,
+          snippet: dateKey + (g.done ? ' · done' : ''),
+          ts: new Date(dateKey).getTime() || 0, href: 'main.html', searchText: g.text,
+        });
+      });
+    });
+    return out;
+  }
+
+  function normalizeReading(data) {
+    const items = (data && data['reading:items']) || [];
+    return items.map(it => ({
+      type: 'Reading', icon: it.audiobook ? '🎧' : '📖', title: it.title || 'Untitled',
+      snippet: [it.author, it.notes].filter(Boolean).join(' — ').slice(0, 140),
+      ts: 0, href: 'reading.html',
+      searchText: [it.title, it.author, it.notes].filter(Boolean).join(' '),
+    }));
+  }
+
+  function normalizeFinance(data) {
+    const out = [];
+    ((data && data.purchases) || []).forEach(p => out.push({
+      type: 'Purchase', icon: '🧾', title: p.name || '(unnamed)',
+      snippet: [p.date, p.category].filter(Boolean).join(' · '),
+      ts: p.ts || 0, href: 'finance.html', searchText: [p.name, p.category].filter(Boolean).join(' '),
+    }));
+    ((data && data.subs) || []).forEach(s => out.push({
+      type: 'Subscription', icon: '🔄', title: s.name || '(unnamed)',
+      snippet: s.renewal ? ('Renews ' + s.renewal) : '', ts: 0, href: 'finance.html', searchText: s.name || '',
+    }));
+    ((data && data.wishlist) || []).forEach(w => out.push({
+      type: 'Wishlist', icon: '⭐', title: w.name || '(unnamed)', snippet: '',
+      ts: w.ts || 0, href: 'finance.html', searchText: w.name || '',
+    }));
+    ((data && data.incoming_orders) || []).forEach(o => out.push({
+      type: 'Order', icon: '📦', title: o.name || '(unnamed)', snippet: '',
+      ts: o.ts || 0, href: 'finance.html', searchText: o.name || '',
+    }));
+    return out;
+  }
+
+  function normalizeBusiness(data) {
+    const out = [];
+    ((data && data['biz:affiliate:commitments']) || []).forEach(c => out.push({
+      type: 'Commitment', icon: '🤝', title: c.label || '(unnamed)', snippet: 'Affiliate',
+      ts: 0, href: 'business.html', searchText: c.label || '',
+    }));
+    ((data && data['biz:editing:clients']) || []).forEach(c => out.push({
+      type: 'Client', icon: '👤', title: c.name || '(unnamed)',
+      snippet: [c.contact, c.deliverablesDesc].filter(Boolean).join(' — ').slice(0, 140),
+      ts: 0, href: 'business.html', searchText: [c.name, c.contact, c.deliverablesDesc].filter(Boolean).join(' '),
+    }));
+    return out;
+  }
+
+  function buildSearchIndex(rowsByKey) {
+    return []
+      .concat(normalizeNotes(rowsByKey.notes))
+      .concat(normalizeTodos(rowsByKey.goals))
+      .concat(normalizeReading(rowsByKey.reading))
+      .concat(normalizeFinance(rowsByKey.finance))
+      .concat(normalizeBusiness(rowsByKey.business));
+  }
+
+  // Title matches rank above snippet-only matches; recency breaks ties
+  // within a rank (items with no timestamp, e.g. recurring items, sort
+  // after everything with a real date rather than jumping to the top).
+  function searchIndex(index, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    return index
+      .filter(item => (item.searchText || '').toLowerCase().indexOf(q) !== -1)
+      .sort((a, b) => {
+        const aTitle = (a.title || '').toLowerCase().indexOf(q) !== -1 ? 1 : 0;
+        const bTitle = (b.title || '').toLowerCase().indexOf(q) !== -1 ? 1 : 0;
+        if (aTitle !== bTitle) return bTitle - aTitle;
+        return (b.ts || 0) - (a.ts || 0);
+      })
+      .slice(0, 100);
+  }
+
+  window.__searchLogic = { normalizeNotes, normalizeTodos, normalizeReading, normalizeFinance, normalizeBusiness, buildSearchIndex, searchIndex };
+
+  // ---- Wiring ----
+  const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+  const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+
+  const inputEl = document.getElementById('searchInput');
+  const statusEl = document.getElementById('searchStatus');
+  const listEl = document.getElementById('resultList');
+  const emptyEl = document.getElementById('emptyState');
+
+  let searchIndexData = [];
+
+  function render(query) {
+    const q = query.trim();
+    listEl.innerHTML = '';
+    if (!q) {
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'Type to search across your whole dashboard.';
+      return;
+    }
+    const results = searchIndex(searchIndexData, q);
+    emptyEl.style.display = results.length ? 'none' : 'block';
+    emptyEl.textContent = "No matches for \"" + q + "\".";
+    results.forEach(item => {
+      const a = document.createElement('a');
+      a.className = 'result-row';
+      a.href = item.href;
+      const icon = document.createElement('span');
+      icon.className = 'result-icon';
+      icon.textContent = item.icon;
+      const body = document.createElement('div');
+      body.className = 'result-body';
+      const title = document.createElement('div');
+      title.className = 'result-title';
+      title.textContent = item.title;
+      const typeTag = document.createElement('span');
+      typeTag.className = 'result-type';
+      typeTag.textContent = item.type;
+      title.appendChild(typeTag);
+      body.appendChild(title);
+      if (item.snippet) {
+        const snippet = document.createElement('div');
+        snippet.className = 'result-snippet';
+        snippet.textContent = item.snippet;
+        body.appendChild(snippet);
+      }
+      a.append(icon, body);
+      listEl.appendChild(a);
+    });
+  }
+
+  let debounceTimer = null;
+  inputEl.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => render(inputEl.value), 120);
+  });
+
+  // Fetches every app_state row fresh from Supabase (not localStorage) so
+  // search works regardless of which pages this device happens to have
+  // visited before — the same reasoning as index.html's Today Score pull.
+  async function loadIndex() {
+    if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.indexOf('PASTE-') === 0) {
+      statusEl.textContent = 'Cloud sync isn\'t configured on this device.';
+      return;
+    }
+    try {
+      const res = await fetch(SUPABASE_URL + '/rest/v1/app_state?select=key,data', {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+      });
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
+      const rows = await res.json();
+      const rowsByKey = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { if (r && r.key) rowsByKey[r.key] = r.data; });
+      searchIndexData = buildSearchIndex(rowsByKey);
+      statusEl.textContent = searchIndexData.length
+        ? ('Searching ' + searchIndexData.length + ' items across notes, to-dos, reading, finance, and business.')
+        : 'No data found yet — add something on any page first.';
+      render(inputEl.value);
+    } catch (e) {
+      statusEl.textContent = "Couldn't load your data — check your connection.";
+    }
+  }
+
+  loadIndex();
+})();
+</script>
+</body>
+</html>

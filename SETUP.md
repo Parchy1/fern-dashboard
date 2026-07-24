@@ -838,6 +838,19 @@ restore rather than expecting them in the export.
 
 ---
 
+## 15. Dashboard-wide search
+
+No setup — works automatically once Supabase sync (step 2) is configured. Tap the 🔍 icon next
+to the gear icon on the main page to open **search.html**, which searches across notes, to-dos
+(recurring items, habits, and dated goals), reading, finance (purchases, subscriptions, wishlist,
+orders), and business (clients, commitments) all at once — distinct from the notes-only semantic
+search in step 10, this is plain keyword matching across everything, always available even
+without `NOTES_EMBED_SECRET` configured. Reads fresh from Supabase on load (not just whatever's
+cached in this browser's localStorage), so it's complete regardless of which pages you've
+actually opened on this device.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -855,4 +868,5 @@ restore rather than expecting them in the export.
 12. (Optional) Voice journaling & AI reflection in Notes: `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env vars (same ones as steps 8 & 10), see step 12 above.
 13. (Optional) Auto-fill audiobook runtime from YouTube: `YOUTUBE_API_KEY`/`YOUTUBE_LOOKUP_SECRET` env vars, see step 13 above.
 14. Data export/backup: nothing to set up — gear icon → Backup on the main page, see step 14 above.
-15. Change the password in `lock.js`. Done.
+15. Dashboard-wide search: nothing to set up — 🔍 icon on the main page, see step 15 above.
+16. Change the password in `lock.js`. Done.
