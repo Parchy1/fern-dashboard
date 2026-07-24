@@ -851,6 +851,27 @@ actually opened on this device.
 
 ---
 
+## 16. Life Context (personal context for the assistant)
+
+No setup — works automatically once Supabase sync (step 2) is configured. On the **Reflect**
+hub, there's now a **🧠 Life Context** box: free-form text about anything ongoing you want the
+Telegram Assistant and Notes' 💭 Reflect to just already know — relationships, current
+situations, goals, preferences — instead of re-explaining it every conversation. It's synced
+like everything else and gets passed to Claude as a `lifeContext` field alongside the rest of
+your dashboard data.
+
+Separately, both of those features already read your **recent notes** automatically — no setup
+needed there either, and nothing changed about what you have to do. What did change: the raw
+`notes:items` list used to be sent to Claude in full, on every single message, with no limit —
+harmless at first, but a real, growing cost the more you journal (especially with voice
+journaling, step 12, generating real text over time). It's now capped to your ~20 most recently
+edited notes with long ones truncated, which is still plenty to pick up on what's actually been
+on your mind lately without the per-message cost quietly climbing forever. `add_note` itself is
+unaffected — it always reads/writes the real, complete notes list; only what gets shown to
+Claude as background context is capped.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -869,4 +890,5 @@ actually opened on this device.
 13. (Optional) Auto-fill audiobook runtime from YouTube: `YOUTUBE_API_KEY`/`YOUTUBE_LOOKUP_SECRET` env vars, see step 13 above.
 14. Data export/backup: nothing to set up — gear icon → Backup on the main page, see step 14 above.
 15. Dashboard-wide search: nothing to set up — 🔍 icon on the main page, see step 15 above.
-16. Change the password in `lock.js`. Done.
+16. Life Context: nothing to set up — 🧠 Life Context box on the Reflect hub, see step 16 above.
+17. Change the password in `lock.js`. Done.

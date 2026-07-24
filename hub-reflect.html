@@ -127,6 +127,29 @@ body::after {
 }
 .tile:hover .tile-arrow { transform: translateX(4px); }
 
+.gm-card {
+  position: relative;
+  background: rgba(255,255,255,0.04);
+  border-radius: 16px; padding: 20px; margin-bottom: 18px;
+  backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.lc-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-tertiary); margin-bottom: 8px;
+}
+.lc-hint { font-size: 12.5px; color: var(--text-tertiary); margin-bottom: 12px; line-height: 1.5; }
+.lc-textarea {
+  width: 100%; min-height: 110px; padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+  background: rgba(0,0,0,0.28); color: var(--text-primary);
+  font-family: inherit; font-size: 14px; line-height: 1.6; outline: none; resize: vertical;
+  transition: border-color 0.2s, background 0.2s;
+}
+.lc-textarea::placeholder { color: var(--text-tertiary); }
+.lc-textarea:focus { border-color: rgba(255,255,255,0.28); background: rgba(0,0,0,0.36); }
+.lc-status { font-size: 11px; color: var(--text-tertiary); margin-top: 8px; min-height: 14px; }
+
 @media (max-width: 720px) {
   .bento { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 150px; }
   .tile.big { grid-column: span 2; grid-row: span 1; }
@@ -144,6 +167,18 @@ body::after {
 
   <a class="back-link" href="index.html">← Dashboard</a>
   <h1 class="dash-title">Reflect</h1>
+
+  <div class="gm-card">
+    <div class="lc-label">🧠 Life Context</div>
+    <div class="lc-hint">
+      Anything ongoing you want the assistant (Telegram, Notes' 💭 Reflect) to just already know —
+      relationships, current situations, goals, preferences — instead of explaining it every time.
+      It also already reads your recent notes on its own; this is for things worth stating directly.
+    </div>
+    <textarea class="lc-textarea" id="lifeContextInput"
+      placeholder="e.g. Training for a marathon in October. My sister just had a baby. Trying to spend less on takeout this quarter…"></textarea>
+    <div class="lc-status" id="lifeContextStatus"></div>
+  </div>
 
   <div class="bento">
     <!-- Wide tile -->
@@ -203,5 +238,45 @@ body::after {
     </a>
   </div>
 </div>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORE_KEY = 'life_context:text';
+  const inputEl = document.getElementById('lifeContextInput');
+  const statusEl = document.getElementById('lifeContextStatus');
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || ''; }
+    catch (e) { return ''; }
+  }
+  function save(text) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(text));
+  }
+
+  inputEl.value = load();
+
+  let saveTimer = null;
+  inputEl.addEventListener('input', () => {
+    statusEl.textContent = '';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      save(inputEl.value);
+      statusEl.textContent = 'Saved ✓';
+      setTimeout(() => { statusEl.textContent = ''; }, 1800);
+    }, 600);
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.initCloudSync) return;
+    window.initCloudSync({
+      appKey: 'life_context',
+      syncedKeys: [STORE_KEY],
+      onApplied: () => { inputEl.value = load(); },
+    });
+  });
+})();
+</script>
 </body>
 </html>
