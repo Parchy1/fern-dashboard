@@ -906,8 +906,22 @@ same "two buckets, minimum 5 days each side, meaningful difference" statistical 
 run over everything instead of a couple of hardcoded pairs, so **Biggest Limiter** can name the
 single factor actually dragging your days down instead of you having to notice it, and
 **Patterns** surfaces the "you perform best when X" / "bad days follow Y" lines automatically.
-This page is being built out further with more sections (predictive projections, time-to-goal
-estimates, drift detection, and more) — check back as those land.
+
+Below that, a **Predictive Engine** section adds three passively-derived cards — nothing here
+requires logging anything new, it's all built from data the other trackers already collect:
+
+- **Weight Projection** — fits a least-squares trend line to your logged Gym weigh-ins (same
+  linear-regression approach Finance uses for net-worth forecasting) and projects where you'll
+  land in 30 days at the current rate. Needs at least 3 weigh-ins in the trailing 45 days.
+- **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
+  morning check-in, so you can see the accumulated deficit rather than just one bad night at a
+  time. Needs at least 5 logged nights.
+- **Burnout Risk** — compares this week to last week across three signals (rising stress, falling
+  sleep quality, slipping habit/to-do consistency) and reports Low / Moderate / Elevated. Needs at
+  least one comparable pair of weeks with overlapping data.
+
+This page is being built out further with more sections (time-to-goal estimates, drift detection,
+and more) — check back as those land.
 
 ---
 

@@ -75,11 +75,17 @@ function buildDayRows(rowsByKey, dateKeys) {
     const habitRate = habitTotal ? habitDone / habitTotal : null;
     const goalsToday = goalsData['goals:' + dateKey] || [];
     const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
+    const consistencyParts = [habitRate, todoRate].filter(v => v != null);
 
     return {
       dateKey,
       outcomeFeeling: feelings && feelings.length ? avg(feelings) : null,
       outcomeStress: stresses && stresses.length ? avg(stresses) : null,
+      sleepQuality: sleepQuality != null ? sleepQuality : null,
+      sleepHours: sleepHours != null ? sleepHours : null,
+      habitRate: habitRate,
+      todoRate: todoRate,
+      consistencyRate: consistencyParts.length ? avg(consistencyParts) : null,
       factors: {
         goodSleepQuality: sleepQuality != null ? sleepQuality >= 4 : null,
         poorSleepQuality: sleepQuality != null ? sleepQuality <= 2 : null,
@@ -168,6 +174,13 @@ function computeBottleneck(dayRows) {
   assertEq(day2.factors.lowSleepHours, true, '5.5 hours counts as low');
   assertEq(day2.factors.workoutDone, false, 'a day with no logged workout is false, not null');
   assertEq(day2.outcomeFeeling, null, 'a day with no checkins has a null outcome rather than 0');
+
+  assertEq(day1.habitRate, 0.5, 'raw habitRate is exposed (1 of 2 habits done)');
+  assertEq(day1.todoRate, 0.5, 'raw todoRate is exposed (1 of 2 to-dos done)');
+  assertEq(day1.consistencyRate, 0.5, 'consistencyRate averages habitRate and todoRate');
+  assertEq(day2.sleepQuality, 2, 'raw sleepQuality is exposed');
+  assertEq(day2.sleepHours, 5.5, 'raw sleepHours is exposed');
+  assertEq(day2.consistencyRate, 0, 'a day with defined habits but none completed has a consistencyRate of 0, not null (habitRate is a real 0, not missing data)');
 }
 
 // ==================== computeFactorEffect ====================
