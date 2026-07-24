@@ -166,6 +166,7 @@ async function writeRow(key, data) {
 const ROW_LABELS = {
   goals: 'to-dos/habits/recurring items', health: 'health/supplements/food log', 'po-coach': 'gym/fitness data',
   finance: 'finance', business: 'business', reading: 'reading', peak: 'Peak', caffeine: 'caffeine/nicotine', notes: 'notes',
+  assistant_memory: 'assistant memory',
 };
 // Read-modify-write in one step: `mutate` receives the row's current data
 // object (safe to mutate directly) and its return value (if any) is passed
@@ -652,6 +653,24 @@ const TOOLS = [
         body: { type: 'string' },
       },
       required: ['body'],
+    },
+  },
+  {
+    name: 'remember',
+    description: 'Saves a short durable observation about the user\'s life to your own long-term memory, carried into every future conversation (not just this one) via the assistantMemory context field — a stated preference, an ongoing situation, a plan, something worth actually recalling later. Only for things NOT already captured by logging into another tracker (a workout, a purchase, a to-do) and not just restating the Life Context box — this is for what YOU pick up on through conversation, the way a person remembers things they\'ve been told without needing them repeated. Don\'t call this for routine chat or one-off small talk.',
+    input_schema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'One short, self-contained observation, not a whole conversation summary' } },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'forget_memory',
+    description: 'Removes a previously remembered observation that\'s now stale, wrong, or superseded (a plan changed, a fact was corrected) — e.g. the user says "actually that\'s not happening anymore" or corrects something you brought up from memory. Pass whatever word or phrase identifies the entry to remove (loose substring match, same as elsewhere).',
+    input_schema: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
     },
   },
   {
@@ -1441,6 +1460,49 @@ async function execAddNote(args) {
   });
 }
 
+// ---------- Assistant memory ----------
+// Everything else here is a stateless read of current dashboard data plus
+// whatever's manually written in the Life Context box — nothing the
+// assistant itself notices ever persists between conversations. remember()
+// lets it write a durable observation (a stated preference, an ongoing
+// situation, a plan) back to its own small memory row, surfaced in every
+// future buildContext() call via context.assistantMemory. Bounded on both
+// axes (entry count AND per-entry length) so this can't grow into the same
+// unbounded-cost problem the raw notes array was fixed for — a rolling
+// window of recent observations, not a permanent transcript.
+const MAX_MEMORY_ENTRIES = 40;
+const MAX_MEMORY_TEXT_CHARS = 300;
+
+async function execRemember(args) {
+  const text = String((args && args.text) || '').trim().slice(0, MAX_MEMORY_TEXT_CHARS);
+  if (!text) return { ok: false, reason: 'nothing to remember' };
+  return patchRow('assistant_memory', (data) => {
+    const entries = data['memory:entries'] || [];
+    entries.push({ text, ts: Date.now() });
+    // Oldest-first array — slicing from the end keeps the most recent N
+    // rather than dropping whatever was just added.
+    data['memory:entries'] = entries.slice(-MAX_MEMORY_ENTRIES);
+    return { ok: true, text };
+  });
+}
+
+// Removes any remembered entry whose text contains the given query
+// (case-insensitive, loose match — same convention as name-matching
+// elsewhere in this file) — for when something remembered is now stale or
+// wrong (a plan changed, a fact was corrected) rather than letting
+// contradictory entries pile up silently.
+async function execForgetMemory(args) {
+  const query = String((args && args.query) || '').trim().toLowerCase();
+  if (!query) return { ok: false, reason: 'nothing to forget' };
+  return patchRow('assistant_memory', (data) => {
+    const entries = data['memory:entries'] || [];
+    const before = entries.length;
+    data['memory:entries'] = entries.filter(e => !(e && e.text || '').toLowerCase().includes(query));
+    const removed = before - data['memory:entries'].length;
+    return { ok: removed > 0, removed };
+  });
+}
+
 const TOOL_EXECUTORS = {
   log_purchase: execLogPurchase,
   add_todo: execAddTodo,
@@ -1474,6 +1536,8 @@ const TOOL_EXECUTORS = {
   log_caffeine: execLogCaffeine,
   log_nicotine: execLogNicotine,
   add_note: execAddNote,
+  remember: execRemember,
+  forget_memory: execForgetMemory,
   undo_last_action: execUndoLastAction,
   create_calendar_event: execCreateCalendarEvent,
   update_calendar_event: execUpdateCalendarEvent,
@@ -1638,7 +1702,7 @@ function summarizeNotesForContext(notesData) {
 
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
-  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes', 'life_context'];
+  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes', 'life_context', 'assistant_memory'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });
@@ -1647,6 +1711,11 @@ async function buildContext() {
   // shape sync.js stores it in — one less layer for the prompt to parse.
   context.lifeContext = (context.life_context && context.life_context['life_context:text']) || '';
   delete context.life_context;
+  // Same flattening for the assistant's own remember()/forget_memory() log —
+  // a plain array of { text, ts } rather than the raw { 'memory:entries': … }
+  // row shape.
+  context.assistantMemory = (context.assistant_memory && context.assistant_memory['memory:entries']) || [];
+  delete context.assistant_memory;
   const google = await buildGoogleContext();
   if (google) context.google = google;
   const usage = summarizeApiUsage(await readRow(USAGE_KEY).catch(() => null));
@@ -1716,7 +1785,15 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'already know — the same way you\'d remember something a person told you before rather than needing it repeated '
   + 'every time; weave it into how you respond when relevant, don\'t recite it back or treat it as a checklist. The '
   + '"notes" key\'s notes:items is capped to the ~20 most recently edited notes with long ones truncated (not your '
-  + 'whole notes history) — enough to pick up on what\'s actually been on their mind lately, not a full archive.'
+  + 'whole notes history) — enough to pick up on what\'s actually been on their mind lately, not a full archive. '
+  + 'An "assistantMemory" key is YOUR OWN growing log of things you\'ve noted across past conversations via '
+  + 'remember() — genuinely different from lifeContext (which the user writes themselves) since this is what '
+  + 'you\'ve picked up on unprompted, the way a person accumulates an understanding of someone over time. Use it '
+  + 'the same way: weave it in naturally, don\'t recite entries back verbatim, and if two entries seem to '
+  + 'contradict, trust the more recent one. Call remember() when the user shares something durable worth carrying '
+  + 'into future conversations — a stated preference, an ongoing situation, a plan — that ISN\'T already covered by '
+  + 'logging into another tracker and isn\'t just restating Life Context; don\'t call it for routine chat. Call '
+  + 'forget_memory() when something remembered is corrected or no longer true.'
   + '\n\nCurrent dashboard data:\n';
 
 // userContent is either a plain string (a normal text message) or an array
