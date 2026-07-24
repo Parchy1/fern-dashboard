@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Mistake / Risk Log · Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<link rel="stylesheet" href="design-system.css">
+
+<style>
+/* Page-specific only — shared tokens/components live in design-system.css. */
+.mr-select {
+  flex: none; width: auto; cursor: pointer;
+  padding: 11px 14px;
+  border: 1px solid var(--hud-line);
+  border-radius: 10px; background: rgba(0,0,0,0.28);
+  color: var(--text-primary);
+  font-family: inherit; font-size: 14px; outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.mr-select:focus { border-color: var(--hud); background: rgba(0,0,0,0.36); }
+.mr-textarea {
+  width: 100%; min-height: 70px; padding: 12px 14px;
+  border: 1px solid var(--hud-line); border-radius: 10px;
+  background: rgba(0,0,0,0.28); color: var(--text-primary);
+  font-family: inherit; font-size: 14px; line-height: 1.6; outline: none; resize: vertical;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 10px;
+}
+.mr-textarea::placeholder { color: var(--text-tertiary); }
+.mr-textarea:focus { border-color: var(--hud); background: rgba(0,0,0,0.36); }
+.mr-form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+
+.mr-list { list-style: none; margin: 0; padding: 0; }
+.mr-row {
+  padding: 14px; margin-bottom: 8px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+.mr-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.mr-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.mr-badge.sev-minor    { background: rgba(94,234,212,0.15); color: #5EEAD4; }
+.mr-badge.sev-moderate { background: rgba(251,191,36,0.15); color: #FBBF24; }
+.mr-badge.sev-major    { background: rgba(255,84,112,0.15); color: #FF5470; }
+.mr-category { font-size: 11px; color: var(--text-tertiary); }
+.mr-date { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+.mr-desc { font-size: 14px; color: var(--text-primary); line-height: 1.5; margin-bottom: 6px; white-space: pre-wrap; }
+.mr-lesson {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap;
+  padding: 10px 12px; border-radius: 8px;
+  background: rgba(var(--hud-rgb), 0.06); border: 1px solid var(--hud-line-soft);
+}
+.mr-lesson-label { font-weight: 700; color: var(--hud); }
+.mr-delete {
+  border: 0; background: transparent; color: var(--text-tertiary);
+  font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+  transition: color 0.15s;
+}
+.mr-delete:hover { color: #FF5470; }
+.gm-status { font-size: 11px; color: var(--text-tertiary); min-height: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Dashboard</a>
+  <h1 class="dash-title">Mistake / Risk Log</h1>
+
+  <div class="section">
+    <div class="section-title">Log a new entry</div>
+    <div class="gm-card">
+      <textarea class="mr-textarea" id="mrDescription" placeholder="What happened? What was the mistake or risk taken?"></textarea>
+      <textarea class="mr-textarea" id="mrLesson" placeholder="What did you learn? What would you do differently next time? (optional)"></textarea>
+      <div class="mr-form-row">
+        <select class="mr-select" id="mrCategory">
+          <option value="Financial">💰 Financial</option>
+          <option value="Health">🩺 Health</option>
+          <option value="Relationships">🤝 Relationships</option>
+          <option value="Work/Business">💼 Work/Business</option>
+          <option value="Other">🔹 Other</option>
+        </select>
+        <select class="mr-select" id="mrSeverity">
+          <option value="minor">Minor</option>
+          <option value="moderate" selected>Moderate</option>
+          <option value="major">Major</option>
+        </select>
+      </div>
+      <button type="button" id="mrAddBtn" class="gm-add">+ Log entry</button>
+      <div class="gm-status" id="mrStatus"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">History</div>
+    <ul class="mr-list" id="mrList"></ul>
+    <div class="empty-state" id="mrEmpty">No entries logged yet — mistakes and near-misses are only underrated until you write down what you learned from them.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORE_KEY = 'mistakes:items';
+  const SEVERITY_LABELS = { minor: 'Minor', moderate: 'Moderate', major: 'Major' };
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function save(items) { localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
+
+  function fmtDate(ts) {
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function render() {
+    const items = load().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const listEl = document.getElementById('mrList');
+    const emptyEl = document.getElementById('mrEmpty');
+    listEl.innerHTML = '';
+    emptyEl.style.display = items.length ? 'none' : 'block';
+
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.className = 'mr-row';
+
+      const top = document.createElement('div');
+      top.className = 'mr-row-top';
+
+      const sevBadge = document.createElement('span');
+      sevBadge.className = 'mr-badge sev-' + (item.severity || 'moderate');
+      sevBadge.textContent = SEVERITY_LABELS[item.severity] || 'Moderate';
+      top.appendChild(sevBadge);
+
+      const cat = document.createElement('span');
+      cat.className = 'mr-category';
+      cat.textContent = item.category || 'Other';
+      top.appendChild(cat);
+
+      const date = document.createElement('span');
+      date.className = 'mr-date';
+      date.textContent = fmtDate(item.ts);
+      top.appendChild(date);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'mr-delete';
+      del.setAttribute('aria-label', 'Delete entry');
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        const all = load();
+        const idx = all.findIndex(g => g.id === item.id);
+        if (idx !== -1) { all.splice(idx, 1); save(all); render(); }
+      });
+      top.appendChild(del);
+
+      li.appendChild(top);
+
+      const desc = document.createElement('div');
+      desc.className = 'mr-desc';
+      desc.textContent = item.description || '';
+      li.appendChild(desc);
+
+      if (item.lesson) {
+        const lesson = document.createElement('div');
+        lesson.className = 'mr-lesson';
+        const label = document.createElement('span');
+        label.className = 'mr-lesson-label';
+        label.textContent = 'Lesson: ';
+        lesson.appendChild(label);
+        lesson.appendChild(document.createTextNode(item.lesson));
+        li.appendChild(lesson);
+      }
+
+      listEl.appendChild(li);
+    });
+  }
+
+  function showStatus(message) {
+    const el = document.getElementById('mrStatus');
+    el.textContent = message;
+    setTimeout(() => { el.textContent = ''; }, 2200);
+  }
+
+  document.getElementById('mrAddBtn').addEventListener('click', () => {
+    const descEl = document.getElementById('mrDescription');
+    const lessonEl = document.getElementById('mrLesson');
+    const description = descEl.value.trim();
+    if (!description) { showStatus('Add a description first.'); return; }
+    const items = load();
+    items.push({
+      id: 'mr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      ts: Date.now(),
+      description,
+      lesson: lessonEl.value.trim(),
+      category: document.getElementById('mrCategory').value,
+      severity: document.getElementById('mrSeverity').value,
+    });
+    save(items);
+    descEl.value = '';
+    lessonEl.value = '';
+    render();
+    showStatus('Logged ✓');
+  });
+
+  render();
+
+  // window.initCloudSync isn't guaranteed loaded yet at this point (sync.js
+  // is deferred) — DOMContentLoaded fires after all deferred scripts run,
+  // so it's safe to check for it there rather than synchronously here.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.initCloudSync) return;
+    window.initCloudSync({
+      appKey: 'mistakes',
+      syncedKeys: [STORE_KEY],
+      onApplied: () => render(),
+    });
+  });
+})();
+</script>
+</body>
+</html>
