@@ -11,44 +11,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
+<link rel="stylesheet" href="design-system.css">
 
 <style>
-:root {
-  --text-primary: #FAFAFA;
-  --text-secondary: #B8B6B0;
-  --text-tertiary: #76746E;
-  --success: #6BE3A4;
-  --warning: #F2C063;
-  --danger:  #FF6B6B;
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-* { box-sizing: border-box; }
-html, body {
-  margin: 0; padding: 0;
-  background: #050506;
-  color: var(--text-secondary);
-  font-family: var(--font);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-body {
-  min-height: 100vh; position: relative; overflow-x: hidden;
-  padding: max(28px, env(safe-area-inset-top)) 20px 60px;
-}
-.page { max-width: 640px; margin: 0 auto; }
-.back-link {
-  display: inline-flex; align-items: center; gap: 6px;
-  color: var(--text-tertiary); text-decoration: none; font-size: 13px; font-weight: 600;
-  margin-bottom: 14px; -webkit-tap-highlight-color: transparent;
-}
-.back-link:hover { color: var(--text-primary); }
-.dash-title {
-  margin: 0 0 22px; font-size: 28px; font-weight: 700; letter-spacing: -0.025em;
-  background: linear-gradient(180deg, #FFFFFF 0%, #C7C4BC 120%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
+/* Page-specific only — shared tokens/components now live in design-system.css. */
+.page { max-width: 640px; }
+.dash-title { margin: 0 0 22px; }
 
 .gc-section { margin-bottom: 20px; }
 .gc-card {

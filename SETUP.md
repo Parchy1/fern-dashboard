@@ -3,6 +3,15 @@
 This is a static dashboard (plain HTML/JS) that deploys on **Vercel** and syncs across your
 devices with **Supabase**. WHOOP is an optional add-on.
 
+**Shared styling** lives in one place: `design-system.css`, linked from every page's `<head>`
+(`<link rel="stylesheet" href="design-system.css">`). It defines the color tokens, `.gm-card`/
+`.tile`/`.bento`/button/input/modal classes, and the HUD visual theme (electric-cyan accents,
+corner brackets, a fine instrument-panel grid) that most pages share — a page's own `<style>`
+block should only contain CSS genuinely specific to that page. `template.html` still shows the
+class reference/cheat sheet for building a new page. A handful of older pages (`health.html`,
+`gym.html`, `finance.html`, `po-water.html`, `nova-lite.html`, `avatar-lab.html`) predate this
+and use their own self-contained theming rather than the shared file — not yet migrated.
+
 ---
 
 ## 1. Fork & deploy
