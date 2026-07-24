@@ -185,7 +185,11 @@ export function shouldSendMorningBriefing(nowMin, briefingMin, bedtimeMin, alrea
 // is an optional one-line nudge from computeActionableInsight() below — a
 // real pattern in your own history worth acting on today, not just a status
 // report (see that function's comment for why it's at most one line).
-export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount, actionableInsight) {
+// driftInsight is an optional one-line nudge from computeDriftInsight()
+// further below — a longer-horizon "you've quietly slipped from your normal
+// baseline over the last couple weeks" signal, distinct from
+// actionableInsight's single-factor correlation callout.
+export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount, actionableInsight, driftInsight) {
   const lines = ['Morning. Here\'s today:'];
   if (todayNames.length) {
     lines.push(todayNames.map(n => '- ' + n).join('\n'));
@@ -203,6 +207,9 @@ export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount, a
   }
   if (actionableInsight) {
     lines.push('💡 ' + actionableInsight);
+  }
+  if (driftInsight) {
+    lines.push('🌊 ' + driftInsight);
   }
   return lines.join('\n\n');
 }
@@ -286,6 +293,91 @@ export function computeActionableInsight(caffeineData, peakData, gymData, workou
     }
   }
   return null;
+}
+
+// ---------- Drift detection ----------
+// A longer-horizon companion to computeActionableInsight above: instead of
+// "here's a correlation in your history," this asks "have your OWN recent
+// patterns quietly slipped from your own established baseline" — the last
+// DRIFT_RECENT_DAYS vs. the DRIFT_BASELINE_DAYS before that, across several
+// tracked rates at once. Entirely passive (no new logging — same raw rows
+// the rest of this file already reads) and only fires when multiple metrics
+// have moved together, so a single noisy day/metric doesn't trigger a false
+// alarm.
+const DRIFT_RECENT_DAYS = 14;
+const DRIFT_BASELINE_DAYS = 60; // total lookback; baseline = the days before the recent window (46 days)
+const DRIFT_MIN_SAMPLES = 7; // minimum days with real data required on each side of a given metric
+const DRIFT_RELATIVE_DROP = 0.25; // a metric must be down at least 25% vs its own baseline to count
+const DRIFT_MIN_METRICS = 2; // at least 2 metrics drifting together before calling it "drift"
+
+function dateKeysBackFromPlain(n, todayPlain) {
+  const [y, m, d] = todayPlain.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push(dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'));
+    dt.setDate(dt.getDate() - 1);
+  }
+  return out;
+}
+
+// dateKeys should be most-recent-first (see dateKeysBackFromPlain above).
+export function computeDriftDayRows(dateKeys, goalsData, gymData, peakData) {
+  const doneDays = (gymData && gymData['po_coach_workout_done']) || {};
+  const habitDefs = (goalsData && goalsData['habits:defs']) || [];
+  const habitLog = (goalsData && goalsData['habits:log']) || {};
+  const morning = (peakData && peakData['peak:morning']) || {};
+
+  return dateKeys.map(dateKey => {
+    const habitTotal = habitDefs.length;
+    const habitDone = habitTotal ? habitDefs.filter(h => habitLog[h.id] && habitLog[h.id][dateKey]).length : 0;
+    const habitRate = habitTotal ? habitDone / habitTotal : null;
+    const goalsToday = (goalsData && goalsData['goals:' + dateKey]) || [];
+    const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
+    const morningEntry = morning[dateKey];
+    return {
+      dateKey,
+      workoutDone: doneDays[dateKey] ? 1 : 0,
+      habitRate,
+      todoRate,
+      sleepQuality: morningEntry ? morningEntry.sleepQuality : null,
+    };
+  });
+}
+
+const DRIFT_METRICS = [
+  { field: 'workoutDone', phrase: (r, b) => 'workouts (' + Math.round(r * 100) + '% of days vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'habitRate', phrase: (r, b) => 'habit completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'todoRate', phrase: (r, b) => 'to-do completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+  { field: 'sleepQuality', phrase: (r, b) => 'sleep quality (' + r.toFixed(1) + '/5 vs ' + b.toFixed(1) + '/5 before)' },
+];
+
+// dayRows must be most-recent-first, at least DRIFT_RECENT_DAYS + DRIFT_MIN_SAMPLES long to find anything.
+export function computeDrift(dayRows) {
+  const recent = dayRows.slice(0, DRIFT_RECENT_DAYS);
+  const baseline = dayRows.slice(DRIFT_RECENT_DAYS, DRIFT_BASELINE_DAYS);
+  const drifted = [];
+  DRIFT_METRICS.forEach(m => {
+    const recentVals = recent.map(r => r[m.field]).filter(v => v != null);
+    const baselineVals = baseline.map(r => r[m.field]).filter(v => v != null);
+    if (recentVals.length < DRIFT_MIN_SAMPLES || baselineVals.length < DRIFT_MIN_SAMPLES) return;
+    const recentAvg = avg(recentVals), baselineAvg = avg(baselineVals);
+    if (!(baselineAvg > 0)) return;
+    const relDrop = (baselineAvg - recentAvg) / baselineAvg;
+    if (relDrop >= DRIFT_RELATIVE_DROP) {
+      drifted.push({ field: m.field, recentAvg, baselineAvg, relDrop, phrase: m.phrase(recentAvg, baselineAvg) });
+    }
+  });
+  drifted.sort((a, b) => b.relDrop - a.relDrop);
+  return drifted;
+}
+
+export function computeDriftInsight(dayRows) {
+  const drifted = computeDrift(dayRows);
+  if (drifted.length < DRIFT_MIN_METRICS) return null;
+  const phrases = drifted.slice(0, 2).map(d => d.phrase);
+  return 'You\'ve drifted from your usual pattern over the last ' + DRIFT_RECENT_DAYS + ' days — '
+    + phrases.join(' and ') + '.';
 }
 
 function parseHM(hm) {
@@ -832,7 +924,11 @@ export default async function handler(req, res) {
       const todayNames = undoneRecurNames.concat(oneOffItems.map(i => i.name));
       const workoutDoneToday = !!((gymData && gymData['po_coach_workout_done'] || {})[todayPlain]);
       const actionableInsight = computeActionableInsight(caffeineData, peakData, gymData, workoutDoneToday);
-      const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length, actionableInsight);
+      // No extra Supabase reads needed — goalsData/gymData/peakData are
+      // already fetched above for computeUndone().
+      const driftDayRows = computeDriftDayRows(dateKeysBackFromPlain(DRIFT_BASELINE_DAYS, todayPlain), goalsData, gymData, peakData);
+      const driftInsight = computeDriftInsight(driftDayRows);
+      const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length, actionableInsight, driftInsight);
       try {
         const result = await sendReminder(body);
         todayState.__morning_briefing__ = true;

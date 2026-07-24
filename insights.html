@@ -86,6 +86,13 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Drift Detection</div>
+    <div class="gm-card" id="driftCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Time to Goal</div>
     <div class="gm-card">
       <div class="goal-row">
@@ -387,6 +394,50 @@
   }
 
   // ============================================================
+  // Drift detection: a longer-horizon companion to burnout risk above.
+  // Burnout risk asks "is this week worse than last week" (acute); drift
+  // asks "have your OWN recent patterns quietly slipped from your OWN
+  // established baseline" over the last DRIFT_RECENT_DAYS vs. the weeks
+  // before that — same server-side port lives in api/send-reminders.js so
+  // the morning briefing/Telegram nudge can act on it too, not just this
+  // page. Only fires when multiple metrics move together so one noisy
+  // stretch doesn't trigger a false alarm.
+  // ============================================================
+
+  const DRIFT_RECENT_DAYS = 14;
+  const DRIFT_BASELINE_DAYS = WINDOW_DAYS; // baseline = the days before the recent window
+  const DRIFT_MIN_SAMPLES = 7;
+  const DRIFT_RELATIVE_DROP = 0.25;
+  const DRIFT_MIN_METRICS = 2;
+
+  const DRIFT_METRICS = [
+    { field: 'workoutDone', get: r => r.factors.workoutDone ? 1 : 0, phrase: (r, b) => 'workouts (' + Math.round(r * 100) + '% of days vs ' + Math.round(b * 100) + '% before)' },
+    { field: 'habitRate', get: r => r.habitRate, phrase: (r, b) => 'habit completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+    { field: 'todoRate', get: r => r.todoRate, phrase: (r, b) => 'to-do completion (' + Math.round(r * 100) + '% vs ' + Math.round(b * 100) + '% before)' },
+    { field: 'sleepQuality', get: r => r.sleepQuality, phrase: (r, b) => 'sleep quality (' + r.toFixed(1) + '/5 vs ' + b.toFixed(1) + '/5 before)' },
+  ];
+
+  // dayRows must be most-recent-first (e.g. the output of buildDayRows over lastNDateKeys()).
+  function computeDrift(dayRows) {
+    const recent = dayRows.slice(0, DRIFT_RECENT_DAYS);
+    const baseline = dayRows.slice(DRIFT_RECENT_DAYS, DRIFT_BASELINE_DAYS);
+    const drifted = [];
+    DRIFT_METRICS.forEach(m => {
+      const recentVals = recent.map(m.get).filter(v => v != null);
+      const baselineVals = baseline.map(m.get).filter(v => v != null);
+      if (recentVals.length < DRIFT_MIN_SAMPLES || baselineVals.length < DRIFT_MIN_SAMPLES) return;
+      const recentAvg = avg(recentVals), baselineAvg = avg(baselineVals);
+      if (!(baselineAvg > 0)) return;
+      const relDrop = (baselineAvg - recentAvg) / baselineAvg;
+      if (relDrop >= DRIFT_RELATIVE_DROP) {
+        drifted.push({ field: m.field, recentAvg, baselineAvg, relDrop, phrase: m.phrase(recentAvg, baselineAvg) });
+      }
+    });
+    drifted.sort((a, b) => b.relDrop - a.relDrop);
+    return drifted;
+  }
+
+  // ============================================================
   // Time-to-goal estimator.
   //
   // Reuses the same trend line (computeLinearTrend) already built above —
@@ -415,7 +466,7 @@
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
-    computeTimeToGoal,
+    computeTimeToGoal, computeDrift,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
     WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
   };
@@ -520,6 +571,18 @@
       html += '<div class="pe-detail">No worrying trends this week compared to last.</div>';
     }
     el.innerHTML = html;
+  }
+
+  function renderDrift(dayRows) {
+    const el = document.getElementById('driftCard');
+    const drifted = computeDrift(dayRows);
+    if (drifted.length < DRIFT_MIN_METRICS) {
+      el.innerHTML = '<div class="pe-empty">No meaningful drift from your usual pattern right now.</div>';
+      return;
+    }
+    const phrases = drifted.slice(0, 2).map(d => d.phrase);
+    el.innerHTML = '<div class="pe-headline">Drift detected</div><div class="pe-detail">Over the last '
+      + DRIFT_RECENT_DAYS + ' days vs your last couple months: ' + phrases.join(' and ') + '.</div>';
   }
 
   // ---- Time-to-goal wiring ----
@@ -645,6 +708,7 @@
       renderWeightProjection(rowsByKey);
       renderSleepDebt(dayRows);
       renderBurnoutRisk(dayRows);
+      renderDrift(dayRows);
       renderGoals(rowsByKey);
     } catch (e) {
       document.getElementById('limiterHeadline').textContent = "Couldn't load your data — check your connection.";
