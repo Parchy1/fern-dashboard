@@ -1607,12 +1607,46 @@ async function buildGoogleContext() {
   }
 }
 
+// Notes accumulate indefinitely — especially now that voice journaling (see
+// notes-ai.js) generates real text — and the raw 'notes:items' array used to
+// be sent to Claude in FULL, on EVERY single message, with no bound at all.
+// Unlike SYS/TOOLS (cached via cache_control in callClaude below), this JSON
+// context block is never cached since it changes every message — so an
+// ever-growing notes array would have meant an ever-growing per-message
+// cost, quietly, the same category of problem fixed for the static payload
+// in the cost-reduction pass. Capped to the most recently edited notes with
+// each body truncated — still real "what have I been journaling about"
+// context, just bounded. add_note's own patchRow('notes', ...) call reads
+// the full untouched row separately for writing, so this only affects what
+// Claude sees, never what's actually stored.
+const MAX_NOTES_IN_CONTEXT = 20;
+const MAX_NOTE_BODY_CHARS = 500;
+function summarizeNotesForContext(notesData) {
+  const items = (notesData && notesData['notes:items']) || [];
+  const recent = items.slice()
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .slice(0, MAX_NOTES_IN_CONTEXT);
+  return {
+    'notes:items': recent.map(n => ({
+      id: n.id,
+      title: n.title || '',
+      body: (n.body || '').length > MAX_NOTE_BODY_CHARS ? n.body.slice(0, MAX_NOTE_BODY_CHARS) + '…' : (n.body || ''),
+      updatedAt: n.updatedAt,
+    })),
+  };
+}
+
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
-  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes'];
+  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes', 'life_context'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });
+  context.notes = summarizeNotesForContext(context.notes);
+  // Flattened to a plain string rather than the raw { 'life_context:text': … }
+  // shape sync.js stores it in — one less layer for the prompt to parse.
+  context.lifeContext = (context.life_context && context.life_context['life_context:text']) || '';
+  delete context.life_context;
   const google = await buildGoogleContext();
   if (google) context.google = google;
   const usage = summarizeApiUsage(await readRow(USAGE_KEY).catch(() => null));
@@ -1677,7 +1711,12 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'undo_last_action. If an "apiUsage" key is present, it\'s YOUR OWN estimated Anthropic API cost/call count — '
   + 'today, last 30 days, and all-time — answer questions like "how much have I spent on you this month" directly '
   + 'from it; the cost figures are estimates from configured per-token prices, not a real invoice, so say "roughly" '
-  + 'rather than stating them as exact.'
+  + 'rather than stating them as exact. A "lifeContext" key, when non-empty, is free-form background the user wrote '
+  + 'about their own life — relationships, ongoing situations, goals, preferences, whatever they want you to just '
+  + 'already know — the same way you\'d remember something a person told you before rather than needing it repeated '
+  + 'every time; weave it into how you respond when relevant, don\'t recite it back or treat it as a checklist. The '
+  + '"notes" key\'s notes:items is capped to the ~20 most recently edited notes with long ones truncated (not your '
+  + 'whole notes history) — enough to pick up on what\'s actually been on their mind lately, not a full archive.'
   + '\n\nCurrent dashboard data:\n';
 
 // userContent is either a plain string (a normal text message) or an array
@@ -2004,4 +2043,4 @@ export default async function handler(req, res) {
 }
 
 // Exported for direct testing without going through req/res.
-export { buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey };
+export { buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey, summarizeNotesForContext };
