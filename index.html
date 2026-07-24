@@ -380,6 +380,21 @@ body::after {
       </div>
       <button class="whoop-btn" id="whAction" type="button">Sync now</button>
     </div>
+
+    <div class="section-divider"></div>
+
+    <label class="field-label">Backup</label>
+    <div class="whoop-box">
+      <div class="whoop-row" style="margin-bottom:10px">
+        <span style="font-size:12.5px;color:var(--text-tertiary);line-height:1.5">
+          Downloads everything synced to your account as one JSON file — todos, notes, finance,
+          gym, reading, and the rest. Doesn't include your Google/WHOOP login tokens (those
+          aren't readable this way on purpose) — you'd just reconnect those after a restore.
+        </span>
+      </div>
+      <button class="whoop-btn" id="exportBtn" type="button">⬇️ Export everything (JSON)</button>
+      <div class="set-status" id="exportStatus"></div>
+    </div>
   </div>
 </div>
 
@@ -556,6 +571,54 @@ body::after {
     if (!t || !t.access) { window.location.href = 'health.html'; return; }
     $('whAction').textContent = 'Syncing…'; syncWhoop();
   });
+
+  /* ---------- Export everything ----------
+   * Pulls every row of app_state directly (not just the domains this page
+   * happens to know about for scoring) so the export stays complete as new
+   * features add their own appKey, with nothing to update here when they do.
+   * google_tokens/whoop_tokens_v1 are deliberately out of reach the same way
+   * — see api/config.js's note on google_tokens having no anon-key policies
+   * at all — so a restore just means reconnecting those, not a security gap. */
+  const EXPORT_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
+  const EXPORT_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  async function exportAllData() {
+    const btn = $('exportBtn'), status = $('exportStatus');
+    if (EXPORT_SUPABASE_URL.indexOf('PASTE-') === 0 || EXPORT_SUPABASE_KEY.indexOf('PASTE-') === 0) {
+      status.textContent = 'Cloud sync isn\'t configured on this device.';
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Gathering…'; status.textContent = '';
+    try {
+      const res = await fetch(EXPORT_SUPABASE_URL + '/rest/v1/app_state?select=key,data,updated_at', {
+        headers: { apikey: EXPORT_SUPABASE_KEY, Authorization: 'Bearer ' + EXPORT_SUPABASE_KEY },
+      });
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
+      const rows = await res.json();
+      const bundle = { exportedAt: new Date().toISOString(), source: 'fern-dashboard', domains: {} };
+      (Array.isArray(rows) ? rows : []).forEach(r => {
+        if (!r || !r.key) return;
+        bundle.domains[r.key] = { data: r.data, updatedAt: r.updated_at };
+      });
+      const count = Object.keys(bundle.domains).length;
+      if (!count) throw new Error('no data found');
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = 'fern-dashboard-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+      status.textContent = count + ' section' + (count === 1 ? '' : 's') + ' exported ✓';
+    } catch (e) {
+      status.textContent = "Couldn't export — check your connection.";
+    } finally {
+      btn.disabled = false; btn.textContent = '⬇️ Export everything (JSON)';
+      setTimeout(() => { status.textContent = ''; }, 5000);
+    }
+  }
+  $('exportBtn').addEventListener('click', exportAllData);
 })();
 
 /* ============ Today Score ============

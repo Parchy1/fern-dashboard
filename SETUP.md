@@ -803,6 +803,18 @@ way to know that without watching alongside you.
 
 ---
 
+## 14. Data export / backup
+
+No setup — works automatically once Supabase sync (step 2) is configured. On the main
+dashboard page, tap the ⚙️ gear icon → **Backup → ⬇️ Export everything (JSON)** to download
+every synced domain (todos, notes, finance, gym, reading, and the rest) as one file. It reads
+directly from `app_state`, so it stays complete as new features add their own rows — nothing to
+update here when they do. Login tokens (Google/WHOOP) aren't included since they're deliberately
+unreadable this way (see `google_tokens`'s RLS policy in step 5) — reconnect those after a
+restore rather than expecting them in the export.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -819,4 +831,5 @@ way to know that without watching alongside you.
 11. (Optional) Bank auto-import: Plaid account + the `plaid_items` SQL + `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV`/`PLAID_SYNC_SECRET` env vars, see step 11 above.
 12. (Optional) Voice journaling & AI reflection in Notes: `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env vars (same ones as steps 8 & 10), see step 12 above.
 13. (Optional) Auto-fill audiobook runtime from YouTube: `YOUTUBE_API_KEY`/`YOUTUBE_LOOKUP_SECRET` env vars, see step 13 above.
-14. Change the password in `lock.js`. Done.
+14. Data export/backup: nothing to set up — gear icon → Backup on the main page, see step 14 above.
+15. Change the password in `lock.js`. Done.
