@@ -783,6 +783,13 @@ nothing new to secure.
 > polish/reflection) at the moment you use them — same trust model as the rest of this app's AI
 > features (the Telegram assistant, the Gmail receipt scanner), not a new one.
 
+A **Mood Trend** chart also appears above your notes list once you have at least 3 days with
+detectable sentiment — no setup, no API calls, no cost. It's a plain local word-list heuristic
+(entirely client-side) scoring each note's text, averaged per day and plotted as a line — good
+enough to see whether journaling has trended up or down, not a clinical read. A note with no
+sentiment-bearing words (a plain to-do list dropped into Notes) contributes nothing rather than
+skewing the average toward "neutral".
+
 ---
 
 ## 13. Auto-fill audiobook runtime from a YouTube link (optional)

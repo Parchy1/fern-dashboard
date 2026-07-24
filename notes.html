@@ -226,6 +226,12 @@ body::after {
 }
 .reflect-box-close:hover { color: var(--text-primary); }
 
+.mood-chart-wrap { margin-bottom: 18px; display: none; }
+.mood-chart-svg { width: 100%; height: 70px; display: block; }
+.mood-chart-line { fill: none; stroke: #F472B6; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mood-chart-fill { fill: rgba(244,114,182,0.12); stroke: none; }
+.mood-chart-caption { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; }
+
 @media (max-width: 480px) {
   body { padding: max(20px, env(safe-area-inset-top)) 14px 50px; }
   .gm-card { padding: 16px; }
@@ -239,6 +245,12 @@ body::after {
 
   <!-- List view -->
   <div class="section" id="listView">
+    <div class="section-title">Mood Trend</div>
+    <div class="gm-card mood-chart-wrap" id="moodChartWrap">
+      <svg class="mood-chart-svg" id="moodChartSvg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+      <div class="mood-chart-caption" id="moodChartCaption"></div>
+    </div>
+
     <div class="section-title">All Notes</div>
     <div class="gm-card">
       <div class="notes-search-row gm-input-wrap">
@@ -574,7 +586,92 @@ body::after {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ' + time;
   }
 
+  // ---- Mood trend (local word-list heuristic, no API calls — deliberately
+  // not clinical/precise, just enough signal to see whether journaling has
+  // trended up or down over time; a note with no sentiment-bearing words at
+  // all, e.g. a pure to-do list dumped into Notes, contributes no signal
+  // rather than getting misread as "neutral") ----
+  const MOOD_POSITIVE_WORDS = ['happy', 'grateful', 'thankful', 'excited', 'proud', 'calm', 'relieved', 'hopeful',
+    'love', 'loved', 'great', 'good', 'amazing', 'wonderful', 'accomplished', 'energized', 'motivated', 'peaceful',
+    'joy', 'joyful', 'confident', 'optimistic', 'content', 'blessed', 'excellent', 'fantastic', 'fun', 'glad',
+    'relaxed', 'strong'];
+  const MOOD_NEGATIVE_WORDS = ['sad', 'anxious', 'anxiety', 'stressed', 'stress', 'angry', 'mad', 'frustrated',
+    'frustrating', 'tired', 'exhausted', 'worried', 'worry', 'overwhelmed', 'lonely', 'alone', 'hopeless', 'awful',
+    'bad', 'terrible', 'hate', 'hurt', 'scared', 'afraid', 'guilty', 'ashamed', 'depressed', 'upset', 'annoyed',
+    'miserable', 'crying', 'cried', 'fear', 'panic', 'disappointed'];
+
+  // Returns a score in [-1, 1], or null if the text has no sentiment-bearing
+  // words at all (nothing to average in, rather than treating silence as "0").
+  function scoreNoteText(text) {
+    const words = (text || '').toLowerCase().match(/[a-z']+/g) || [];
+    let pos = 0, neg = 0;
+    words.forEach(w => {
+      if (MOOD_POSITIVE_WORDS.indexOf(w) !== -1) pos++;
+      else if (MOOD_NEGATIVE_WORDS.indexOf(w) !== -1) neg++;
+    });
+    if (pos + neg === 0) return null;
+    return (pos - neg) / (pos + neg);
+  }
+
+  function moodDateKey(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  // One averaged score per calendar day (a day can have several notes),
+  // sorted chronologically, using each note's last-edited date as a stand-in
+  // for "when this entry is about" — true for the common case of a journal
+  // entry written and left, less so for a note edited long after the fact.
+  function computeMoodByDay() {
+    const byDay = {};
+    load().forEach(n => {
+      const score = scoreNoteText((n.title || '') + ' ' + (n.body || ''));
+      if (score == null) return;
+      const key = moodDateKey(n.updatedAt);
+      (byDay[key] = byDay[key] || []).push(score);
+    });
+    return Object.keys(byDay).sort().map(date => ({
+      date, score: byDay[date].reduce((a, b) => a + b, 0) / byDay[date].length,
+    }));
+  }
+
+  const MOOD_MIN_DAYS = 3;
+  const MOOD_MAX_POINTS = 60; // last ~2 months of days-with-signal, not raw calendar days
+  function renderMoodChart() {
+    const wrap = document.getElementById('moodChartWrap');
+    if (!wrap) return;
+    const all = computeMoodByDay();
+    if (all.length < MOOD_MIN_DAYS) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    const points = all.slice(-MOOD_MAX_POINTS);
+
+    const W = 300, H = 70, PAD = 6, midY = H / 2;
+    const xStep = points.length > 1 ? (W - PAD * 2) / (points.length - 1) : 0;
+    const yFor = (score) => midY - score * (midY - PAD);
+    const pts = points.map((p, i) => [PAD + i * xStep, yFor(p.score)]);
+    const linePath = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const fillPath = linePath + ' L ' + pts[pts.length - 1][0].toFixed(1) + ' ' + midY.toFixed(1)
+      + ' L ' + pts[0][0].toFixed(1) + ' ' + midY.toFixed(1) + ' Z';
+    const dots = pts.map((p, i) => {
+      const s = points[i].score;
+      const color = s > 0.15 ? 'var(--success)' : s < -0.15 ? 'var(--danger)' : 'var(--text-tertiary)';
+      return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.5" fill="' + color + '"/>';
+    }).join('');
+
+    const svg = document.getElementById('moodChartSvg');
+    svg.innerHTML = '<line x1="' + PAD + '" y1="' + midY + '" x2="' + (W - PAD) + '" y2="' + midY
+      + '" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>'
+      + '<path class="mood-chart-fill" d="' + fillPath + '"/>'
+      + '<path class="mood-chart-line" d="' + linePath + '"/>' + dots;
+
+    const latest = points[points.length - 1].score;
+    const tone = latest > 0.15 ? 'upbeat' : latest < -0.15 ? 'heavy' : 'even';
+    document.getElementById('moodChartCaption').textContent =
+      points.length + ' day' + (points.length === 1 ? '' : 's') + ' with signal · most recent entry reads ' + tone;
+  }
+
   function render() {
+    renderMoodChart();
     const q = searchEl.value.trim().toLowerCase();
     let notes = load().slice().sort((a, b) => b.updatedAt - a.updatedAt);
     if (semanticRankedIds) {
