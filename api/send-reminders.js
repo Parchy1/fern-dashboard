@@ -181,8 +181,11 @@ export function shouldSendMorningBriefing(nowMin, briefingMin, bedtimeMin, alrea
 // one-off timed to-dos) — a plain list of names is enough, no need to know
 // their individual times for a summary. sleepQuality is last night's Peak
 // morning check-in (null if not logged). dueSubsCount is how many
-// subscriptions are coming up within the reminder window.
-export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount) {
+// subscriptions are coming up within the reminder window. actionableInsight
+// is an optional one-line nudge from computeActionableInsight() below — a
+// real pattern in your own history worth acting on today, not just a status
+// report (see that function's comment for why it's at most one line).
+export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount, actionableInsight) {
   const lines = ['Morning. Here\'s today:'];
   if (todayNames.length) {
     lines.push(todayNames.map(n => '- ' + n).join('\n'));
@@ -198,7 +201,91 @@ export function composeMorningBriefing(todayNames, sleepQuality, dueSubsCount) {
   if (dueSubsCount > 0) {
     lines.push(dueSubsCount + ' subscription renewal' + (dueSubsCount > 1 ? 's' : '') + ' coming up soon.');
   }
+  if (actionableInsight) {
+    lines.push('💡 ' + actionableInsight);
+  }
   return lines.join('\n\n');
+}
+
+// ---------- Correlation-driven actionable insight ----------
+// A server-side port of peak.html's caffeine/sleep and gym/checkin-mood
+// correlations (see that page's INSIGHTS section for the original client-side
+// version, which only ever displayed these as a passive stats readout).
+// Same "two buckets, minimum sample size per side" approach, reused here so
+// the morning briefing can act on a real pattern in your own history —
+// "cut caffeine early today" instead of just reporting "your sleep is worse
+// after late caffeine" days after the fact. Deliberately picks AT MOST ONE
+// line so the briefing doesn't turn into a wall of stats; caffeine/sleep is
+// checked first since it's something today's choices can still change (the
+// day's caffeine hasn't happened yet at briefing time), ahead of the
+// gym/mood nudge, which only makes sense to show if a workout isn't already
+// logged today.
+const INSIGHT_MIN_SAMPLES = 5;
+const INSIGHT_MEANINGFUL_DIFF = 0.4;
+function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function shiftDateKeyPlain(dateKey, days) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+export function computeCaffeineSleepInsight(caffeineData, peakData) {
+  const cafLogs = (caffeineData && caffeineData['caf:logs']) || [];
+  const lateCaffeineDays = new Set();
+  cafLogs.forEach(l => {
+    if (!l || !l.ts) return;
+    const d = new Date(l.ts);
+    if (d.getHours() >= 14) lateCaffeineDays.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+  });
+  const morning = (peakData && peakData['peak:morning']) || {};
+  const withLate = [], withoutLate = [];
+  Object.keys(morning).forEach(dateKey => {
+    const q = morning[dateKey] && morning[dateKey].sleepQuality;
+    if (!q) return;
+    const prevDay = shiftDateKeyPlain(dateKey, -1);
+    (lateCaffeineDays.has(prevDay) ? withLate : withoutLate).push(q);
+  });
+  if (withLate.length < INSIGHT_MIN_SAMPLES || withoutLate.length < INSIGHT_MIN_SAMPLES) return null;
+  return { avgWith: avg(withLate), avgWithout: avg(withoutLate), nWith: withLate.length, nWithout: withoutLate.length };
+}
+
+export function computeGymCheckinInsight(gymData, peakData, checkinField) {
+  const doneDays = (gymData && gymData['po_coach_workout_done']) || {};
+  const checkins = (peakData && peakData['peak:checkins']) || [];
+  const byDay = {};
+  checkins.forEach(c => {
+    if (!c || !c[checkinField] || !c.dateKey) return;
+    (byDay[c.dateKey] = byDay[c.dateKey] || []).push(c[checkinField]);
+  });
+  const withGym = [], withoutGym = [];
+  Object.keys(byDay).forEach(dateKey => {
+    const dayAvg = avg(byDay[dateKey]);
+    (doneDays[dateKey] ? withGym : withoutGym).push(dayAvg);
+  });
+  if (withGym.length < INSIGHT_MIN_SAMPLES || withoutGym.length < INSIGHT_MIN_SAMPLES) return null;
+  return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
+}
+
+export function computeActionableInsight(caffeineData, peakData, gymData, workoutDoneToday) {
+  const caf = computeCaffeineSleepInsight(caffeineData, peakData);
+  if (caf && (caf.avgWithout - caf.avgWith) >= INSIGHT_MEANINGFUL_DIFF) {
+    return 'Your sleep tends to suffer after caffeine at/past 2pm (' + caf.avgWith.toFixed(1) + '/5 vs '
+      + caf.avgWithout.toFixed(1) + '/5) — worth cutting it off early today.';
+  }
+  if (!workoutDoneToday) {
+    const feeling = computeGymCheckinInsight(gymData, peakData, 'feeling');
+    if (feeling && (feeling.avgWith - feeling.avgWithout) >= INSIGHT_MEANINGFUL_DIFF) {
+      return 'You tend to feel noticeably better on workout days (' + feeling.avgWith.toFixed(1) + '/5 vs '
+        + feeling.avgWithout.toFixed(1) + '/5 feeling) — worth fitting one in today.';
+    }
+    const stress = computeGymCheckinInsight(gymData, peakData, 'stress');
+    if (stress && (stress.avgWithout - stress.avgWith) >= INSIGHT_MEANINGFUL_DIFF) {
+      return 'Your stress tends to run lower on workout days (' + stress.avgWith.toFixed(1) + '/5 vs '
+        + stress.avgWithout.toFixed(1) + '/5) — worth fitting one in today.';
+    }
+  }
+  return null;
 }
 
 function parseHM(hm) {
@@ -618,7 +705,7 @@ export default async function handler(req, res) {
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
-    const [goalsData, healthData, gymData, businessData, readingData, peakData, financeData, stateRow, subsRemindedRow] = await Promise.all([
+    const [goalsData, healthData, gymData, businessData, readingData, peakData, financeData, stateRow, subsRemindedRow, caffeineData] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'po-coach'),
@@ -628,6 +715,7 @@ export default async function handler(req, res) {
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'finance'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'subs_reminders'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'caffeine'),
     ]);
 
     const { key: todayKey6am, dow } = dateKeyInTz(tz, true);
@@ -671,7 +759,9 @@ export default async function handler(req, res) {
     let stateChanged = false;
     if (morningBriefingDue) {
       const todayNames = undoneRecurNames.concat(oneOffItems.map(i => i.name));
-      const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length);
+      const workoutDoneToday = !!((gymData && gymData['po_coach_workout_done'] || {})[todayPlain]);
+      const actionableInsight = computeActionableInsight(caffeineData, peakData, gymData, workoutDoneToday);
+      const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length, actionableInsight);
       try {
         const result = await sendReminder(body);
         todayState.__morning_briefing__ = true;

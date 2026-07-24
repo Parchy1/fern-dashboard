@@ -254,6 +254,14 @@ default `07:00`) — a single message listing everything scheduled today and sti
 been using the Peak morning check-in, and a nod to any subscription renewals coming up soon.
 It's a one-shot per day, same as the catch-all digest, so it won't repeat once sent.
 
+It can also add a 💡 line acting on a real pattern in your own history — e.g. "your sleep tends
+to suffer after caffeine at/past 2pm, worth cutting it off early today" or "you tend to feel
+better on workout days, worth fitting one in today" — the same caffeine/sleep and gym/mood
+correlations Peak's Insights tab already surfaces, just turned into a same-day nudge instead of
+a passive readout. Needs nothing extra to set up (same Peak/Caffeine/Gym data already synced);
+it only shows up once there's at least 5 days of history on both sides of the comparison, and
+picks at most one line so it doesn't turn into a stats dump.
+
 **Option A — free, via your carrier's email-to-SMS gateway (recommended to start if you're not using Telegram):**
 
 Every US carrier lets you "text" a phone by emailing a special address. A free service called
