@@ -986,6 +986,16 @@ rest of your to-do list already does, since it's just a flag on the same goal ob
 
 ---
 
+## 19. Mistake / Risk Log
+
+No setup — Reflect hub → **⚠️ Mistake Log**. A plain log: what happened, what you learned, a
+category (Financial/Health/Relationships/Work/Other) and a severity (Minor/Moderate/Major).
+Newest-first, sorts and syncs like any other list on this dashboard — nothing derived or
+passively inferred here, just a place to actually write down the lesson so it isn't lost the
+next time a similar situation comes up.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -1007,4 +1017,5 @@ rest of your to-do list already does, since it's just a flag on the same goal ob
 16. Life Context: nothing to set up — 🧠 Life Context box on the Reflect hub, see step 16 above.
 17. Insights: nothing to set up — 🧭 Insights on the Reflect hub, see step 17 above.
 18. Daily Leverage Task: nothing to set up — ⭐ button on any to-do item, see step 18 above.
-19. Change the password in `lock.js`. Done.
+19. Mistake / Risk Log: nothing to set up — ⚠️ Mistake Log on the Reflect hub, see step 19 above.
+20. Change the password in `lock.js`. Done.
