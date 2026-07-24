@@ -516,6 +516,50 @@ async function upsertRow(supabaseUrl, supabaseKey, key, data) {
   if (!r.ok) throw new Error('state write failed: ' + r.status + ' ' + (await r.text()));
 }
 
+async function fetchAllRowMeta(supabaseUrl, supabaseKey) {
+  const url = supabaseUrl + '/rest/v1/app_state?select=key,updated_at';
+  const r = await fetch(url, { headers: { apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey } });
+  if (!r.ok) return [];
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+// ---------- Inactivity nudge ----------
+// The whole system here — habit streaks, the correlation-driven morning
+// nudge, the auto-drafted review — quietly degrades the longer you go
+// without logging anything, with nothing telling you that's happening.
+// Fires once no app_state row has genuinely changed in INACTIVITY_NUDGE_DAYS
+// days. Rows excluded from "activity" are this feature's own bookkeeping
+// (and the reminder engine's), which update themselves on a schedule
+// regardless of whether the user has actually touched the dashboard —
+// counting them would make every tick look like fresh activity.
+const INACTIVITY_ACTIVITY_EXCLUDE = new Set(['reminder_state', 'subs_reminders', 'last_action', 'inactivity_nudge']);
+
+export function computeDaysSinceActivity(rowMeta, nowMs) {
+  let latest = null;
+  (rowMeta || []).forEach(r => {
+    if (!r || !r.key || INACTIVITY_ACTIVITY_EXCLUDE.has(r.key) || !r.updated_at) return;
+    const t = new Date(r.updated_at).getTime();
+    if (!isNaN(t) && (latest == null || t > latest)) latest = t;
+  });
+  return latest == null ? null : (nowMs - latest) / (24 * 60 * 60 * 1000);
+}
+
+// A multi-day cooldown (not the once-a-day model everything else here
+// uses) — once triggered, this shouldn't repeat every tick or even every
+// day, just periodically while the silence continues.
+export function shouldSendInactivityNudge(daysSinceActivity, lastNudgeSentAtMs, nowMs, thresholdDays, cooldownDays) {
+  if (daysSinceActivity == null || daysSinceActivity < thresholdDays) return false;
+  if (lastNudgeSentAtMs && (nowMs - lastNudgeSentAtMs) < cooldownDays * 24 * 60 * 60 * 1000) return false;
+  return true;
+}
+
+export function composeInactivityNudge(daysSinceActivity) {
+  const days = Math.floor(daysSinceActivity);
+  return 'Haven\'t heard from you in ' + days + ' day' + (days === 1 ? '' : 's')
+    + ' — no pressure, just checking in. Your dashboard\'s here whenever you\'re ready.';
+}
+
 function waterDoneToday(healthData, todayPlain) {
   const w = healthData && healthData['po_water_v1'];
   if (!w || !w.profile || !w.profile.weightKg) return false;
@@ -751,12 +795,39 @@ export default async function handler(req, res) {
     const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
     const morningBriefingDue = shouldSendMorningBriefing(nowMin, morningBriefingMin, bedtimeMin, todayState.__morning_briefing__);
 
-    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue) {
+    // Only checked during the same waking window as the morning briefing —
+    // no reason to evaluate this (extra Supabase reads) on every 15-minute
+    // tick around the clock, and it keeps the "quiet checking in" tone from
+    // ever landing at 3am.
+    let inactivityNudgeDue = false, daysSinceActivity = null;
+    const inactivityWindowOk = nowMin >= morningBriefingMin && nowMin < bedtimeMin;
+    if (inactivityWindowOk) {
+      const [allRowMeta, nudgeStateRow] = await Promise.all([
+        fetchAllRowMeta(SUPABASE_URL, SUPABASE_ANON_KEY),
+        fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'inactivity_nudge'),
+      ]);
+      daysSinceActivity = computeDaysSinceActivity(allRowMeta, Date.now());
+      const inactivityNudgeDays = Number(process.env.INACTIVITY_NUDGE_DAYS || 3);
+      const lastNudgeSentAtMs = (nudgeStateRow && nudgeStateRow.lastSentAt) || null;
+      inactivityNudgeDue = shouldSendInactivityNudge(daysSinceActivity, lastNudgeSentAtMs, Date.now(), inactivityNudgeDays, inactivityNudgeDays);
+    }
+
+    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue && !inactivityNudgeDue) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
     const results = [];
     let stateChanged = false;
+    if (inactivityNudgeDue) {
+      const body = composeInactivityNudge(daysSinceActivity);
+      try {
+        const result = await sendReminder(body);
+        await upsertRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'inactivity_nudge', { lastSentAt: Date.now() });
+        results.push({ name: '__inactivity_nudge__', method: result.method });
+      } catch (e) {
+        results.push({ name: '__inactivity_nudge__', error: e && e.message ? e.message : String(e) });
+      }
+    }
     if (morningBriefingDue) {
       const todayNames = undoneRecurNames.concat(oneOffItems.map(i => i.name));
       const workoutDoneToday = !!((gymData && gymData['po_coach_workout_done'] || {})[todayPlain]);
