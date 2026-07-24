@@ -975,6 +975,17 @@ This page is being built out further with more sections — check back as those 
 
 ---
 
+## 18. Daily Leverage Task
+
+No setup — a ⭐ button on each to-do item in the main To Do List. Star one to mark it as today's
+Leverage Task — "the one thing that matters most" today, distinct from the ⚡ queue button (which
+is for a productivity-window queue, a different feature). Only one can be active per day — starring
+a different item clears the previous pick automatically — and the marked task shows as a callout
+above the list so it doesn't get lost among everything else. Syncs across devices the same way the
+rest of your to-do list already does, since it's just a flag on the same goal object.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -995,4 +1006,5 @@ This page is being built out further with more sections — check back as those 
 15. Dashboard-wide search: nothing to set up — 🔍 icon on the main page, see step 15 above.
 16. Life Context: nothing to set up — 🧠 Life Context box on the Reflect hub, see step 16 above.
 17. Insights: nothing to set up — 🧭 Insights on the Reflect hub, see step 17 above.
-18. Change the password in `lock.js`. Done.
+18. Daily Leverage Task: nothing to set up — ⭐ button on any to-do item, see step 18 above.
+19. Change the password in `lock.js`. Done.
