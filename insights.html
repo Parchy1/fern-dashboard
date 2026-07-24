@@ -47,6 +47,17 @@
 .goal-label { font-size: 13px; color: var(--text-secondary); min-width: 130px; }
 .goal-row .gm-input { max-width: 160px; }
 .lc-status { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; min-height: 14px; }
+
+.skip-list { list-style: none; margin: 0; padding: 0; }
+.skip-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; margin-bottom: 6px;
+  background: rgba(var(--hud-rgb), 0.03); border: 1px solid var(--hud-line-soft);
+  border-radius: 10px; font-size: 13px;
+}
+.skip-row:last-child { margin-bottom: 0; }
+.skip-name { color: var(--text-primary); font-weight: 600; }
+.skip-rate { color: var(--text-tertiary); font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -110,6 +121,19 @@
     </div>
     <div class="gm-card" id="goalWeightResult">
       <div class="pe-empty">Set a target weight above to see a projected date.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Reality vs Plan</div>
+    <div class="gm-card" id="adherenceCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+    <div class="gm-card" id="adherenceTrendCard">
+      <div class="pe-empty">Gathering data…</div>
+    </div>
+    <div class="gm-card" id="mostSkippedCard">
+      <div class="pe-empty">Gathering data…</div>
     </div>
   </div>
 
@@ -463,10 +487,54 @@
     return { reached: false, onTrack: true, daysNeeded, etaDate: new Date(Date.now() + daysNeeded * 86400000) };
   }
 
+  // ============================================================
+  // Reality vs Plan: how much of what you actually committed to (habits,
+  // to-dos) actually got done, as a plain adherence % — distinct from the
+  // outcome-focused sections above (this isn't about how you FELT, just
+  // whether the plan happened). Reuses dayRows.consistencyRate (already
+  // the blend of habitRate/todoRate built into buildDayRows) so this adds
+  // no new data collection, just a different lens on the same numbers.
+  // ============================================================
+
+  const ADHERENCE_TREND_RECENT_DAYS = 14;
+  const ADHERENCE_TREND_MIN_SAMPLES = 5;
+  const ADHERENCE_TREND_MEANINGFUL_DIFF = 0.15; // 15 percentage points
+  const MOST_SKIPPED_MIN_DAYS = 7; // minimum days of window history before ranking a habit
+
+  function computeOverallAdherence(dayRows) {
+    const vals = (dayRows || []).map(r => r.consistencyRate).filter(v => v != null);
+    if (!vals.length) return null;
+    return { rate: avg(vals), n: vals.length };
+  }
+
+  // dayRows must be most-recent-first.
+  function computeAdherenceTrend(dayRows, recentDays) {
+    recentDays = recentDays || ADHERENCE_TREND_RECENT_DAYS;
+    const recentVals = (dayRows || []).slice(0, recentDays).map(r => r.consistencyRate).filter(v => v != null);
+    const priorVals = (dayRows || []).slice(recentDays).map(r => r.consistencyRate).filter(v => v != null);
+    if (recentVals.length < ADHERENCE_TREND_MIN_SAMPLES || priorVals.length < ADHERENCE_TREND_MIN_SAMPLES) return null;
+    const recentAvg = avg(recentVals), priorAvg = avg(priorVals);
+    return { recentAvg, priorAvg, diff: recentAvg - priorAvg };
+  }
+
+  // dateKeys is the same window used to build dayRows. Ranked worst-first
+  // (lowest completion rate) so the most-skipped commitments surface first.
+  function computeHabitAdherence(goalsData, dateKeys) {
+    const habitDefs = (goalsData && goalsData['habits:defs']) || [];
+    const habitLog = (goalsData && goalsData['habits:log']) || {};
+    if (!dateKeys || dateKeys.length < MOST_SKIPPED_MIN_DAYS) return [];
+    return habitDefs
+      .map(h => {
+        const done = dateKeys.filter(dk => habitLog[h.id] && habitLog[h.id][dk]).length;
+        return { id: h.id, name: h.name, rate: done / dateKeys.length, n: dateKeys.length };
+      })
+      .sort((a, b) => a.rate - b.rate);
+  }
+
   window.__insightsLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeFactorEffect, computeAllEffects, computeBottleneck,
     computeLinearTrend, weightEntriesToPoints, computeWeightProjection, computeSleepDebt, computeBurnoutRisk,
-    computeTimeToGoal, computeDrift,
+    computeTimeToGoal, computeDrift, computeOverallAdherence, computeAdherenceTrend, computeHabitAdherence,
     FACTOR_LABELS, FACTOR_FIXES, WINDOW_DAYS, MIN_SAMPLES, MEANINGFUL_DIFF,
     WEIGHT_TREND_WINDOW_DAYS, WEIGHT_PROJECT_DAYS, SLEEP_DEBT_WINDOW_DAYS, TARGET_SLEEP_HOURS, NW_TREND_WINDOW_DAYS,
   };
@@ -583,6 +651,51 @@
     const phrases = drifted.slice(0, 2).map(d => d.phrase);
     el.innerHTML = '<div class="pe-headline">Drift detected</div><div class="pe-detail">Over the last '
       + DRIFT_RECENT_DAYS + ' days vs your last couple months: ' + phrases.join(' and ') + '.</div>';
+  }
+
+  function renderAdherence(dayRows) {
+    const el = document.getElementById('adherenceCard');
+    const overall = computeOverallAdherence(dayRows);
+    if (!overall) {
+      el.innerHTML = '<div class="pe-empty">No habit or to-do data logged yet in this window.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="pe-headline">' + Math.round(overall.rate * 100) + '% adherence</div>'
+      + '<div class="pe-detail">Averaged across ' + overall.n + ' logged day' + (overall.n === 1 ? '' : 's')
+      + ' — the share of your habits and to-dos that actually got done, not just planned.</div>';
+  }
+
+  function renderAdherenceTrend(dayRows) {
+    const el = document.getElementById('adherenceTrendCard');
+    const trend = computeAdherenceTrend(dayRows);
+    if (!trend) {
+      el.innerHTML = '<div class="pe-empty">Not enough history yet to compare recent weeks to before.</div>';
+      return;
+    }
+    const pct = Math.round(Math.abs(trend.diff) * 100);
+    if (pct < Math.round(ADHERENCE_TREND_MEANINGFUL_DIFF * 100)) {
+      el.innerHTML = '<div class="pe-headline">Holding steady</div><div class="pe-detail">Adherence over the last '
+        + ADHERENCE_TREND_RECENT_DAYS + ' days (' + Math.round(trend.recentAvg * 100)
+        + '%) is about the same as before (' + Math.round(trend.priorAvg * 100) + '%).</div>';
+      return;
+    }
+    const dir = trend.diff > 0 ? 'up' : 'down';
+    el.innerHTML = '<div class="pe-headline">Adherence ' + dir + ' ' + pct + ' points</div><div class="pe-detail">The last '
+      + ADHERENCE_TREND_RECENT_DAYS + ' days averaged ' + Math.round(trend.recentAvg * 100) + '%, vs '
+      + Math.round(trend.priorAvg * 100) + '% before that.</div>';
+  }
+
+  function renderMostSkipped(rowsByKey, dateKeys) {
+    const el = document.getElementById('mostSkippedCard');
+    const ranked = computeHabitAdherence(rowsByKey.goals || {}, dateKeys);
+    if (!ranked.length) {
+      el.innerHTML = '<div class="pe-empty">No habits defined yet, or not enough window history to rank them.</div>';
+      return;
+    }
+    const worst = ranked.slice(0, 3);
+    const items = worst.map(h => '<li class="skip-row"><span class="skip-name">' + h.name
+      + '</span><span class="skip-rate">' + Math.round(h.rate * 100) + '% of days</span></li>').join('');
+    el.innerHTML = '<div class="pe-headline">Most-skipped habits</div><ul class="skip-list">' + items + '</ul>';
   }
 
   // ---- Time-to-goal wiring ----
@@ -710,6 +823,9 @@
       renderBurnoutRisk(dayRows);
       renderDrift(dayRows);
       renderGoals(rowsByKey);
+      renderAdherence(dayRows);
+      renderAdherenceTrend(dayRows);
+      renderMostSkipped(rowsByKey, dateKeys);
     } catch (e) {
       document.getElementById('limiterHeadline').textContent = "Couldn't load your data — check your connection.";
     }

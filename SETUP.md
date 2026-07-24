@@ -940,6 +940,12 @@ those move together (so one off week doesn't trigger a false alarm). The same ch
 server-side and, if it fires, adds a 🌊 line to the daily morning briefing/Telegram nudge — so a
 real slip surfaces proactively instead of only when you happen to open this page.
 
+A **Reality vs Plan** section is a plain adherence check, distinct from everything above (those are
+about how you FELT; this is just about whether the plan actually happened) — an overall
+adherence % blending habit and to-do completion, whether that's trending up or down over the last
+two weeks vs. before, and which specific habits get skipped most often so it's not just an
+abstract percentage.
+
 This page is being built out further with more sections — check back as those land.
 
 ---
