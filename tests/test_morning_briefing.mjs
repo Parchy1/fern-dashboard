@@ -1,4 +1,7 @@
-import handler, { shouldSendMorningBriefing, composeMorningBriefing } from '../api/send-reminders.js';
+import handler, {
+  shouldSendMorningBriefing, composeMorningBriefing,
+  computeCaffeineSleepInsight, computeGymCheckinInsight, computeActionableInsight,
+} from '../api/send-reminders.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -62,6 +65,108 @@ function freezeClockAt(hour, minute) {
     assertTrue(withMultiSubs.includes('3 subscription renewals'), 'plural phrasing for multiple upcoming renewals');
     const noSubs = composeMorningBriefing([], null, 0);
     assertTrue(!noSubs.toLowerCase().includes('renewal'), 'no renewal line at all when nothing is due');
+  }
+
+  // ==================== correlation insight functions (pure) ====================
+  {
+    function mkTs(y, m, d, h) { return new Date(y, m - 1, d, h, 0, 0).getTime(); }
+    function dk(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+
+    // ---- caffeine/sleep ----
+    {
+      const cafLogs = [];
+      const morning = {};
+      // 6 days with late (>=2pm) caffeine the day before -> worse sleep next morning
+      for (let i = 0; i < 6; i++) {
+        const day = 1 + i;
+        cafLogs.push({ ts: mkTs(2026, 1, day, 15) }); // 3pm
+        morning[dk(2026, 1, day + 1)] = { sleepQuality: 2 };
+      }
+      // 6 days with no late caffeine -> better sleep next morning
+      for (let i = 0; i < 6; i++) {
+        const day = 20 + i;
+        morning[dk(2026, 1, day + 1)] = { sleepQuality: 4 };
+      }
+      const insight = computeCaffeineSleepInsight({ 'caf:logs': cafLogs }, { 'peak:morning': morning });
+      assertTrue(!!insight, 'enough samples on both sides produces a caffeine/sleep insight');
+      assertEq(insight.avgWith, 2, 'average sleep quality after late caffeine');
+      assertEq(insight.avgWithout, 4, 'average sleep quality without late caffeine');
+
+      const tooFew = computeCaffeineSleepInsight(
+        { 'caf:logs': [{ ts: mkTs(2026, 1, 1, 15) }] },
+        { 'peak:morning': { [dk(2026, 1, 2)]: { sleepQuality: 2 } } }
+      );
+      assertEq(tooFew, null, 'below the minimum sample size on either side returns null');
+
+      const earlyOnly = computeCaffeineSleepInsight(
+        { 'caf:logs': [{ ts: mkTs(2026, 1, 1, 9) }] }, // 9am, not "late"
+        { 'peak:morning': {} }
+      );
+      assertEq(earlyOnly, null, 'caffeine before 2pm is not counted as "late"');
+    }
+
+    // ---- gym/checkin ----
+    {
+      const doneDays = {};
+      const checkins = [];
+      for (let i = 0; i < 6; i++) {
+        const dateKey = dk(2026, 2, 1 + i);
+        doneDays[dateKey] = true;
+        checkins.push({ dateKey, feeling: 5, stress: 1 });
+      }
+      for (let i = 0; i < 6; i++) {
+        const dateKey = dk(2026, 2, 20 + i);
+        checkins.push({ dateKey, feeling: 2, stress: 4 });
+      }
+      const gymData = { po_coach_workout_done: doneDays };
+      const peakData = { 'peak:checkins': checkins };
+      const feelingInsight = computeGymCheckinInsight(gymData, peakData, 'feeling');
+      assertTrue(!!feelingInsight, 'enough samples on both sides produces a feeling insight');
+      assertEq(feelingInsight.avgWith, 5, 'average feeling on gym days');
+      assertEq(feelingInsight.avgWithout, 2, 'average feeling on non-gym days');
+
+      const stressInsight = computeGymCheckinInsight(gymData, peakData, 'stress');
+      assertEq(stressInsight.avgWith, 1, 'average stress on gym days');
+      assertEq(stressInsight.avgWithout, 4, 'average stress on non-gym days');
+    }
+
+    // ---- computeActionableInsight priority + gating ----
+    {
+      const cafLogs = [];
+      const morning = {};
+      for (let i = 0; i < 6; i++) {
+        cafLogs.push({ ts: mkTs(2026, 3, 1 + i, 15) });
+        morning[dk(2026, 3, 2 + i)] = { sleepQuality: 2 };
+      }
+      for (let i = 0; i < 6; i++) morning[dk(2026, 3, 21 + i)] = { sleepQuality: 4 };
+      const caffeineData = { 'caf:logs': cafLogs };
+      const peakData = { 'peak:morning': morning };
+
+      const line = computeActionableInsight(caffeineData, peakData, {}, false);
+      assertTrue(!!line && line.toLowerCase().includes('caffeine'), 'caffeine/sleep pattern surfaces as an actionable line');
+
+      const none = computeActionableInsight({}, {}, {}, false);
+      assertEq(none, null, 'no insight at all when there is not enough history either way');
+
+      // Gym/mood pattern, but a workout is already logged today -> no nudge.
+      const doneDays = {}; const checkins = [];
+      for (let i = 0; i < 6; i++) { const dateKey = dk(2026, 4, 1 + i); doneDays[dateKey] = true; checkins.push({ dateKey, feeling: 5 }); }
+      for (let i = 0; i < 6; i++) { const dateKey = dk(2026, 4, 20 + i); checkins.push({ dateKey, feeling: 2 }); }
+      const gymData = { po_coach_workout_done: doneDays };
+      const peakData2 = { 'peak:checkins': checkins };
+      const suppressed = computeActionableInsight({}, peakData2, gymData, true);
+      assertEq(suppressed, null, 'gym/mood nudge is suppressed once a workout is already logged today');
+      const shown = computeActionableInsight({}, peakData2, gymData, false);
+      assertTrue(!!shown && shown.toLowerCase().includes('workout'), 'gym/mood nudge shows when no workout is logged yet today');
+    }
+  }
+
+  // ==================== composeMorningBriefing actionableInsight param ====================
+  {
+    const withInsight = composeMorningBriefing(['Gym'], null, 0, 'Test insight line.');
+    assertTrue(withInsight.includes('💡 Test insight line.'), 'an actionable insight is appended as its own line');
+    const withoutInsight = composeMorningBriefing(['Gym'], null, 0, null);
+    assertTrue(!withoutInsight.includes('💡'), 'no insight line at all when none is passed');
   }
 
   // ==================== full handler integration ====================
