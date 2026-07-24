@@ -870,6 +870,19 @@ on your mind lately without the per-message cost quietly climbing forever. `add_
 unaffected — it always reads/writes the real, complete notes list; only what gets shown to
 Claude as background context is capped.
 
+Third, and different from both of those: the Telegram Assistant can now **remember things on its
+own**, across conversations, instead of only reading whatever's currently logged. When you tell
+it something worth carrying forward — a plan, a preference, an ongoing situation — it can call a
+`remember` tool to save a short note to its own memory, which then shows up in every future
+conversation via an `assistantMemory` field, right alongside `lifeContext`. The difference:
+`lifeContext` is what *you* write yourself; `assistantMemory` is what *it* picks up on
+unprompted, the way a person's understanding of you builds up over time rather than needing
+everything restated. If something remembered goes stale or turns out wrong, it can also call
+`forget_memory` to remove it — just tell it "actually that's not true anymore" and it'll handle
+the rest. Bounded to the 40 most recent entries (oldest dropped first) with each one capped to a
+short observation, not a transcript, so this can't grow into the same unbounded cost problem the
+notes cap above was fixed for. No setup — this is part of the Telegram Assistant (step 8).
+
 ---
 
 ## TL;DR
