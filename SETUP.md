@@ -903,7 +903,7 @@ notes cap above was fixed for. No setup — this is part of the Telegram Assista
 
 No setup — works automatically once Supabase sync (step 2) is configured, and once you've got
 enough logged history for it to say anything real. Front page → **🧭 Insights** (its own tile,
-not nested under Reflect) → 6 dedicated pages, each a focused view rather than one long stacked
+not nested under Reflect) → 5 dedicated pages, each a focused view rather than one long stacked
 scroll:
 
 - **Patterns & Limiters** — generalizes the caffeine/sleep and gym/mood correlations already used
@@ -931,19 +931,6 @@ scroll:
   Patterns). Shown as a radar of which factors hit hardest plus a day-of-week × time-of-day
   heatmap (built from Peak check-ins' real timestamps) so you can see when rough moments actually
   land, e.g. "Wednesdays around noon."
-- **Recovery** — three passively-derived gauges, nothing here requires logging anything new:
-  - **Night Score** — the evening/night counterpart to the home screen's Today Score. Weighted
-    composite of sleep hours vs. an 8-hour target, sleep quality, and whether caffeine was cut off
-    before 2pm — shown as last night's score (ring gauge) plus a 7-night average. Same "leave a
-    dimension out entirely rather than score it as a zero" principle as Today Score: the caffeine
-    dimension only counts if you've logged caffeine at least once.
-  - **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
-    morning check-in, shown as a ring gauge, so you see the accumulated deficit rather than just
-    one bad night. Needs at least 5 logged nights.
-  - **Burnout Risk** — compares this week to last week across three signals (rising stress,
-    falling sleep quality, slipping habit/to-do consistency), reported as Low/Moderate/Elevated
-    plus this-week-vs-last-week comparison bars for each signal. Needs one comparable pair of
-    weeks with overlapping data.
 - **Drift Detection** — a longer-horizon companion to Burnout Risk: instead of "is this week worse
   than last week," it asks "have your own patterns quietly slipped from your own baseline" —
   comparing the last 14 days to the ~46 days before that across workouts, habit completion, to-do
@@ -956,9 +943,24 @@ scroll:
   (ring gauge) blending habit and to-do completion, a trend chart against your own prior-period
   average, a ranked bar list of which habits get skipped most, and a 90-day adherence heatmap.
 
-Two more predictive pieces used to live on this page and have since moved to where the underlying
-data already lives, since a projection is more useful sitting next to the numbers it's projecting:
+A few more pieces used to live on this page and have since moved to where they fit better:
 
+- **Recovery** (Night Score, Sleep Debt, Burnout Risk) moved to the **Body** hub, front page →
+  **Body** → **🌙 Recovery** — it's a body/sleep gauge, not a correlation/pattern analysis like
+  the rest of this page, so it made more sense sitting alongside Health/Water/Caffeine/Peak. Same
+  three passively-derived gauges as before, nothing here requires logging anything new:
+  - **Night Score** — the evening/night counterpart to the home screen's Today Score. Weighted
+    composite of sleep hours vs. an 8-hour target, sleep quality, and whether caffeine was cut off
+    before 2pm — shown as last night's score (ring gauge) plus a 7-night average. Same "leave a
+    dimension out entirely rather than score it as a zero" principle as Today Score: the caffeine
+    dimension only counts if you've logged caffeine at least once.
+  - **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
+    morning check-in, shown as a ring gauge, so you see the accumulated deficit rather than just
+    one bad night. Needs at least 5 logged nights.
+  - **Burnout Risk** — compares this week to last week across three signals (rising stress,
+    falling sleep quality, slipping habit/to-do consistency), reported as Low/Moderate/Elevated
+    plus this-week-vs-last-week comparison bars for each signal. Needs one comparable pair of
+    weeks with overlapping data.
 - **Weight Projection** moved into **Gym**'s Weight section as a **Trajectory** card — historical
   weigh-ins plus a Slow/Typical/Fast scenario fan (percentiles of your real week-to-week rate of
   change, not one brittle regression line) projected toward a goal weight you set right there.
