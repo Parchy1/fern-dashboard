@@ -112,6 +112,7 @@
   <div class="section">
     <div class="section-title">Right Now</div>
     <div class="gm-card">
+      <div class="whoop-badge" id="whoopBadge" style="display:none">🟢 Using WHOOP recovery + sleep for today</div>
       <div class="peak-head">
         <div class="ring">
           <svg viewBox="0 0 92 92">
@@ -144,38 +145,17 @@
     </div>
   </div>
 
-  <!-- MORNING CHECK-IN -->
+  <!-- SLEEP (logged on its own dedicated page — see sleep.html; wake time,
+       RHR, hours, and quality all live there now) -->
   <div class="section">
-    <div class="section-title">Morning Check-in</div>
-    <div class="gm-card">
-      <div class="whoop-badge" id="whoopBadge" style="display:none">🟢 Using WHOOP recovery + sleep for today</div>
-      <div class="field-grid">
-        <div>
-          <label class="field-label">Wake time</label>
-          <input class="gm-input" id="inWake" type="time">
-        </div>
-        <div>
-          <label class="field-label">Resting HR (bpm)</label>
-          <input class="gm-input" id="inRhr" type="number" min="0" inputmode="numeric" placeholder="e.g. 58">
-        </div>
-        <div>
-          <label class="field-label">Hours slept</label>
-          <input class="gm-input" id="inSleepHours" type="number" min="0" step="0.25" inputmode="decimal" placeholder="e.g. 7.5">
-        </div>
-      </div>
-      <div style="margin-top:12px">
-        <label class="field-label">Sleep quality</label>
-        <div class="star-row" id="sleepQualityRow">
-          <button class="star-btn" data-v="1" type="button">1</button>
-          <button class="star-btn" data-v="2" type="button">2</button>
-          <button class="star-btn" data-v="3" type="button">3</button>
-          <button class="star-btn" data-v="4" type="button">4</button>
-          <button class="star-btn" data-v="5" type="button">5</button>
-        </div>
-      </div>
-      <button class="gm-add" id="saveMorningBtn" type="button">Save Check-in</button>
-      <div class="gm-note" id="morningNote"></div>
-    </div>
+    <a class="link-out-card" href="sleep.html">
+      <span class="link-out-icon">😴</span>
+      <span class="link-out-text">
+        <span class="link-out-title">Log last night's sleep</span>
+        <span class="link-out-sub">Bedtime, wake-up, quality &amp; RHR — feeds this page's energy curve</span>
+      </span>
+      <span class="link-out-chevron">→</span>
+    </a>
   </div>
 
   <!-- FEELING CHECK-IN -->
@@ -360,7 +340,7 @@
     return h12 + ':' + String(m).padStart(2,'0') + ' ' + ap;
   }
 
-  const MORNING_KEY = 'peak:morning';
+  const NIGHTS_KEY = 'sleep:nights';
   const CHECKIN_KEY = 'peak:checkins';
   const DAILY_KEY = 'peak:daily';
   const ACTIVITY_KEY = 'peak:activities';
@@ -396,33 +376,11 @@
     } catch (e) {}
   }
 
-  /* ============ Morning check-in ============ */
-  function getMorning() { return storeGet(MORNING_KEY) || {}; }
-  function setMorning(m) { storeSet(MORNING_KEY, m); }
-  let sleepQualitySel = 0;
-  $('sleepQualityRow').querySelectorAll('.star-btn').forEach(b => b.addEventListener('click', () => {
-    sleepQualitySel = Number(b.dataset.v);
-    $('sleepQualityRow').querySelectorAll('.star-btn').forEach(x => x.classList.toggle('on', Number(x.dataset.v) <= sleepQualitySel));
-  }));
-  function loadMorningForm() {
-    const m = getMorning()[todayKey()];
-    $('inWake').value = m ? m.wakeTime || '' : '';
-    $('inRhr').value = m ? m.rhr || '' : '';
-    $('inSleepHours').value = m ? m.sleepHours || '' : '';
-    sleepQualitySel = m ? m.sleepQuality || 0 : 0;
-    $('sleepQualityRow').querySelectorAll('.star-btn').forEach(x => x.classList.toggle('on', Number(x.dataset.v) <= sleepQualitySel));
-    $('morningNote').textContent = m ? ('Saved at ' + new Date(m.ts).toLocaleTimeString()) : "No check-in yet today — fill this in when you wake up.";
-  }
-  $('saveMorningBtn').addEventListener('click', () => {
-    const wakeTime = $('inWake').value;
-    const rhr = parseInt($('inRhr').value, 10) || null;
-    const sleepHours = parseFloat($('inSleepHours').value) || null;
-    const morning = getMorning();
-    morning[todayKey()] = { wakeTime, rhr, sleepHours, sleepQuality: sleepQualitySel || null, ts: Date.now() };
-    setMorning(morning);
-    loadMorningForm();
-    renderAll();
-  });
+  /* ============ Sleep (logged on sleep.html — read-only here) ============ */
+  // Manual entry moved to its own dedicated page; this energy engine just
+  // reads whatever's there, exactly like it already treats WHOOP as an
+  // alternate (preferred, when connected) source below.
+  function getNights() { return storeGet(NIGHTS_KEY) || {}; }
 
   /* ============ Feeling / stress check-ins ============ */
   function getCheckins() { return storeGet(CHECKIN_KEY) || []; }
@@ -570,13 +528,13 @@
   /* ============ Read-only inputs from every other domain ============ */
   function readWakeHour() {
     if (whoop.wakeHour != null) return whoop.wakeHour;
-    const m = getMorning()[todayKey()];
+    const m = getNights()[todayKey()];
     if (m && m.wakeTime) { const [h, mi] = m.wakeTime.split(':').map(Number); return h + mi/60; }
     return 7;
   }
   function readBedHour() {
     if (whoop.bedHour != null) return whoop.bedHour;
-    const m = getMorning()[todayKey()];
+    const m = getNights()[todayKey()];
     if (m && m.wakeTime && m.sleepHours) {
       const [h, mi] = m.wakeTime.split(':').map(Number);
       let bed = (h + mi/60) - m.sleepHours;
@@ -588,7 +546,7 @@
   function readSleepFactor() {
     // 0-100 "how good was last night's sleep"
     if (whoop.sleepPct != null) return whoop.sleepPct;
-    const m = getMorning()[todayKey()];
+    const m = getNights()[todayKey()];
     if (!m || (!m.sleepHours && !m.sleepQuality)) return null;
     const hours = m.sleepHours || 7;
     const hoursScore = clamp(100 - Math.abs(8 - hours) * 15, 0, 100);
@@ -596,13 +554,13 @@
     return hoursScore * 0.5 + qualityScore * 0.5;
   }
   function rollingRhrAvg() {
-    const morning = getMorning();
+    const nights = getNights();
     const today = todayKey();
-    const entries = Object.keys(morning).filter(k => k !== today && morning[k].rhr).sort().slice(-14);
+    const entries = Object.keys(nights).filter(k => k !== today && nights[k].rhr).sort().slice(-14);
     if (entries.length < 3) return null;
-    return entries.reduce((a, k) => a + morning[k].rhr, 0) / entries.length;
+    return entries.reduce((a, k) => a + nights[k].rhr, 0) / entries.length;
   }
-  function readTodayRhr() { if (whoop.rhr != null) return whoop.rhr; const m = getMorning()[todayKey()]; return m ? m.rhr : null; }
+  function readTodayRhr() { if (whoop.rhr != null) return whoop.rhr; const m = getNights()[todayKey()]; return m ? m.rhr : null; }
 
   function readHydrationPct() {
     const w = storeGet('po_water_v1');
@@ -882,7 +840,7 @@
   }
   function renderFactors() {
     const rows = [];
-    const m = getMorning()[todayKey()];
+    const m = getNights()[todayKey()];
     const sleepFactor = readSleepFactor();
     if (sleepFactor != null) {
       const pct = Math.round((0.6 + 0.4 * sleepFactor / 100) * 100);
@@ -947,7 +905,7 @@
       const d = new Date(l.ts);
       if (d.getHours() >= 14) lateCaffeineDays.add(dateToKey(d));
     });
-    const morning = getMorning();
+    const morning = getNights();
     const withLate = [], withoutLate = [];
     Object.keys(morning).forEach(dateKey => {
       const q = morning[dateKey] && morning[dateKey].sleepQuality;
@@ -961,7 +919,7 @@
 
   // Morning-logged sleep quality vs. that SAME day's average check-in stress.
   function computeSleepStressInsight() {
-    const morning = getMorning();
+    const morning = getNights();
     const checkins = getCheckins();
     const stressByDay = {};
     checkins.forEach(c => {
@@ -1012,7 +970,7 @@
   // behavior.
   function computeGymSleepInsight() {
     const doneDays = storeGet('po_coach_workout_done') || {};
-    const morning = getMorning();
+    const morning = getNights();
     const withGym = [], withoutGym = [];
     Object.keys(morning).forEach(dateKey => {
       const q = morning[dateKey] && morning[dateKey].sleepQuality;
@@ -1133,7 +1091,6 @@
   }));
 
   function renderAll() {
-    loadMorningForm();
     renderCheckinLog();
     renderActivityLog();
     persistDailyScore();
@@ -1198,12 +1155,12 @@
   }
   function peakContext() {
     const today = todayAverageScore();
-    const m = getMorning()[todayKey()];
+    const m = getNights()[todayKey()];
     const daily = storeGet(DAILY_KEY) || {};
     const last7 = Object.keys(daily).sort().slice(-7).map(k => k + ': ' + daily[k].avgScore + ' (' + daily[k].tier + ')' + factorsLine(daily[k].factors));
     return '\n\nCurrent context:\n'
       + 'Today so far: ' + (today != null ? Math.round(today) + ' (' + stateWord(today) + ')' : 'not enough data yet') + '\n'
-      + 'Morning check-in: ' + (m ? ('wake ' + (m.wakeTime||'—') + ', RHR ' + (m.rhr||'—') + ', slept ' + (m.sleepHours||'—') + 'h, quality ' + (m.sleepQuality||'—') + '/5') : 'none logged today') + '\n'
+      + "Last night's sleep: " + (m ? ('wake ' + (m.wakeTime||'—') + ', RHR ' + (m.rhr||'—') + ', slept ' + (m.sleepHours||'—') + 'h, quality ' + (m.sleepQuality||'—') + '/5') : 'none logged today') + '\n'
       + 'Hydration: ' + (readHydrationPct() != null ? Math.round(readHydrationPct()) + '% of target' : 'no data') + '\n'
       + 'Nutrition: ' + (readNutritionPct() != null ? Math.round(readNutritionPct()) + '% of calorie target' : 'no data') + '\n'
       + 'Supplements: ' + (readSupplementPct() != null ? Math.round(readSupplementPct()) + '% taken' : 'no data') + '\n'
@@ -1255,7 +1212,7 @@
     if (!window.initCloudSync) return;
     window.initCloudSync({
       appKey: 'peak',
-      syncedKeys: [MORNING_KEY, CHECKIN_KEY, DAILY_KEY, HIST_KEY, ACTIVITY_KEY],
+      syncedKeys: [CHECKIN_KEY, DAILY_KEY, HIST_KEY, ACTIVITY_KEY],
       onApplied: function () { renderAll(); },
     });
   });

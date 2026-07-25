@@ -275,7 +275,8 @@
   // Picks the latest today's feeling/stress check-in (peak:checkins,
   // filtered to the plain calendar day — same boundary peak.html's own
   // todaysCheckins() uses), falling back to last night's logged sleep
-  // quality (peak:morning) if there's been no check-in yet today.
+  // quality (sleep:nights, from sleep.html) if there's been no check-in
+  // yet today.
   function pickEnergySignal(checkins, morning, todayKPlain, nowTs) {
     const dayStart = new Date(nowTs != null ? nowTs : Date.now());
     dayStart.setHours(0, 0, 0, 0);
@@ -296,7 +297,7 @@
   function renderEnergyStat() {
     const valEl = document.getElementById('mcEnergyValue'), subEl = document.getElementById('mcEnergySub');
     if (!valEl) return;
-    const signal = pickEnergySignal(storeGet('peak:checkins') || [], storeGet('peak:morning') || {}, plainTodayKey());
+    const signal = pickEnergySignal(storeGet('peak:checkins') || [], storeGet('sleep:nights') || {}, plainTodayKey());
     if (!signal) { valEl.textContent = '—'; subEl.textContent = 'No check-in yet today'; return; }
     valEl.textContent = signal.text;
     subEl.textContent = signal.sub;
@@ -435,7 +436,7 @@
   // rendering, so it's correct on the very first visit.
   const SNAP_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SNAP_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  const SNAP_SOURCE_APP_KEYS = ['goals', 'po-coach', 'finance', 'peak'];
+  const SNAP_SOURCE_APP_KEYS = ['goals', 'po-coach', 'finance', 'peak', 'sleep'];
   async function pullFreshSnapshotSources() {
     if (SNAP_SUPABASE_URL.indexOf('PASTE-') === 0 || SNAP_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
     try {

@@ -320,6 +320,25 @@ body.hud-scan::before { content: ''; }
   text-align: center; font-size: 12px; font-style: italic;
   color: var(--text-tertiary); padding: 14px 0;
 }
+
+/* Pointer card to a related page — e.g. Peak pointing at Sleep for logging,
+   Sleep pointing at Recovery for trend analysis. */
+.link-out-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(94,234,212,0.08), rgba(129,140,248,0.08));
+  border: 1px solid var(--hud-line);
+  border-radius: 16px;
+  text-decoration: none; color: var(--text-primary);
+  transition: background 0.15s, transform 0.1s;
+}
+.link-out-card:hover { background: linear-gradient(135deg, rgba(94,234,212,0.13), rgba(129,140,248,0.13)); }
+.link-out-card:active { transform: scale(0.99); }
+.link-out-icon { font-size: 22px; line-height: 1; }
+.link-out-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.link-out-title { font-size: 14px; font-weight: 700; }
+.link-out-sub { font-size: 11.5px; color: var(--text-tertiary); }
+.link-out-chevron { font-size: 20px; color: var(--text-tertiary); font-weight: 300; }
 .gm-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; margin-bottom: 6px;

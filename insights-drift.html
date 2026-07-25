@@ -99,7 +99,8 @@
     const habitDefs = goalsData['habits:defs'] || [];
     const habitLog = goalsData['habits:log'] || {};
     const peakData = rowsByKey.peak || {};
-    const morning = peakData['peak:morning'] || {};
+    const sleepData = rowsByKey.sleep || {};
+    const morning = sleepData['sleep:nights'] || {};
 
     return dateKeys.map(dateKey => {
       const habitTotal = habitDefs.length;

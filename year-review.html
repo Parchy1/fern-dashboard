@@ -179,7 +179,7 @@
 
   /* ============ New for this page ============ */
   function sleepStat(days) {
-    const morning = storeGet('peak:morning') || {};
+    const morning = storeGet('sleep:nights') || {};
     const keys = new Set(days.map(dateToKey));
     const entries = Object.keys(morning).filter(k => keys.has(k) && morning[k].sleepHours != null);
     if (!entries.length) return null;

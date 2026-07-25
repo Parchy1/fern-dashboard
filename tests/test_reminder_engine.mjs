@@ -250,7 +250,8 @@ function nowMinUtc() {
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
-      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }], 'peak:morning': { [todayPlainNow]: { sleepQuality: 1 } } } }] };
+      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] };
+      if (u.includes('key=eq.sleep')) return { ok: true, json: async () => [{ data: { 'sleep:nights': { [todayPlainNow]: { sleepQuality: 1 } } } }] };
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
       throw new Error('unexpected fetch: ' + u);
@@ -263,7 +264,7 @@ function nowMinUtc() {
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
-      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] }; // no morning check-in logged
+      if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] }; // no sleep logged
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
       throw new Error('unexpected fetch: ' + u);
@@ -395,11 +396,11 @@ function nowMinUtc() {
     const goalsData = { 'recur:defs': [{ id: 'rc10', name: 'Morning Check-In', freq: 'daily', days: null, autoSource: 'peak_morning' }] };
     const fetchers = { goalsData, healthData: {}, gymData: {}, businessData: {}, readingData: {}, todayKey6am: todayKey6amActual, todayPlain: todayPlainActual, dow: new Date().getDay(), utcToday: new Date().toISOString().slice(0, 10) };
 
-    const notDoneYet = await computeUndone(Object.assign({}, fetchers, { peakData: {} }));
-    assertEq(notDoneYet, ['Morning Check-In'], 'Morning Check-In is undone when peak:morning has no entry for today');
+    const notDoneYet = await computeUndone(Object.assign({}, fetchers, { sleepData: {} }));
+    assertEq(notDoneYet, ['Morning Check-In'], 'Morning Check-In is undone when sleep:nights has no entry for today');
 
-    const alreadyDone = await computeUndone(Object.assign({}, fetchers, { peakData: { 'peak:morning': { [todayPlainActual]: { wakeTime: '07:30', ts: Date.now() } } } }));
-    assertEq(alreadyDone, [], 'Morning Check-In is NOT undone once peak:morning has today\'s entry (peak_morning autoSource correctly wired)');
+    const alreadyDone = await computeUndone(Object.assign({}, fetchers, { sleepData: { 'sleep:nights': { [todayPlainActual]: { wakeTime: '07:30', ts: Date.now() } } } }));
+    assertEq(alreadyDone, [], 'Morning Check-In is NOT undone once sleep:nights has today\'s entry (peak_morning autoSource correctly wired)');
   }
 
   // ============================================================

@@ -41,7 +41,8 @@ const FACTOR_LABELS = {
 
 function buildDayRows(rowsByKey, dateKeys) {
   const peakData = rowsByKey.peak || {};
-  const morning = peakData['peak:morning'] || {};
+  const sleepData = rowsByKey.sleep || {};
+  const morning = sleepData['sleep:nights'] || {};
   const checkins = peakData['peak:checkins'] || [];
   const gymData = rowsByKey['po-coach'] || {};
   const doneDays = gymData['po_coach_workout_done'] || {};
@@ -163,11 +164,13 @@ function computeEmotionalTriggers(dayRows) {
 {
   const rowsByKey = {
     peak: {
-      'peak:morning': { '2026-01-02': { sleepQuality: 2, sleepHours: 5.5 } },
       'peak:checkins': [
         { dateKey: '2026-01-01', feeling: 4, stress: 2 },
         { dateKey: '2026-01-01', feeling: 5 },
       ],
+    },
+    sleep: {
+      'sleep:nights': { '2026-01-02': { sleepQuality: 2, sleepHours: 5.5 } },
     },
     'po-coach': { po_coach_workout_done: { '2026-01-01': true } },
     caffeine: { 'caf:logs': [{ ts: new Date(2026, 0, 1, 15, 0).getTime() }] },

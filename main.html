@@ -824,6 +824,7 @@
           <option value="business">Auto-check: any side-hustle activity logged today</option>
           <option value="water">Auto-check: hit today's water target</option>
           <option value="supplements">Auto-check: all supplements taken today</option>
+          <option value="peak_morning">Auto-check: last night's sleep is logged (sleep.html)</option>
         </select>
         <input id="recurNote" class="gm-input" type="text" placeholder="Optional note (e.g. 3–6pm)">
         <label class="recur-time-label">Schedule time (optional, shows on the Schedule view)
@@ -1768,9 +1769,12 @@
       return items.every(it => taken[it.id]);
     }
     if (autoSource === 'peak_morning') {
-      // peak.html's morning check-in uses a plain calendar date, same as plainToday here.
-      const morning = storeGet('peak:morning') || {};
-      return !!morning[plainToday];
+      // sleep.html's night log uses a plain calendar date, same as plainToday
+      // here — kept the historical 'peak_morning' string so any already-
+      // saved recurring item (this device's real localStorage, not just
+      // the RECUR_DEFAULTS seed) keeps auto-checking without a silent break.
+      const nights = storeGet('sleep:nights') || {};
+      return !!nights[plainToday];
     }
     return false;
   }
@@ -1882,7 +1886,7 @@
     const defs = getRecurDefs();
     list.innerHTML = '';
     empty.style.display = defs.length ? 'none' : 'block';
-    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles', water: 'auto: water', supplements: 'auto: supplements' };
+    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles', water: 'auto: water', supplements: 'auto: supplements', peak_morning: 'auto: sleep' };
     defs.forEach(def => {
       const li = document.createElement('li');
       li.className = 'recur-row';

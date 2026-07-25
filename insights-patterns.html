@@ -153,7 +153,8 @@
 
   function buildDayRows(rowsByKey, dateKeys) {
     const peakData = rowsByKey.peak || {};
-    const morning = peakData['peak:morning'] || {};
+    const sleepData = rowsByKey.sleep || {};
+    const morning = sleepData['sleep:nights'] || {};
     const checkins = peakData['peak:checkins'] || [];
     const gymData = rowsByKey['po-coach'] || {};
     const doneDays = gymData['po_coach_workout_done'] || {};

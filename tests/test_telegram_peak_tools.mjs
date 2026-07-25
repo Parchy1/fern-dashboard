@@ -38,13 +38,15 @@ function makeFakeSupabase(seed) {
   const todayKey = plainDateKey();
 
   // ==================== log_morning_checkin ====================
+  // (stores to the 'sleep' row now — see sleep.html, which owns this data
+  // as its own dedicated page instead of it living inside peak.html)
   {
-    const fake = makeFakeSupabase({ peak: {} });
+    const fake = makeFakeSupabase({ sleep: {} });
     global.fetch = fake.fetchStub;
 
     const r1 = await TOOL_EXECUTORS.log_morning_checkin({ wake_time: '06:45', rhr: 52, sleep_hours: 7.5, sleep_quality: 4 });
     assertEq(r1.ok, true, 'log_morning_checkin returns ok');
-    const stored1 = fake.rows.peak['peak:morning'][todayKey];
+    const stored1 = fake.rows.sleep['sleep:nights'][todayKey];
     assertEq(stored1.wakeTime, '06:45', 'morning check-in stores wakeTime');
     assertEq(stored1.rhr, 52, 'morning check-in stores rhr');
     assertEq(stored1.sleepHours, 7.5, 'morning check-in stores sleepHours');
@@ -53,74 +55,74 @@ function makeFakeSupabase(seed) {
     // Partial follow-up call should preserve fields not mentioned this time.
     const r2 = await TOOL_EXECUTORS.log_morning_checkin({ sleep_quality: 5 });
     assertEq(r2.ok, true, 'second partial morning check-in call returns ok');
-    const stored2 = fake.rows.peak['peak:morning'][todayKey];
+    const stored2 = fake.rows.sleep['sleep:nights'][todayKey];
     assertEq(stored2.wakeTime, '06:45', 'partial update preserves previously-set wakeTime');
     assertEq(stored2.rhr, 52, 'partial update preserves previously-set rhr');
     assertEq(stored2.sleepHours, 7.5, 'partial update preserves previously-set sleepHours');
     assertEq(stored2.sleepQuality, 5, 'partial update overwrites only the field actually provided');
 
     // sleep_quality clamps to the 1-5 range.
-    const fake2 = makeFakeSupabase({ peak: {} });
+    const fake2 = makeFakeSupabase({ sleep: {} });
     global.fetch = fake2.fetchStub;
     await TOOL_EXECUTORS.log_morning_checkin({ sleep_quality: 9 });
-    assertEq(fake2.rows.peak['peak:morning'][todayKey].sleepQuality, 5, 'sleep_quality clamps above range down to 5');
+    assertEq(fake2.rows.sleep['sleep:nights'][todayKey].sleepQuality, 5, 'sleep_quality clamps above range down to 5');
     await TOOL_EXECUTORS.log_morning_checkin({ sleep_quality: 0 });
-    assertEq(fake2.rows.peak['peak:morning'][todayKey].sleepQuality, 1, 'sleep_quality clamps below range up to 1');
+    assertEq(fake2.rows.sleep['sleep:nights'][todayKey].sleepQuality, 1, 'sleep_quality clamps below range up to 1');
   }
 
   // ==================== log_bedtime + tracked sleep on log_morning_checkin ====================
   {
-    const fake = makeFakeSupabase({ peak: {} });
+    const fake = makeFakeSupabase({ sleep: {} });
     global.fetch = fake.fetchStub;
 
     const bed = await TOOL_EXECUTORS.log_bedtime({});
     assertEq(bed.ok, true, 'log_bedtime returns ok');
-    assertTrue(!!fake.rows.peak['peak:pendingBedtime'] && typeof fake.rows.peak['peak:pendingBedtime'].ts === 'number', 'log_bedtime stores a pending bedtime timestamp');
+    assertTrue(!!fake.rows.sleep['sleep:pendingBedtime'] && typeof fake.rows.sleep['sleep:pendingBedtime'].ts === 'number', 'log_bedtime stores a pending bedtime timestamp');
 
     // Simulate real elapsed time by backdating the stored pending timestamp
     // directly (rather than actually sleeping for the test to pass).
-    fake.rows.peak['peak:pendingBedtime'].ts = Date.now() - 7.5 * 3600000;
+    fake.rows.sleep['sleep:pendingBedtime'].ts = Date.now() - 7.5 * 3600000;
 
     const wake = await TOOL_EXECUTORS.log_morning_checkin({});
     assertEq(wake.ok, true, 'log_morning_checkin returns ok when closing out a tracked bedtime');
     assertEq(wake.trackedFromBedtime, true, 'result flags that sleep hours came from a tracked bedtime, not a manual estimate');
     assertEq(wake.entry.sleepHours, 7.5, 'sleep hours computed from the real elapsed time between log_bedtime and log_morning_checkin');
     assertTrue(/^\d{2}:\d{2}$/.test(wake.entry.wakeTime), 'wake time is auto-filled from the current moment when tracked, matching the HH:MM format');
-    assertTrue(!('peak:pendingBedtime' in fake.rows.peak), 'the pending bedtime is cleared once closed out by a check-in');
+    assertTrue(!('sleep:pendingBedtime' in fake.rows.sleep), 'the pending bedtime is cleared once closed out by a check-in');
 
     // An explicit sleep_hours from the user overrides tracking, even if a bedtime was pending.
-    const fake2 = makeFakeSupabase({ peak: {} });
+    const fake2 = makeFakeSupabase({ sleep: {} });
     global.fetch = fake2.fetchStub;
     await TOOL_EXECUTORS.log_bedtime({});
-    fake2.rows.peak['peak:pendingBedtime'].ts = Date.now() - 6 * 3600000;
+    fake2.rows.sleep['sleep:pendingBedtime'].ts = Date.now() - 6 * 3600000;
     const overridden = await TOOL_EXECUTORS.log_morning_checkin({ sleep_hours: 9 });
     assertEq(overridden.trackedFromBedtime, false, 'an explicitly stated sleep_hours is not overwritten by tracking');
     assertEq(overridden.entry.sleepHours, 9, 'the user-stated sleep_hours value wins over the tracked elapsed time');
-    assertTrue(!('peak:pendingBedtime' in fake2.rows.peak), 'the pending bedtime is still cleared even when it was not the one used');
+    assertTrue(!('sleep:pendingBedtime' in fake2.rows.sleep), 'the pending bedtime is still cleared even when it was not the one used');
 
     // A stale pending bedtime (way too long ago — a forgotten wake-up, not a real night) is ignored, not trusted.
-    const fake3 = makeFakeSupabase({ peak: {} });
+    const fake3 = makeFakeSupabase({ sleep: {} });
     global.fetch = fake3.fetchStub;
     await TOOL_EXECUTORS.log_bedtime({});
-    fake3.rows.peak['peak:pendingBedtime'].ts = Date.now() - 40 * 3600000; // 40 hours ago
+    fake3.rows.sleep['sleep:pendingBedtime'].ts = Date.now() - 40 * 3600000; // 40 hours ago
     const stale = await TOOL_EXECUTORS.log_morning_checkin({});
     assertEq(stale.trackedFromBedtime, false, 'an implausibly long pending bedtime (40h) is not trusted as real tracked sleep');
     assertEq(stale.entry.sleepHours, null, 'no bogus sleep hours value is logged from a stale pending bedtime');
-    assertTrue(!('peak:pendingBedtime' in fake3.rows.peak), 'the stale pending bedtime is still cleared so it cannot pollute a later night');
+    assertTrue(!('sleep:pendingBedtime' in fake3.rows.sleep), 'the stale pending bedtime is still cleared so it cannot pollute a later night');
 
     // No pending bedtime at all -> unchanged, pre-existing behavior.
-    const fake4 = makeFakeSupabase({ peak: {} });
+    const fake4 = makeFakeSupabase({ sleep: {} });
     global.fetch = fake4.fetchStub;
     const noTracking = await TOOL_EXECUTORS.log_morning_checkin({ wake_time: '07:00', sleep_hours: 8 });
     assertEq(noTracking.trackedFromBedtime, false, 'with no pending bedtime at all, behaves exactly like a normal manual check-in');
     assertEq(noTracking.entry.wakeTime, '07:00', 'manual wake_time is respected with no tracking involved');
 
     // log_bedtime backfill via an explicit `at`.
-    const fake5 = makeFakeSupabase({ peak: {} });
+    const fake5 = makeFakeSupabase({ sleep: {} });
     global.fetch = fake5.fetchStub;
     const backfilled = await TOOL_EXECUTORS.log_bedtime({ at: '2026-01-01T23:30:00.000Z' });
     assertEq(backfilled.ok, true, 'log_bedtime accepts an explicit backfilled `at` timestamp');
-    assertEq(fake5.rows.peak['peak:pendingBedtime'].ts, new Date('2026-01-01T23:30:00.000Z').getTime(), 'the backfilled timestamp is stored exactly as given');
+    assertEq(fake5.rows.sleep['sleep:pendingBedtime'].ts, new Date('2026-01-01T23:30:00.000Z').getTime(), 'the backfilled timestamp is stored exactly as given');
 
     const badTime = await TOOL_EXECUTORS.log_bedtime({ at: 'not a real date' });
     assertEq(badTime.ok, false, 'an unparseable `at` value is rejected rather than silently storing garbage');
