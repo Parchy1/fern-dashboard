@@ -435,21 +435,37 @@
 
 .leverage-callout {
   display: none;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 14px;
   margin-bottom: 12px;
   border-radius: 10px;
   background: rgba(var(--hud-rgb), 0.08);
   border: 1px solid var(--hud-line);
+  transition: background-color 0.3s, border-color 0.3s;
 }
 .leverage-callout.show { display: flex; }
+.leverage-callout-row { display: flex; align-items: center; gap: 10px; }
 .leverage-callout .leverage-label {
   font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--hud); flex-shrink: 0;
 }
 .leverage-callout .leverage-text { font-size: 14px; color: var(--text-primary); font-weight: 600; }
 .leverage-callout.leverage-done .leverage-text { text-decoration: line-through; color: var(--text-tertiary); }
+/* Urgency escalates the callout's tint as the day wears on with the task
+   still undone (or never picked) — same "risk band" idea used elsewhere
+   in the app (burnout risk, clean-streak badges), just time-of-day driven. */
+.leverage-callout.leverage-building { background: rgba(251,191,36,0.09); border-color: rgba(251,191,36,0.3); }
+.leverage-callout.leverage-building .leverage-label { color: #FBBF24; }
+.leverage-callout.leverage-urgent { background: rgba(255,84,112,0.1); border-color: rgba(255,84,112,0.35); }
+.leverage-callout.leverage-urgent .leverage-label { color: #FF5470; }
+.leverage-footer { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--text-tertiary); }
+.leverage-streak { color: var(--text-secondary); }
+.leverage-streak b { color: var(--hud); font-weight: 700; }
+.leverage-dots { display: flex; gap: 3px; margin-left: auto; }
+.leverage-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.12); }
+.leverage-dot.ld-done { background: var(--success); }
+.leverage-dot.ld-missed { background: var(--danger); opacity: 0.55; }
 
 .goal-delete {
   border: 0; background: transparent;
@@ -732,8 +748,14 @@
       </div>
       <div class="gm-bar" id="gmBar"></div>
       <div class="leverage-callout" id="leverageCallout">
-        <span class="leverage-label">🎯 Leverage Task</span>
-        <span class="leverage-text" id="leverageText"></span>
+        <div class="leverage-callout-row">
+          <span class="leverage-label" id="leverageLabel">🎯 Leverage Task</span>
+          <span class="leverage-text" id="leverageText"></span>
+        </div>
+        <div class="leverage-footer" id="leverageFooter">
+          <span class="leverage-streak" id="leverageStreakText"></span>
+          <div class="leverage-dots" id="leverageDots"></div>
+        </div>
       </div>
       <ul id="goalList" class="goal-list gm-list"></ul>
       <div id="emptyState" class="empty-state">No goals for today yet — add one below.</div>
@@ -917,6 +939,69 @@
     return list;
   }
 
+  // ---------- Leverage Task history/streak ----------
+  // rollover() deletes each past day's 'goals:*' key right after reading it
+  // (undone items get folded into today, then the old key is gone for
+  // good) — so this is the ONLY point where a day's leverage pick is still
+  // available to look back on. The stats are folded into rollover's own
+  // loop below rather than recomputed from scratch on every load.
+  const LEVERAGE_HISTORY_MAX = 14;
+
+  function loadLeverageStats() {
+    const s = storeGet('leverage_stats_v1');
+    if (s && typeof s.streak === 'number') return s;
+    return { streak: 0, completedCount: 0, setCount: 0, history: [], lastProcessedDate: '' };
+  }
+  function saveLeverageStats(s) { storeSet('leverage_stats_v1', s); }
+
+  // Pure — takes one past day's goal list and folds it into the running
+  // stats. A day with no goals logged at all doesn't penalize the streak
+  // (nothing to judge), but a day that had goals and simply never got a
+  // leverage task designated DOES break it — the point is building the
+  // daily habit of picking the one thing that matters most.
+  function processLeverageHistoryDay(stats, dateStr, dayGoals) {
+    const s = {
+      streak: stats.streak || 0,
+      completedCount: stats.completedCount || 0,
+      setCount: stats.setCount || 0,
+      history: (stats.history || []).slice(),
+      lastProcessedDate: stats.lastProcessedDate || '',
+    };
+    if (!dayGoals.length) { s.lastProcessedDate = dateStr; return s; }
+
+    const leverageGoal = dayGoals.find(g => g.leverage);
+    if (!leverageGoal) {
+      s.streak = 0;
+      s.history.push({ date: dateStr, text: null, done: false });
+    } else {
+      s.setCount += 1;
+      if (leverageGoal.done) { s.streak += 1; s.completedCount += 1; }
+      else { s.streak = 0; }
+      s.history.push({ date: dateStr, text: leverageGoal.text, done: !!leverageGoal.done });
+    }
+    if (s.history.length > LEVERAGE_HISTORY_MAX) s.history = s.history.slice(-LEVERAGE_HISTORY_MAX);
+    s.lastProcessedDate = dateStr;
+    return s;
+  }
+
+  function leverageFollowThroughRate(stats) {
+    if (!stats || !stats.setCount) return null;
+    return stats.completedCount / stats.setCount;
+  }
+
+  // How insistent the "pick/finish your leverage task" callout should look,
+  // based on how much of the waking day is already behind you — same
+  // elapsed-fraction-of-day math as updateDayRing() below, just bucketed
+  // into three bands instead of a continuous percent.
+  function leverageUrgency(nowHour, wakeHour, sleepHour) {
+    const span = sleepHour - wakeHour;
+    const elapsed = Math.max(0, Math.min(span, nowHour - wakeHour));
+    const frac = span > 0 ? elapsed / span : 0;
+    if (frac < 0.4) return 'calm';
+    if (frac < 0.75) return 'building';
+    return 'urgent';
+  }
+
   // ---------- rollover: pull undone older goals into today ----------
   function rollover() {
     const todayDateStr = getActiveDateString();
@@ -924,10 +1009,14 @@
     let today = getGoals(todayK);
     const texts = new Set(today.map(g => g.text));
 
+    let leverageStats = loadLeverageStats();
     storeListKeys('goals:').forEach(k => {
       const dateStr = k.slice('goals:'.length);
       if (dateStr >= todayDateStr) return;
       const old = getGoals(k);
+      if (!leverageStats.lastProcessedDate || dateStr > leverageStats.lastProcessedDate) {
+        leverageStats = processLeverageHistoryDay(leverageStats, dateStr, old);
+      }
       old.forEach(g => {
         if (!g.done && g.text && !texts.has(g.text)) {
           today.push({ text: g.text, done: false });
@@ -936,6 +1025,7 @@
       });
       storeDelete(k);
     });
+    saveLeverageStats(leverageStats);
     setGoals(todayK, today);
   }
 
@@ -1342,11 +1432,47 @@
 
   function renderLeverageCallout(goals) {
     const callout = document.getElementById('leverageCallout');
+    const label = document.getElementById('leverageLabel');
+    const textEl = document.getElementById('leverageText');
+    const streakText = document.getElementById('leverageStreakText');
+    const dotsEl = document.getElementById('leverageDots');
+    const stats = loadLeverageStats();
+
+    const now = new Date();
+    const nowHour = now.getHours() + now.getMinutes() / 60;
     const leverageGoal = goals.find(g => g.leverage);
-    if (!leverageGoal) { callout.classList.remove('show', 'leverage-done'); return; }
-    document.getElementById('leverageText').textContent = leverageGoal.text;
+    const done = !!(leverageGoal && leverageGoal.done);
+    const urgency = done ? 'calm' : leverageUrgency(nowHour, WAKE_HOUR, SLEEP_HOUR);
+
     callout.classList.add('show');
-    callout.classList.toggle('leverage-done', !!leverageGoal.done);
+    callout.classList.toggle('leverage-done', done);
+    callout.classList.toggle('leverage-building', urgency === 'building');
+    callout.classList.toggle('leverage-urgent', urgency === 'urgent');
+
+    if (leverageGoal) {
+      label.textContent = '🎯 Leverage Task';
+      textEl.textContent = leverageGoal.text;
+    } else if (goals.length) {
+      label.textContent = urgency === 'urgent' ? '🎯 Still no Leverage Task' : '🎯 Pick a Leverage Task';
+      textEl.textContent = 'Star the one thing today that matters most (⭐ on any item below).';
+    } else {
+      callout.classList.remove('show');
+      return;
+    }
+
+    const rate = leverageFollowThroughRate(stats);
+    let streakMsg = stats.streak > 0
+      ? '🔥 ' + stats.streak + '-day streak'
+      : (leverageGoal ? 'Finish it to start a streak' : 'Pick one to start a streak');
+    if (rate != null) streakMsg += ' · ' + Math.round(rate * 100) + '% follow-through';
+    streakText.innerHTML = streakMsg.replace(/^(🔥 )(\d+)(-day streak)$/, '$1<b>$2</b>$3');
+
+    dotsEl.innerHTML = '';
+    stats.history.slice(-7).forEach(h => {
+      const dot = document.createElement('span');
+      dot.className = 'leverage-dot' + (h.text == null ? '' : h.done ? ' ld-done' : ' ld-missed');
+      dotsEl.appendChild(dot);
+    });
   }
 
   function renderStreak() {
@@ -2000,7 +2126,7 @@ document.addEventListener('DOMContentLoaded', function () {
   initCloudSync({
     appKey: 'goals',
     syncedPrefixes: ['goals:'],
-    syncedKeys: ['habits:defs', 'habits:log', 'recur:defs'],
+    syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1'],
     onApplied: function () {
       window.dispatchEvent(new CustomEvent('goals-changed'));
       window.dispatchEvent(new CustomEvent('habits-changed'));
