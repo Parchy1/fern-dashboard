@@ -902,76 +902,70 @@ notes cap above was fixed for. No setup — this is part of the Telegram Assista
 ## 17. Insights (optional-by-nature — needs history to say anything)
 
 No setup — works automatically once Supabase sync (step 2) is configured, and once you've got
-enough logged history for it to say anything real. Reflect hub → **🧭 Insights**.
+enough logged history for it to say anything real. Front page → **🧭 Insights** (its own tile,
+not nested under Reflect) → 6 dedicated pages, each a focused view rather than one long stacked
+scroll:
 
-Generalizes the caffeine/sleep and gym/mood correlations already used in Peak's Insights tab and
-the morning briefing's 💡 line into a ranked comparison across several factors at once (sleep
-quality/hours, workouts, late caffeine, habit/to-do completion) against how you actually felt —
-same "two buckets, minimum 5 days each side, meaningful difference" statistical approach, just
-run over everything instead of a couple of hardcoded pairs, so **Biggest Limiter** can name the
-single factor actually dragging your days down instead of you having to notice it, and
-**Patterns** surfaces the "you perform best when X" / "bad days follow Y" lines automatically.
+- **Patterns & Limiters** — generalizes the caffeine/sleep and gym/mood correlations already used
+  in Peak's Insights tab and the morning briefing's 💡 line into a ranked comparison across
+  several factors at once (sleep quality/hours, workouts, late caffeine, habit/to-do completion)
+  against how you actually felt — same "two buckets, minimum 5 days each side, meaningful
+  difference" statistical approach, just run over everything instead of a couple of hardcoded
+  pairs. A hero callout names the single biggest limiter; below it, a diverging tornado chart
+  ranks every factor that clears the bar, positive ones pushing right, negative ones pushing left.
+- **Mode Breakdown** ("Alter Ego" system) passively classifies each logged day into one of four
+  modes — no manual tagging, ever:
+  - **Redline Mode** — poor sleep (2/5 or below) or high stress (4/5+): a day that called for
+    easing off, checked first since it overrides everything else.
+  - **Recovery Mode** — a logged workout day without also being Redline.
+  - **Beast Mode** — high habit or to-do completion (80%+) with nothing rough going on.
+  - **Steady Mode** — the default when nothing stands out either way.
 
-Below that, a **Predictive Engine** section adds three passively-derived cards — nothing here
-requires logging anything new, it's all built from data the other trackers already collect:
+  Shows your inferred mode right now, a donut of the last 60 logged days across all four, and a
+  day-by-day calendar strip so WHEN each mode shows up is visible, not just the aggregate —
+  days with zero real data logged are excluded rather than padding the Steady count.
+- **Emotional Triggers** — maps day-ahead precursors instead of same-day correlations: does
+  YESTERDAY's late caffeine, poor sleep, missed habits, etc. predict how TODAY actually feels?
+  Reuses the exact same bucket-comparison engine as Patterns & Limiters, fed a day-shifted
+  dataset, surfacing only the negative effects (positive same-day patterns already show up in
+  Patterns). Shown as a radar of which factors hit hardest plus a day-of-week × time-of-day
+  heatmap (built from Peak check-ins' real timestamps) so you can see when rough moments actually
+  land, e.g. "Wednesdays around noon."
+- **Recovery** — three passively-derived gauges, nothing here requires logging anything new:
+  - **Night Score** — the evening/night counterpart to the home screen's Today Score. Weighted
+    composite of sleep hours vs. an 8-hour target, sleep quality, and whether caffeine was cut off
+    before 2pm — shown as last night's score (ring gauge) plus a 7-night average. Same "leave a
+    dimension out entirely rather than score it as a zero" principle as Today Score: the caffeine
+    dimension only counts if you've logged caffeine at least once.
+  - **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
+    morning check-in, shown as a ring gauge, so you see the accumulated deficit rather than just
+    one bad night. Needs at least 5 logged nights.
+  - **Burnout Risk** — compares this week to last week across three signals (rising stress,
+    falling sleep quality, slipping habit/to-do consistency), reported as Low/Moderate/Elevated
+    plus this-week-vs-last-week comparison bars for each signal. Needs one comparable pair of
+    weeks with overlapping data.
+- **Drift Detection** — a longer-horizon companion to Burnout Risk: instead of "is this week worse
+  than last week," it asks "have your own patterns quietly slipped from your own baseline" —
+  comparing the last 14 days to the ~46 days before that across workouts, habit completion, to-do
+  completion, and sleep quality, shown as small-multiple sparklines (one per metric, recent window
+  shaded, baseline as a dashed reference), only calling it "drift" once a metric is down at least
+  25% from baseline. The same check also runs server-side and, if it fires, adds a 🌊 line to the
+  daily morning briefing/Telegram nudge — so a real slip surfaces proactively too.
+- **Reality vs Plan** — a plain adherence check, distinct from everything above (those are about
+  how you FELT; this is just about whether the plan actually happened): an overall adherence %
+  (ring gauge) blending habit and to-do completion, a trend chart against your own prior-period
+  average, a ranked bar list of which habits get skipped most, and a 90-day adherence heatmap.
 
-- **Weight Projection** — fits a least-squares trend line to your logged Gym weigh-ins (same
-  linear-regression approach Finance uses for net-worth forecasting) and projects where you'll
-  land in 30 days at the current rate. Needs at least 3 weigh-ins in the trailing 45 days.
-- **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
-  morning check-in, so you can see the accumulated deficit rather than just one bad night at a
-  time. Needs at least 5 logged nights.
-- **Burnout Risk** — compares this week to last week across three signals (rising stress, falling
-  sleep quality, slipping habit/to-do consistency) and reports Low / Moderate / Elevated. Needs at
-  least one comparable pair of weeks with overlapping data.
+Two more predictive pieces used to live on this page and have since moved to where the underlying
+data already lives, since a projection is more useful sitting next to the numbers it's projecting:
 
-A **Time to Goal** section lets you set a net worth goal and/or a target weight — the one thing
-here that can't be inferred passively, since it's a number only you can state. Once set, it
-reuses the same trend-line math as the predictive cards above (net worth from Finance's history,
-weight from Gym's weigh-ins) to project when you'd hit it at the current rate, and works whether
-the goal is above or below your current value (gaining vs. losing, saving vs. paying down).
-Goals sync across devices the same way everything else here does.
-
-A **Drift Detection** card is a longer-horizon companion to Burnout Risk above: instead of "is
-this week worse than last week," it asks "have your own patterns quietly slipped from your own
-baseline" — comparing the last 14 days to the ~46 days before that across workouts, habit
-completion, to-do completion, and sleep quality, and only calling it "drift" when at least two of
-those move together (so one off week doesn't trigger a false alarm). The same check also runs
-server-side and, if it fires, adds a 🌊 line to the daily morning briefing/Telegram nudge — so a
-real slip surfaces proactively instead of only when you happen to open this page.
-
-A **Reality vs Plan** section is a plain adherence check, distinct from everything above (those are
-about how you FELT; this is just about whether the plan actually happened) — an overall
-adherence % blending habit and to-do completion, whether that's trending up or down over the last
-two weeks vs. before, and which specific habits get skipped most often so it's not just an
-abstract percentage.
-
-A **Mode Breakdown** ("Alter Ego" system) passively classifies each logged day into one of four
-modes — no manual tagging, ever. It's inferred entirely from data already logged elsewhere:
-
-- **Redline Mode** — poor sleep (2/5 or below) or high stress (4/5+): a day that called for easing
-  off, checked first since it overrides everything else.
-- **Recovery Mode** — a logged workout day without also being Redline.
-- **Beast Mode** — high habit or to-do completion (80%+) with nothing rough going on.
-- **Steady Mode** — the default when nothing stands out either way.
-
-Shows your inferred mode right now plus a breakdown of the last 60 logged days across all four —
-days with zero real data logged at all are excluded rather than padding the Steady count.
-
-An **Emotional Triggers** section maps day-ahead precursors instead of same-day correlations —
-does YESTERDAY's late caffeine, poor sleep, missed habits, etc. predict how TODAY actually feels?
-Reuses the exact same bucket-comparison engine as Biggest Limiter above, just fed a day-shifted
-dataset, and only surfaces the negative effects (things that make the next day worse) since
-positive same-day patterns already show up in Patterns.
-
-A **Night Score** is the evening/night counterpart to the home screen's Today Score, which only
-covers daytime behaviors (to-dos, habits, workouts) and has no read at all on how the night
-itself went. Weighted composite of sleep hours vs. an 8-hour target, sleep quality, and whether
-caffeine was cut off before 2pm — shown as last night's score plus a 7-night average for context.
-Same "leave a dimension out entirely rather than score it as a zero" principle as Today Score: the
-caffeine dimension only counts at all if you've actually logged caffeine at least once.
-
-This page is being built out further with more sections — check back as those land.
+- **Weight Projection** moved into **Gym**'s Weight section as a **Trajectory** card — historical
+  weigh-ins plus a Slow/Typical/Fast scenario fan (percentiles of your real week-to-week rate of
+  change, not one brittle regression line) projected toward a goal weight you set right there.
+  Needs at least 3 weigh-ins in the trailing 90 days.
+- **Net Worth** projection moved into **Finance**'s existing Forecast card, gaining the same
+  Slow/Typical/Fast scenario-fan chart alongside the goal amount + purchase-impact tools already
+  there. Needs at least 3 net-worth snapshots in the trailing 180 days.
 
 ---
 
@@ -1029,7 +1023,7 @@ toward the next stage. Add a skill, log minutes as you practice, delete when you
 14. Data export/backup: nothing to set up — gear icon → Backup on the main page, see step 14 above.
 15. Dashboard-wide search: nothing to set up — 🔍 icon on the main page, see step 15 above.
 16. Life Context: nothing to set up — 🧠 Life Context box on the Reflect hub, see step 16 above.
-17. Insights: nothing to set up — 🧭 Insights on the Reflect hub, see step 17 above.
+17. Insights: nothing to set up — 🧭 Insights, its own tile on the front page, see step 17 above.
 18. Daily Leverage Task: nothing to set up — ⭐ button on any to-do item, see step 18 above.
 19. Mistake / Risk Log: nothing to set up — ⚠️ Mistake Log on the Reflect hub, see step 19 above.
 20. Skill Stack Tracker: nothing to set up — 🏗️ Skill Stack on the Reflect hub, see step 20 above.
