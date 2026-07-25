@@ -978,29 +978,61 @@ a different item clears the previous pick automatically — and the marked task 
 above the list so it doesn't get lost among everything else. Syncs across devices the same way the
 rest of your to-do list already does, since it's just a flag on the same goal object.
 
+The callout now carries real feedback instead of just echoing the task text:
+
+- **Clean/completion streak** — consecutive days you designated a leverage task AND finished it.
+  Picking a different task doesn't break it; failing to finish one does, and so does a day with
+  goals logged but no leverage task ever starred (the point is building the daily habit of
+  picking one).
+- **Follow-through rate** — completed ÷ designated, across your whole history.
+- **A 7-day history strip** — a dot per recent day: green (done), dim red (starred but not
+  finished), gray (never starred that day).
+- **Nothing starred yet?** The callout still shows, prompting you to pick one instead of just
+  disappearing.
+- **Time-of-day urgency tint** — the callout stays neutral cyan early in the day, shifts amber
+  once you're past ~40% of your waking hours with it still undone/unset, and red past ~75%,
+  using the same wake/sleep hours as the day-progress ring elsewhere on this page.
+
+This is computed once per day at rollover (the same moment yesterday's to-do list gets folded
+into today's), not re-derived from raw history on every load, so it survives the fact that old
+daily to-do lists themselves don't stick around.
+
 ---
 
 ## 19. Mistake / Risk Log
 
-No setup — Reflect hub → **⚠️ Mistake Log**. A plain log: what happened, what you learned, a
-category (Financial/Health/Relationships/Work/Other) and a severity (Minor/Moderate/Major).
-Newest-first, sorts and syncs like any other list on this dashboard — nothing derived or
-passively inferred here, just a place to actually write down the lesson so it isn't lost the
-next time a similar situation comes up.
+Reflect hub → **⚠️ Mistake Log**. Still a plain log at heart — what happened, what you learned, a
+category (Financial/Health/Relationships/Work/Other), a severity (Minor/Moderate/Major) — but the
+page now leads with three passively-computed sections above the log itself:
+
+- **Clean Streak** — a ring showing days since your last Major-severity entry, with a
+  none/low/moderate/elevated risk badge.
+- **Where risk concentrates** — a ranked bar chart of entries by category, plus a Minor/Moderate/
+  Major count breakdown.
+- **Recurring Threads** — a word-frequency pass over your descriptions + lessons (stopwords
+  filtered, each word counted at most once per entry so one long entry can't fake a pattern) that
+  surfaces words showing up across two or more *separate* entries — a cheap way to notice "you
+  keep writing about the same thing" without reading back through everything yourself.
+
+Newest-first history list below still sorts and syncs like any other list on this dashboard.
 
 ---
 
 ## 20. Skill Stack Tracker
 
-No setup — Reflect hub → **🏗️ Skill Stack**. Track any named skill you're deliberately building
-(a language, an instrument, a tool, anything) with logged practice sessions, distinct from the
-dashboard's existing global XP/level system (a single overall total across every action) —
-this is per-skill, scoped to time you actually choose to log, with hour-based mastery staging:
+Reflect hub → **🏗️ Skill Stack**. Track any named skill you're deliberately building (a language,
+an instrument, a tool, anything) with logged practice sessions, distinct from the dashboard's
+existing global XP/level system (a single overall total across every action) — this is per-skill,
+scoped to time you actually choose to log, with hour-based mastery staging:
 
 - Novice (0h) → Beginner (10h+) → Intermediate (50h+) → Advanced (200h+) → Expert (1000h+)
 
-Each skill card shows total hours, session count, when you last practiced, and a progress bar
-toward the next stage. Add a skill, log minutes as you practice, delete when you're done with it.
+The page now leads with a hero card for your most-practiced skill (a ring showing weekly-goal
+progress, or mastery-stage progress if no goal is set), secondary cards for every other skill,
+a practice-activity heatmap aggregating minutes across all skills, and a recent-sessions feed —
+then the add-skill form and full manage list below. Skills can optionally carry a weekly-hour
+goal, tracked against a rolling 7-day window, and each skill tracks its own current practice
+streak (consecutive days practiced, ending today or yesterday).
 
 ---
 
