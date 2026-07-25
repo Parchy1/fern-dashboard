@@ -39,20 +39,23 @@
   align-items: center; gap: 22px;
 }
 .score-card.show { display: flex; }
-.score-num-wrap { display: flex; align-items: baseline; gap: 4px; flex-shrink: 0; }
+/* The Today Score gets the "arc reactor" ring treatment — the single
+   most Jarvis-coded number on the dashboard. */
+.score-card .hud-ring { width: 108px; height: 108px; }
 .score-num {
-  font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
+  display: block;
+  font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
   font-variant-numeric: tabular-nums; font-family: var(--font-mono);
   background: linear-gradient(180deg, #FFFFFF 0%, var(--hud) 140%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
   text-shadow: 0 0 24px rgba(var(--hud-rgb), 0.25);
 }
-.score-max { font-size: 16px; font-weight: 600; color: var(--text-tertiary); }
+.score-max { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--text-tertiary); }
 .score-body { min-width: 0; flex: 1; }
 .score-tier { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
 .score-breakdown { font-size: 12.5px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 560px) {
-  .score-card { flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; }
+  .score-card { flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 18px; }
   .score-breakdown { white-space: normal; }
 }
 
@@ -92,7 +95,10 @@
   </div>
 
   <div class="score-card" id="scoreCard">
-    <div class="score-num-wrap"><span class="score-num" id="scoreNum">–</span><span class="score-max">/100</span></div>
+    <div class="hud-ring" id="scoreRing" style="--ring-pct: 0">
+      <div class="hud-ring-track"></div>
+      <div class="hud-ring-value"><span class="score-num" id="scoreNum">–</span><span class="score-max">/100</span></div>
+    </div>
     <div class="score-body">
       <div class="score-tier" id="scoreTier"></div>
       <div class="score-breakdown" id="scoreBreakdown"></div>
@@ -590,6 +596,7 @@
     document.getElementById('scoreNum').textContent = result.score;
     document.getElementById('scoreTier').textContent = tierForScore(result.score);
     document.getElementById('scoreBreakdown').textContent = result.breakdown;
+    document.getElementById('scoreRing').style.setProperty('--ring-pct', result.score);
     card.classList.add('show');
   }
 
