@@ -5,41 +5,37 @@
 <script src="/api/config"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0a0a0b">
+<meta name="theme-color" content="#03060a">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Finances</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
+<link rel="stylesheet" href="design-system.css">
 <style>
+/* text-primary/secondary/tertiary, --success/--warning/--danger, and the
+   --hud tokens + body background/grid now come from design-system.css.
+   Only page-specific extras stay here, remapped to the HUD cyan palette. */
 :root {
-  --bg: #0A0A0B;
-  --bg-deep: #050506;
-  --bg-card: rgba(255, 255, 255, 0.04);
-  --bg-secondary: rgba(255, 255, 255, 0.035);
-  --glass-bg: rgba(255, 255, 255, 0.04);
-  --glass-border: transparent;
-  --glass-border-strong: transparent;
+  --bg: #03060a;
+  --bg-deep: #03060a;
+  --bg-card: rgba(10, 22, 30, 0.55);
+  --bg-secondary: rgba(var(--hud-rgb), 0.035);
+  --glass-bg: rgba(var(--hud-rgb), 0.045);
+  --glass-border: var(--hud-line-soft);
+  --glass-border-strong: var(--hud-line);
   --glass-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+    0 1px 0 0 rgba(34, 211, 245, 0.06) inset,
     0 12px 40px rgba(0, 0, 0, 0.45),
     0 1px 2px rgba(0, 0, 0, 0.25);
-  --text-primary: #FAFAFA;
-  --text-secondary: #B8B6B0;
-  --text-tertiary: #76746E;
-  --text-quaternary: #4D4B47;
-  --border: transparent;
+  --text-quaternary: rgba(94, 122, 140, 0.6);
+  --border: var(--hud-line-soft);
   --border-soft: transparent;
-  --accent: #E07658;
-  --success: #6BE3A4;
-  --warning: #F2C063;
-  --danger: #FF6B6B;
+  --accent: var(--hud);
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -51,30 +47,6 @@ html, body {
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   min-height: 100%;
-}
-
-/* Backdrop — black with subtle warm + cool washes */
-body::before {
-  content: '';
-  position: fixed;
-  inset: -10%;
-  z-index: -2;
-  background:
-    radial-gradient(60% 45% at 82% 14%, rgba(224, 118, 88, 0.16) 0%, transparent 55%),
-    radial-gradient(55% 45% at 18% 90%, rgba(180, 180, 200, 0.06) 0%, transparent 55%),
-    linear-gradient(180deg, #0A0A0B 0%, #050506 100%);
-  filter: blur(40px) saturate(1.05);
-  pointer-events: none;
-}
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px);
-  background-size: 3px 3px;
-  opacity: 0.7;
-  pointer-events: none;
 }
 
 .shell {
@@ -90,8 +62,8 @@ body::after {
   gap: 6px;
   padding: 8px 14px 8px 10px;
   margin: 0 0 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(34,211,245,0.04);
+  border: 1px solid rgba(34,211,245,0.08);
   border-radius: 999px;
   color: var(--text-secondary);
   font-family: var(--font);
@@ -103,7 +75,7 @@ body::after {
   transition: background 0.15s ease, color 0.15s ease;
 }
 .fin-back-btn:hover, .fin-back-btn:active {
-  background: rgba(255,255,255,0.07);
+  background: rgba(34,211,245,0.07);
   color: var(--text-primary);
 }
 .fin-back-btn svg { display: block; }
@@ -126,7 +98,7 @@ body::after {
   position: absolute;
   top: 0; left: 12px; right: 12px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  background: linear-gradient(90deg, transparent, rgba(34,211,245,0.10), transparent);
   pointer-events: none;
 }
 .bot-tab {
@@ -142,11 +114,11 @@ body::after {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.bot-tab:hover { color: var(--text-secondary); background: rgba(255,255,255,0.025); }
+.bot-tab:hover { color: var(--text-secondary); background: rgba(34,211,245,0.025); }
 .bot-tab.active {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.06);
-  border-color: rgba(255,255,255,0.10);
+  background: rgba(34,211,245,0.06);
+  border-color: rgba(34,211,245,0.10);
 }
 .bot-tab-icon { font-size: 18px; line-height: 1; }
 .bot-tab-label {
@@ -205,7 +177,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   content: '';
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, rgba(34,211,245,0.08), transparent);
 }
 
 /* Card */
@@ -226,7 +198,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   position: absolute;
   top: 0; left: 14px; right: 14px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent);
+  background: linear-gradient(90deg, transparent, rgba(34,211,245,0.16), transparent);
   pointer-events: none;
 }
 .card-grid {
@@ -247,7 +219,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   font-weight: 700;
   letter-spacing: 0.04em;
   border: none;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(34, 211, 245, 0.05);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   text-transform: uppercase;
@@ -257,7 +229,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   width: 5px; height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: rgba(255,255,255,0.30);
+  background: rgba(34,211,245,0.30);
 }
 .tag-green::before { background: #6BE3A4; box-shadow: 0 0 6px rgba(107,227,164,0.55); }
 .tag-green { background: rgba(107, 227, 164, 0.10); color: #8EE9B7; }
@@ -315,7 +287,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .quick-add input::placeholder { color: var(--text-tertiary); }
 .quick-add-btn {
   padding: 0 14px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(34,211,245,0.06);
   border: none;
   color: var(--text-secondary);
   border-radius: 9px;
@@ -325,7 +297,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   cursor: pointer;
   white-space: nowrap;
 }
-.quick-add-btn:hover { background: rgba(255,255,255,0.12); color: var(--text-primary); }
+.quick-add-btn:hover { background: rgba(34,211,245,0.12); color: var(--text-primary); }
 .quick-add-btn:active { transform: scale(0.96); }
 
 /* Custom list rows */
@@ -334,18 +306,18 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border: none;
   border-radius: 10px;
   margin-bottom: 5px;
   font-size: 13px;
   color: var(--text-primary);
 }
-.custom-item:hover { background: rgba(255,255,255,0.05); }
+.custom-item:hover { background: rgba(34,211,245,0.05); }
 .custom-item .item-dot {
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.30);
+  background: rgba(34,211,245,0.30);
   flex-shrink: 0;
 }
 .custom-item span { flex: 1; word-break: break-word; }
@@ -392,7 +364,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   cursor: pointer; border-radius: 4px;
   padding: 2px 4px; margin: -2px -4px;
 }
-.nw-name-edit:hover, .nw-amt-edit:hover { background: rgba(255, 255, 255, 0.06); }
+.nw-name-edit:hover, .nw-amt-edit:hover { background: rgba(34, 211, 245, 0.06); }
 .nw-del {
   background: none; border: none;
   color: var(--text-tertiary); cursor: pointer;
@@ -408,7 +380,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .nw-wallet-refresh:hover { opacity: 1; }
 
 .nw-subcard {
-  background: rgba(255,255,255,0.025) !important;
+  background: rgba(34,211,245,0.025) !important;
   border: none;
   margin-bottom: 0;
   min-width: 0;
@@ -449,7 +421,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .nw-chart-wrap {
   margin: 14px 0 18px;
   padding: 14px 16px 12px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(34, 211, 245, 0.025);
   border: none;
   border-radius: 12px;
   position: relative;
@@ -479,7 +451,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   transition: color 0.4s ease;
 }
 .nw-chart-grid {
-  stroke: rgba(255,255,255,0.05);
+  stroke: rgba(34,211,245,0.05);
   stroke-width: 1;
   stroke-dasharray: 2 4;
   vector-effect: non-scaling-stroke;
@@ -505,7 +477,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   gap: 6px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(34,211,245,0.05);
 }
 @media (max-width: 720px) {
   .nw-chart-stats { grid-template-columns: repeat(2, 1fr); }
@@ -544,7 +516,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .nw-donut-wrap {
   position: relative;
   padding: 14px 16px 12px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(34, 211, 245, 0.025);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -632,7 +604,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .nw-activity {
   margin-top: 14px;
   padding: 14px 16px 12px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(34, 211, 245, 0.025);
   border-radius: 12px;
 }
 .nw-activity-h {
@@ -655,18 +627,18 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 }
 /* Subtle scroll affordance — shows there's more below */
 .nw-activity-list::-webkit-scrollbar { width: 4px !important; display: block !important; }
-.nw-activity-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 2px; }
+.nw-activity-list::-webkit-scrollbar-thumb { background: rgba(34,211,245,0.10); border-radius: 2px; }
 .nw-activity-list::-webkit-scrollbar-track { background: transparent; }
 .nw-activity-row {
   display: grid; grid-template-columns: 4px 1fr auto auto;
   gap: 10px; align-items: center;
   padding: 8px 12px;
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border-radius: 8px;
   font-size: 12.5px;
   transition: background 0.15s;
 }
-.nw-activity-row:hover { background: rgba(255,255,255,0.05); }
+.nw-activity-row:hover { background: rgba(34,211,245,0.05); }
 .nw-activity-bar {
   width: 4px; height: 24px; border-radius: 2px;
   flex-shrink: 0;
@@ -713,8 +685,8 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
    ORDERS — full-spec form (name, cost, ccy, from-category, date)
    ============================================================ */
 .ord-add-card {
-  background: rgba(255,255,255,0.025) !important;
-  border: 1px solid rgba(255,255,255,0.05) !important;
+  background: rgba(34,211,245,0.025) !important;
+  border: 1px solid rgba(34,211,245,0.05) !important;
 }
 .ord-add-eyebrow {
   font-size: 10px; letter-spacing: 0.18em; font-weight: 800;
@@ -748,7 +720,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .ord-input::placeholder { color: var(--text-tertiary); }
 .ord-input-cost { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .ord-input-ccy, .ord-input-from {
-  background: rgba(255,255,255,0.04);
+  background: rgba(34,211,245,0.04);
   border-radius: 8px;
   cursor: pointer; font-weight: 600;
   appearance: none; -webkit-appearance: none;
@@ -794,14 +766,14 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 }
 
 .ord-card {
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border-radius: 14px;
   padding: 14px 16px;
   margin-bottom: 8px;
   border-left: 3px solid var(--text-tertiary);
   transition: background 0.15s;
 }
-.ord-card:hover { background: rgba(255,255,255,0.045); }
+.ord-card:hover { background: rgba(34,211,245,0.045); }
 .ord-card.cat-cash   { border-left-color: #F472B6; }
 .ord-card.cat-bank   { border-left-color: #7DD3FC; }
 .ord-card.cat-stocks { border-left-color: #6EE7B7; }
@@ -834,7 +806,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   white-space: nowrap;
 }
 .ord-card-x {
-  background: transparent; border: 1px solid rgba(255,255,255,0.08);
+  background: transparent; border: 1px solid rgba(34,211,245,0.08);
   color: var(--text-tertiary);
   cursor: pointer; font-size: 14px;
   padding: 4px 9px; border-radius: 6px;
@@ -851,7 +823,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .ord-meta-pill {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 9px; border-radius: 999px;
-  background: rgba(255,255,255,0.04);
+  background: rgba(34,211,245,0.04);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -866,9 +838,9 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 
 .ord-empty-card {
   text-align: center; padding: 32px 20px;
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border-radius: 14px;
-  border: 1px dashed rgba(255,255,255,0.08);
+  border: 1px dashed rgba(34,211,245,0.08);
 }
 .ord-empty-card.hidden { display: none; }
 .ord-empty-icon {
@@ -934,7 +906,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .wish-hero-pct-num.bad  { color: #FF8A8A; }
 .wish-hero-bar {
   height: 6px; border-radius: 3px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(34,211,245,0.06);
   overflow: hidden; position: relative;
 }
 .wish-hero-bar-fill {
@@ -951,8 +923,8 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 
 /* Add card */
 .wish-add-card {
-  background: rgba(255,255,255,0.025) !important;
-  border: 1px solid rgba(255,255,255,0.05) !important;
+  background: rgba(34,211,245,0.025) !important;
+  border: 1px solid rgba(34,211,245,0.05) !important;
 }
 .wish-add-eyebrow {
   font-size: 10px; letter-spacing: 0.18em; font-weight: 800;
@@ -981,7 +953,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .wish-input-amt  { flex: 1; min-width: 80px; max-width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
 .wish-input-ccy {
   flex: 0 1 80px;
-  background: rgba(255,255,255,0.04);
+  background: rgba(34,211,245,0.04);
   border-radius: 9px;
   color: var(--text-primary);
   font-family: inherit; font-size: 12px;
@@ -1021,9 +993,9 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 
 .wish-empty-card {
   text-align: center; padding: 32px 20px;
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border-radius: 14px;
-  border: 1px dashed rgba(255,255,255,0.08);
+  border: 1px dashed rgba(34,211,245,0.08);
 }
 .wish-empty-card.hidden { display: none; }
 .wish-empty-icon {
@@ -1041,7 +1013,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 
 /* ===== Wishlist rows ===== */
 .wish-row {
-  background: rgba(255,255,255,0.025);
+  background: rgba(34,211,245,0.025);
   border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 8px;
@@ -1081,7 +1053,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .wish-row-pct.bad  { color: #FF8A8A; }
 .wish-row-pct.flat { color: var(--text-tertiary); }
 .wish-row-x {
-  background: transparent; border: 1px solid rgba(255,255,255,0.10);
+  background: transparent; border: 1px solid rgba(34,211,245,0.10);
   color: var(--text-tertiary);
   cursor: pointer; font-size: 14px;
   padding: 4px 8px; border-radius: 6px;
@@ -1090,7 +1062,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .wish-row-x:hover { color: #FF8A8A; }
 .wish-row-bar {
   height: 5px; border-radius: 3px;
-  background: rgba(255,255,255,0.04);
+  background: rgba(34,211,245,0.04);
   margin-top: 10px;
   overflow: hidden;
 }
@@ -1101,7 +1073,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .wish-row-bar-fill.good { background: #6BE3A4; box-shadow: 0 0 6px rgba(107,227,164,0.5); }
 .wish-row-bar-fill.warn { background: #F2C063; box-shadow: 0 0 6px rgba(242,192,99,0.5); }
 .wish-row-bar-fill.bad  { background: #FF8A8A; box-shadow: 0 0 6px rgba(255,138,138,0.5); }
-.wish-row-bar-fill.flat { background: rgba(255,255,255,0.20); }
+.wish-row-bar-fill.flat { background: rgba(34,211,245,0.20); }
 
 /* ============================================================
    FINANCE TICKER — rotating Nasdaq-style subscription renewal
@@ -1190,7 +1162,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .ticker-dot {
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.18);
+  background: rgba(34,211,245,0.18);
   transition: background 0.2s;
 }
 .ticker-dot.active { background: #6BE3A4; }
@@ -1202,7 +1174,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 .ord-card-foot {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px dashed rgba(255,255,255,0.06);
+  border-top: 1px dashed rgba(34,211,245,0.06);
   display: flex; flex-wrap: wrap; gap: 8px;
   align-items: center;
 }
@@ -1245,7 +1217,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 }
 .ord-deduct-undo {
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.10);
+  border: 1px solid rgba(34,211,245,0.10);
   color: var(--text-tertiary);
   font-family: inherit;
   font-size: 10.5px;
@@ -1255,7 +1227,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   border-radius: 6px;
   cursor: pointer;
 }
-.ord-deduct-undo:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.20); }
+.ord-deduct-undo:hover { color: var(--text-primary); border-color: rgba(34,211,245,0.20); }
 
 .ord-deduct-chooser {
   margin-top: 10px;
@@ -1275,8 +1247,8 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   margin-bottom: 8px;
 }
 .ord-deduct-opt {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(34,211,245,0.04);
+  border: 1px solid rgba(34,211,245,0.06);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 12px;
@@ -1304,8 +1276,8 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   cursor: not-allowed;
 }
 .ord-deduct-opt.insufficient:hover {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.06);
+  background: rgba(34,211,245,0.04);
+  border-color: rgba(34,211,245,0.06);
 }
 .ord-deduct-cancel {
   background: transparent;
@@ -1317,7 +1289,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   text-decoration: underline;
 }
 .ord-card.is-deducted { opacity: 0.85; }
-.ord-card.is-deducted .ord-card-name { text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: rgba(255,255,255,0.20); }
+.ord-card.is-deducted .ord-card-name { text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: rgba(34,211,245,0.20); }
 .ord-meta-pill.pct.frozen { font-style: italic; }
 .ord-meta-pill.pct.frozen::after { content: ' · frozen'; opacity: 0.6; font-style: normal; }
 
@@ -1464,7 +1436,7 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   gap: 8px;
   padding: 9px 12px;
   background: var(--bg-card);
-  border: 0.5px solid rgba(255,255,255,0.10);
+  border: 0.5px solid rgba(34,211,245,0.10);
   border-radius: var(--radius-md);
   font-family: inherit;
   color: var(--text-primary);
@@ -1513,7 +1485,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   gap: 8px;
   padding: 6px 12px;
   background: var(--bg-card);
-  border: 0.5px solid rgba(255,255,255,0.10);
+  border: 0.5px solid rgba(34,211,245,0.10);
   border-radius: var(--radius-md);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -1533,7 +1505,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   width: 30px;
   height: 16px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.10);
+  background: rgba(34,211,245,0.10);
   transition: background 0.2s;
   flex-shrink: 0;
 }
@@ -1570,8 +1542,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(34,211,245,0.04);
+  border: 1px solid rgba(34,211,245,0.08);
   border-radius: 999px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -1590,7 +1562,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 .sub-row-toggle .sub-row-toggle-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: rgba(255,255,255,0.25);
+  background: rgba(34,211,245,0.25);
 }
 .sub-row-toggle.is-on .sub-row-toggle-dot {
   background: #6BE3A4;
@@ -1748,7 +1720,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <div class="quick-add" style="flex-wrap:wrap">
         <input type="text" placeholder="Label (e.g. Salary, Freelance)" id="incomeLabel" style="flex:1.4;min-width:130px" />
         <input type="number" placeholder="Amount" id="incomeAmount" step="0.01" style="flex:1;min-width:90px" />
-        <select id="incomeAccount" style="flex:1.2;min-width:140px;padding:8px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:13px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)"></select>
+        <select id="incomeAccount" style="flex:1.2;min-width:140px;padding:8px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:13px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)"></select>
         <button class="quick-add-btn" id="incomeAddBtn">+</button>
       </div>
       <div id="nwIncomeStatus" style="font-size:11.5px;color:var(--text-tertiary);margin-top:8px;display:none"></div>
@@ -2419,7 +2391,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     input.type = 'text';
     input.inputMode = 'decimal';
     input.value = String(curDisplay.toFixed(curDisplay % 1 === 0 ? 0 : 2));
-    input.style.cssText = 'width:110px;padding:4px 8px;font-family:var(--font-mono);font-size:12px;background:rgba(0,0,0,0.30);border:1px solid rgba(255,255,255,0.10);color:var(--text-primary);border-radius:6px;text-align:right;font-variant-numeric:tabular-nums;outline:none;';
+    input.style.cssText = 'width:110px;padding:4px 8px;font-family:var(--font-mono);font-size:12px;background:rgba(0,0,0,0.30);border:1px solid rgba(34,211,245,0.10);color:var(--text-primary);border-radius:6px;text-align:right;font-variant-numeric:tabular-nums;outline:none;';
     amtEl.textContent = '';
     amtEl.appendChild(input);
     setTimeout(() => { input.focus(); input.select(); }, 0);
@@ -2459,7 +2431,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = cur;
-    input.style.cssText = 'width:100%;padding:4px 8px;font-family:inherit;font-size:13px;background:rgba(0,0,0,0.30);border:1px solid rgba(255,255,255,0.10);color:var(--text-primary);border-radius:6px;outline:none;';
+    input.style.cssText = 'width:100%;padding:4px 8px;font-family:inherit;font-size:13px;background:rgba(0,0,0,0.30);border:1px solid rgba(34,211,245,0.10);color:var(--text-primary);border-radius:6px;outline:none;';
     nameEl.textContent = '';
     nameEl.appendChild(input);
     setTimeout(() => { input.focus(); input.select(); }, 0);
@@ -2715,7 +2687,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const sliceTotal = slices.reduce((s, x) => s + x.value, 0);
 
     if (!slices.length || sliceTotal <= 0) {
-      svg.innerHTML = '<circle cx="70" cy="70" r="60" fill="rgba(255,255,255,0.025)"/>'
+      svg.innerHTML = '<circle cx="70" cy="70" r="60" fill="rgba(34,211,245,0.025)"/>'
                     + '<circle cx="70" cy="70" r="44" fill="#0A0A0B"/>';
       total.textContent = '—';
       empty.classList.remove('hidden');
@@ -3201,7 +3173,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const isUrgent = daysToRenew != null && daysToRenew <= 5;
       const row = document.createElement('div');
       row.className = 'sub-row' + (isUrgent ? ' is-urgent' : '');
-      row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);margin-bottom:8px;gap:12px;';
+      row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:12px 14px;background:rgba(34,211,245,0.025);border-radius:var(--radius-md);margin-bottom:8px;gap:12px;';
       const renewLine = it.renewal
         ? '<div class="sub-renew-line" style="font-size:10px;color:#F2C063;margin-top:3px">↻ Renews ' + formatRenewal(it.renewal) + '</div>'
         : '';
@@ -3253,12 +3225,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:center';
       const editBtn = document.createElement('button');
       editBtn.title = 'Edit';
-      editBtn.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
+      editBtn.style.cssText = 'background:transparent;border:1px solid rgba(34,211,245,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
       editBtn.textContent = '✏';
       editBtn.addEventListener('click', () => editSubInline(idx));
       const del = document.createElement('button');
       del.title = 'Delete';
-      del.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
+      del.style.cssText = 'background:transparent;border:1px solid rgba(34,211,245,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
       del.textContent = '×';
       del.addEventListener('click', () => {
         if (!confirm('Delete "' + it.name + '"?')) return;
@@ -3400,15 +3372,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const form = document.createElement('div');
     form.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center';
     form.innerHTML =
-      '<input type="text" class="se-name" value="' + escapeHtml(it.name) + '" style="flex:1.5;min-width:120px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
-      '<input type="number" step="0.01" class="se-amt" value="' + Number(enteredAmt).toFixed(2) + '" style="width:90px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
-      '<select class="se-ccy" style="padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + ccyOpts + '</select>' +
-      '<select class="se-per" style="padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + periodOpts + '</select>' +
+      '<input type="text" class="se-name" value="' + escapeHtml(it.name) + '" style="flex:1.5;min-width:120px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="number" step="0.01" class="se-amt" value="' + Number(enteredAmt).toFixed(2) + '" style="width:90px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<select class="se-ccy" style="padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + ccyOpts + '</select>' +
+      '<select class="se-per" style="padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + periodOpts + '</select>' +
       '<label class="date-field" style="min-width:140px"><span class="date-emoji" aria-hidden="true">📅</span><input type="date" class="se-ren" value="' + (it.renewal && /^\d{4}-\d{2}-\d{2}/.test(it.renewal) ? it.renewal.slice(0,10) : '') + '" /></label>' +
-      '<select class="se-from" style="padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);min-width:130px">' + fromOpts + '</select>' +
+      '<select class="se-from" style="padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);min-width:130px">' + fromOpts + '</select>' +
       '<label class="sub-auto-toggle" style="padding:6px 10px"><input type="checkbox" class="se-auto"' + (it.autoDeduct ? ' checked' : '') + ' /><span class="sub-auto-track"><span class="sub-auto-thumb"></span></span><span class="sub-auto-label">Auto-deduct</span></label>' +
       '<button class="se-save quick-add-btn">Save</button>' +
-      '<button class="se-cancel" style="background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:6px 10px;border-radius:var(--radius-md);font-family:inherit">Cancel</button>';
+      '<button class="se-cancel" style="background:transparent;border:1px solid rgba(34,211,245,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:6px 10px;border-radius:var(--radius-md);font-family:inherit">Cancel</button>';
     row.appendChild(form);
     const save = () => {
       const newName = row.querySelector('.se-name').value.trim();
@@ -3686,7 +3658,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       weightedApr += (Number(it.balance) || 0) * (Number(it.apr) || 0);
       const row = document.createElement('div');
       row.className = 'sub-row';
-      row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);margin-bottom:8px;gap:12px;';
+      row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:12px 14px;background:rgba(34,211,245,0.025);border-radius:var(--radius-md);margin-bottom:8px;gap:12px;';
       const left = document.createElement('div');
       left.style.cssText = 'min-width:0';
       left.innerHTML = '<div style="font-weight:600;color:var(--text-primary);font-size:14px">' + escapeHtml(it.name) + '</div>' +
@@ -3703,7 +3675,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:center';
       const editBtn = document.createElement('button');
       editBtn.title = 'Edit';
-      editBtn.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
+      editBtn.style.cssText = 'background:transparent;border:1px solid rgba(34,211,245,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;font-family:inherit;line-height:1';
       editBtn.textContent = '✏';
       editBtn.addEventListener('click', () => editDebtInline(idx));
       const del = document.createElement('button');
@@ -3747,13 +3719,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const form = document.createElement('div');
     form.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center';
     form.innerHTML =
-      '<input type="text" class="de-name" value="' + escapeHtml(it.name) + '" style="flex:1.5;min-width:120px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
-      '<input type="number" step="0.01" class="de-bal" value="' + Number(enteredAmt).toFixed(2) + '" style="width:90px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
-      '<select class="de-ccy" style="padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + ccyOpts + '</select>' +
-      '<input type="number" step="0.01" class="de-apr" value="' + (Number(it.apr) || 0) + '" placeholder="APR %" style="width:80px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
-      '<input type="number" step="0.01" class="de-min" value="' + (Number(it.minPayment) || 0) + '" placeholder="Min payment" style="width:100px;padding:6px 10px;border:0.5px solid rgba(255,255,255,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="text" class="de-name" value="' + escapeHtml(it.name) + '" style="flex:1.5;min-width:120px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="number" step="0.01" class="de-bal" value="' + Number(enteredAmt).toFixed(2) + '" style="width:90px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<select class="de-ccy" style="padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)">' + ccyOpts + '</select>' +
+      '<input type="number" step="0.01" class="de-apr" value="' + (Number(it.apr) || 0) + '" placeholder="APR %" style="width:80px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
+      '<input type="number" step="0.01" class="de-min" value="' + (Number(it.minPayment) || 0) + '" placeholder="Min payment" style="width:100px;padding:6px 10px;border:0.5px solid rgba(34,211,245,0.10);border-radius:var(--radius-md);font-size:12px;font-family:inherit;background:var(--bg-card);color:var(--text-primary)" />' +
       '<button class="de-save quick-add-btn">Save</button>' +
-      '<button class="de-cancel" style="background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:6px 10px;border-radius:var(--radius-md);font-family:inherit">Cancel</button>';
+      '<button class="de-cancel" style="background:transparent;border:1px solid rgba(34,211,245,0.10);color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:6px 10px;border-radius:var(--radius-md);font-family:inherit">Cancel</button>';
     row.appendChild(form);
     const save = () => {
       const newName = row.querySelector('.de-name').value.trim();
@@ -3893,14 +3865,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const nameFor = (id) => { const d = debtsForSim.find(x => x.id === id); return d ? d.name : id; };
     const card = (label, result) => {
       if (result.maxedOut) {
-        return '<div style="flex:1;min-width:200px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);padding:12px">' +
+        return '<div style="flex:1;min-width:200px;background:rgba(34,211,245,0.025);border-radius:var(--radius-md);padding:12px">' +
           '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">' + label + '</div>' +
           '<div style="font-size:13px;color:#FF8A8A;margin-top:6px">Won\'t pay off within 50 years at this rate — increase the extra payment or minimums.</div></div>';
       }
       const freeMonths = new Date();
       freeMonths.setMonth(freeMonths.getMonth() + result.months);
       const freeLabel = freeMonths.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      return '<div style="flex:1;min-width:200px;background:rgba(255,255,255,0.025);border-radius:var(--radius-md);padding:12px">' +
+      return '<div style="flex:1;min-width:200px;background:rgba(34,211,245,0.025);border-radius:var(--radius-md);padding:12px">' +
         '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">' + label + '</div>' +
         '<div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-top:4px">' + monthsToLabel(result.months) + '</div>' +
         '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">debt-free ~' + freeLabel + '</div>' +
