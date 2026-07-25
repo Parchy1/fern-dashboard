@@ -986,6 +986,29 @@ img, video, canvas, svg { max-width: 100%; }
 }
 .wt-card::before { top: 8px; left: 8px; border-top: 1.5px solid; border-left: 1.5px solid; }
 .wt-card::after { bottom: 8px; right: 8px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
+
+/* ---- Weight Trajectory: historical + Slow/Typical/Fast scenario fan ---- */
+.traj-card { margin-top: 14px; }
+.traj-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.traj-title { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.traj-goal-row { display: flex; align-items: center; gap: 6px; }
+.traj-goal-input {
+  width: 100px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: rgba(0,0,0,0.28); color: var(--text-1); font-family: inherit; font-size: 13px; outline: none;
+}
+.traj-goal-input:focus { border-color: var(--accent); }
+.traj-goal-unit { font-size: 12px; color: var(--text-3); }
+.traj-empty { font-size: 12.5px; color: var(--text-3); padding: 10px 0; }
+.traj-svg { width: 100%; height: 130px; display: block; margin-top: 10px; }
+.traj-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 10.5px; color: var(--text-3); }
+.traj-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.traj-legend-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.traj-rate-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.traj-rate { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; text-align: center; }
+.traj-rate-val { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text-1); }
+.traj-rate-label { font-size: 9.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px; }
+.traj-eta { font-size: 12px; color: var(--text-2); margin-top: 10px; line-height: 1.5; }
+.traj-eta b { color: var(--text-1); }
 .wt-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
 .wt-num {
   font-size: 48px; font-weight: 600; letter-spacing: -0.025em;
@@ -1464,6 +1487,29 @@ img, video, canvas, svg { max-width: 100%; }
       </div>
       <span class="wt-progress-arrow">→</span>
     </button>
+
+    <!-- Weight Trajectory: historical + Slow/Typical/Fast scenario fan to a goal -->
+    <div class="card traj-card" id="trajCard">
+      <div class="traj-head">
+        <div class="traj-title">Trajectory</div>
+        <div class="traj-goal-row">
+          <input type="number" step="0.1" class="traj-goal-input" id="trajGoalInput" placeholder="Goal weight">
+          <span class="traj-goal-unit" id="trajGoalUnit">kg</span>
+        </div>
+      </div>
+      <div class="traj-empty" id="trajEmpty">Log at least 3 weigh-ins to see a projected trajectory.</div>
+      <div class="hidden" id="trajBody">
+        <svg class="traj-svg" id="trajSvg" viewBox="0 0 320 150" preserveAspectRatio="none"></svg>
+        <div class="traj-legend">
+          <span class="traj-legend-item"><span class="traj-legend-dot" style="background:#5EEAD4"></span>Weight</span>
+          <span class="traj-legend-item"><span class="traj-legend-dot" style="background:#FF5470"></span>Slow</span>
+          <span class="traj-legend-item"><span class="traj-legend-dot" style="background:#FBBF24"></span>Typical</span>
+          <span class="traj-legend-item"><span class="traj-legend-dot" style="background:#3FE0A8"></span>Fast</span>
+        </div>
+        <div class="traj-rate-grid" id="trajRateGrid"></div>
+        <div class="traj-eta" id="trajEta"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Progress photos overlay -->
@@ -3097,6 +3143,7 @@ img, video, canvas, svg { max-width: 100%; }
       $('wtComp').classList.add('hidden');
     }
     wtRenderStreak();
+    renderTrajectory();
   }
 
   // Streak — consecutive days ending at today (or yesterday if today
@@ -3325,6 +3372,161 @@ img, video, canvas, svg { max-width: 100%; }
       + ' · ' + freqStr
       + (strengthRatios.length ? '' : ' (no lift data)');
   }
+
+  // ============================================================
+  // WEIGHT TRAJECTORY — historical trend + Slow/Typical/Fast projection
+  // fan to a goal weight, instead of one brittle single-line-regression
+  // guess. Rather than a fixed regression slope, this samples the ACTUAL
+  // week-over-week rate of change between every pair of weigh-ins in the
+  // window and takes percentiles of that distribution: the median is
+  // "Typical", and whichever side is closer-to-zero/further-from-zero
+  // becomes "Slow"/"Fast" depending on whether the trend is a loss or a
+  // gain — so the fan reflects your own real variability, not a straight
+  // line pretending to be precise.
+  // ============================================================
+  const TRAJ_GOAL_KEY = 'po_coach_weight_goal';
+  const TRAJ_WINDOW_DAYS = 90;
+  const TRAJ_PROJECT_DAYS = 120;
+  const TRAJ_MIN_ENTRIES = 3;
+
+  function trajLoadGoal() {
+    try { const v = JSON.parse(localStorage.getItem(TRAJ_GOAL_KEY)); return typeof v === 'number' ? v : null; }
+    catch (e) { return null; }
+  }
+  function trajSaveGoal(v) { localStorage.setItem(TRAJ_GOAL_KEY, JSON.stringify(v)); }
+
+  function trajPercentile(sorted, p) {
+    if (!sorted.length) return null;
+    const idx = (sorted.length - 1) * p;
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  }
+
+  // Weekly rate-of-change samples between every consecutive pair of
+  // weigh-ins within the window (not just first-vs-last), so a single
+  // noisy entry can't dominate the whole distribution.
+  function trajWeeklyRates(entries) {
+    const rates = [];
+    for (let i = 1; i < entries.length; i++) {
+      const days = (wtParseKey(entries[i].dateKey) - wtParseKey(entries[i - 1].dateKey)) / 86400000;
+      if (days <= 0) continue;
+      rates.push(((entries[i].weight - entries[i - 1].weight) / days) * 7);
+    }
+    return rates;
+  }
+
+  function trajCompute(entries, goal) {
+    const cutoff = Date.now() - TRAJ_WINDOW_DAYS * 86400000;
+    const windowed = entries.filter(e => wtParseKey(e.dateKey).getTime() >= cutoff);
+    if (windowed.length < TRAJ_MIN_ENTRIES) return null;
+
+    const rates = trajWeeklyRates(windowed).sort((a, b) => a - b);
+    if (!rates.length) return null;
+    const median = trajPercentile(rates, 0.5);
+    const p25 = trajPercentile(rates, 0.25);
+    const p75 = trajPercentile(rates, 0.75);
+    const isLosing = median <= 0;
+    const slowRate = isLosing ? p75 : p25;   // closer to zero
+    const fastRate = isLosing ? p25 : p75;   // further from zero
+    const current = windowed[windowed.length - 1].weight;
+
+    const scenarios = { slow: slowRate, typical: median, fast: fastRate };
+    const etas = {};
+    if (goal != null && !isNaN(goal)) {
+      Object.keys(scenarios).forEach(key => {
+        const rate = scenarios[key];
+        const diff = goal - current;
+        // Only project if this scenario's direction actually matches the
+        // direction needed to reach the goal — a "typical" rate of 0, or
+        // one moving the wrong way, can't be projected forward honestly.
+        if (rate === 0 || Math.sign(rate) !== Math.sign(diff)) { etas[key] = null; return; }
+        const weeksNeeded = diff / rate;
+        etas[key] = new Date(Date.now() + weeksNeeded * 7 * 86400000);
+      });
+    }
+    return { windowed, current, scenarios, etas, goal };
+  }
+
+  function trajFmtDate(d) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function renderTrajectory() {
+    const goalInput = $('trajGoalInput');
+    const goal = trajLoadGoal();
+    if (goal != null && document.activeElement !== goalInput) goalInput.value = goal;
+    $('trajGoalUnit').textContent = state.units;
+
+    const result = trajCompute(wtEntries, goal);
+    const emptyEl = $('trajEmpty');
+    const bodyEl = $('trajBody');
+    if (!result) {
+      emptyEl.style.display = 'block';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    emptyEl.style.display = 'none';
+    bodyEl.classList.remove('hidden');
+
+    // ---- Chart: history line + 3 projected scenario lines fanning to TRAJ_PROJECT_DAYS out ----
+    const w = 320, h = 150, padTop = 10, padBottom = 10;
+    const histStart = wtParseKey(result.windowed[0].dateKey).getTime();
+    const projectEnd = Date.now() + TRAJ_PROJECT_DAYS * 86400000;
+    const totalSpan = projectEnd - histStart;
+    const allWeights = result.windowed.map(e => e.weight).concat(result.goal != null ? [result.goal] : []);
+    Object.keys(result.scenarios).forEach(key => {
+      allWeights.push(result.current + result.scenarios[key] * (TRAJ_PROJECT_DAYS / 7));
+    });
+    const yMin = Math.min.apply(null, allWeights) - 1, yMax = Math.max.apply(null, allWeights) + 1;
+    function X(t) { return ((t - histStart) / totalSpan) * w; }
+    function Y(v) { return h - padBottom - ((v - yMin) / (yMax - yMin)) * (h - padTop - padBottom); }
+
+    const histPts = result.windowed.map(e => X(wtParseKey(e.dateKey).getTime()).toFixed(1) + ',' + Y(e.weight).toFixed(1));
+    const nowX = X(Date.now());
+    let svg = '';
+    if (result.goal != null) {
+      const gy = Y(result.goal).toFixed(1);
+      svg += '<line x1="0" y1="' + gy + '" x2="' + w + '" y2="' + gy + '" stroke="rgba(94,234,212,0.5)" stroke-width="1" stroke-dasharray="4,4"/>';
+    }
+    svg += '<line x1="' + nowX.toFixed(1) + '" y1="0" x2="' + nowX.toFixed(1) + '" y2="' + h + '" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>';
+    svg += '<polyline points="' + histPts.join(' ') + '" fill="none" stroke="#5EEAD4" stroke-width="2"/>';
+    const scenarioColor = { slow: '#FF5470', typical: '#FBBF24', fast: '#3FE0A8' };
+    Object.keys(result.scenarios).forEach(key => {
+      const rate = result.scenarios[key];
+      const endWeight = result.current + rate * (TRAJ_PROJECT_DAYS / 7);
+      svg += '<line x1="' + nowX.toFixed(1) + '" y1="' + Y(result.current).toFixed(1) + '" x2="' + X(projectEnd).toFixed(1)
+        + '" y2="' + Y(endWeight).toFixed(1) + '" stroke="' + scenarioColor[key] + '" stroke-width="1.5" stroke-dasharray="5,3"/>';
+    });
+    $('trajSvg').innerHTML = svg;
+
+    // ---- Rate cards ----
+    $('trajRateGrid').innerHTML = ['slow', 'typical', 'fast'].map(key => {
+      const rate = result.scenarios[key];
+      const sign = rate > 0 ? '+' : '';
+      return '<div class="traj-rate"><div class="traj-rate-val" style="color:' + scenarioColor[key] + '">' + sign + rate.toFixed(2) + '</div>'
+        + '<div class="traj-rate-label">' + key + ' (' + state.units + '/wk)</div></div>';
+    }).join('');
+
+    // ---- ETA text ----
+    if (result.goal == null || isNaN(result.goal)) {
+      $('trajEta').textContent = 'Set a goal weight above to see projected dates.';
+    } else if (Math.abs(result.goal - result.current) < 0.05) {
+      $('trajEta').innerHTML = '<b>Already there 🎯</b> — you\'re at your goal weight.';
+    } else if (result.etas.typical == null) {
+      $('trajEta').textContent = 'Your typical recent trend isn\'t moving toward this goal, so it can\'t be projected forward right now.';
+    } else {
+      $('trajEta').innerHTML = 'At a typical rate, you\'d hit <b>' + result.goal + ' ' + state.units + '</b> around <b>' + trajFmtDate(result.etas.typical) + '</b>'
+        + (result.etas.slow ? ' (slow: ' + trajFmtDate(result.etas.slow) + ')' : '')
+        + (result.etas.fast ? ' (fast: ' + trajFmtDate(result.etas.fast) + ')' : '') + '.';
+    }
+  }
+
+  $('trajGoalInput').addEventListener('input', () => {
+    const v = parseFloat($('trajGoalInput').value);
+    trajSaveGoal(isNaN(v) ? null : v);
+    renderTrajectory();
+  });
 
   // Wire weight UI
   $('wtSaveBtn').addEventListener('click', () => {
@@ -3712,7 +3914,7 @@ img, video, canvas, svg { max-width: 100%; }
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
   // strips any base64 dataUrl entries before push so the payload stays
   // tiny and we never blow iOS Safari's ~5MB localStorage quota.
-  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_ex_done', 'po_coach_weights', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log', 'stretch:version'];
+  const PC_SYNCED_KEYS = ['po_coach_v1', 'po_coach_workout_done', 'po_coach_ex_done', 'po_coach_weights', 'po_coach_weight_goal', 'po_coach_photos', 'nova:gym:history', 'cardio:settings', 'cardio:sessions', 'stretch:am:items', 'stretch:pm:items', 'stretch:log', 'stretch:version'];
 
   let pcSupa = null;
   let pcPushTimer = null;

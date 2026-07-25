@@ -1695,11 +1695,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <div class="label">📈 Forecast</div>
       <div id="nwForecastTrend" style="font-size:12px;color:var(--text-tertiary);margin-top:6px"></div>
       <div id="nwForecastMilestone" style="font-size:13px;color:var(--text-primary);margin-top:6px;font-weight:600"></div>
+
+      <!-- Trajectory: historical + Slow/Typical/Fast scenario fan to a goal,
+           built from percentiles of the real month-to-month rate history
+           instead of one single linear-regression guess. -->
+      <div id="nwTrajBody" style="display:none;margin-top:12px">
+        <svg id="nwTrajSvg" viewBox="0 0 320 140" preserveAspectRatio="none" style="width:100%;height:120px;display:block"></svg>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--text-tertiary)">
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#22D3F5;margin-right:4px"></span>Net worth</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF5470;margin-right:4px"></span>Slow</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FBBF24;margin-right:4px"></span>Typical</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3FE0A8;margin-right:4px"></span>Fast</span>
+        </div>
+        <div id="nwTrajRateGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px"></div>
+      </div>
+
       <div class="quick-add" style="flex-wrap:wrap;margin-top:10px">
         <input type="number" placeholder="Goal amount" id="nwGoalAmount" step="0.01" style="flex:1;min-width:110px" />
         <button class="quick-add-btn" id="nwGoalCalcBtn" onclick="window.__calcGoal && window.__calcGoal()">Project</button>
       </div>
       <div id="nwGoalResult" style="font-size:13px;color:var(--text-primary);margin-top:8px"></div>
+      <div id="nwGoalEtaTable" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px"></div>
       <div style="border-top:1px solid var(--border);margin:12px 0 10px;padding-top:10px">
         <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:6px">What would spending this cost your timeline?</div>
         <div class="quick-add" style="flex-wrap:wrap">
@@ -2894,6 +2910,129 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     return Math.round(amount / dailyRate);
   }
 
+  // ============================================================
+  // NET WORTH TRAJECTORY — Slow/Typical/Fast scenario fan, the same
+  // percentile-based approach as gym.html's Weight Trajectory: instead of
+  // trusting one linear-regression slope, sample the real monthly rate of
+  // change between every consecutive pair of snapshots and take
+  // percentiles of THAT distribution. The median is "Typical"; whichever
+  // side sits closer to zero becomes "Slow" and the side further from
+  // zero becomes "Fast", regardless of whether the overall trend is
+  // growing or shrinking.
+  // ============================================================
+  const NW_TRAJ_MIN_SNAPSHOTS = 3;
+
+  function nwPercentile(sorted, p) {
+    if (!sorted.length) return null;
+    const idx = (sorted.length - 1) * p;
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  }
+
+  function nwMonthlyRates(points) {
+    const rates = [];
+    for (let i = 1; i < points.length; i++) {
+      const days = (points[i].t - points[i - 1].t) / 86400000;
+      if (days <= 0) continue;
+      rates.push(((points[i].v - points[i - 1].v) / days) * 30.44);
+    }
+    return rates;
+  }
+
+  function computeNwScenarios(history, windowDays, goal) {
+    if (!Array.isArray(history) || history.length < NW_TRAJ_MIN_SNAPSHOTS) return null;
+    const cutoff = windowDays ? Date.now() - windowDays * 86400000 : -Infinity;
+    const windowed = history.filter(p => p.t >= cutoff).sort((a, b) => a.t - b.t);
+    if (windowed.length < NW_TRAJ_MIN_SNAPSHOTS) return null;
+
+    const rates = nwMonthlyRates(windowed).sort((a, b) => a - b);
+    if (!rates.length) return null;
+    const median = nwPercentile(rates, 0.5);
+    const p25 = nwPercentile(rates, 0.25);
+    const p75 = nwPercentile(rates, 0.75);
+    const isShrinking = median <= 0;
+    const slowRate = isShrinking ? p75 : p25;
+    const fastRate = isShrinking ? p25 : p75;
+    const current = windowed[windowed.length - 1].v;
+
+    const scenarios = { slow: slowRate, typical: median, fast: fastRate };
+    const etas = {};
+    if (goal != null && !isNaN(goal)) {
+      Object.keys(scenarios).forEach(key => {
+        const rate = scenarios[key];
+        const diff = goal - current;
+        if (rate === 0 || Math.sign(rate) !== Math.sign(diff)) { etas[key] = null; return; }
+        const monthsNeeded = diff / rate;
+        etas[key] = new Date(Date.now() + monthsNeeded * 30.44 * 86400000);
+      });
+    }
+    return { windowed, current, scenarios, etas, goal };
+  }
+
+  const NW_TRAJ_PROJECT_DAYS = 240;
+
+  function renderNwTrajectory(goal) {
+    const bodyEl = document.getElementById('nwTrajBody');
+    if (!bodyEl) return;
+    const history = storeGet(NW_HISTORY_KEY) || [];
+    const result = computeNwScenarios(history, FORECAST_WINDOW_DAYS, goal);
+    if (!result) { bodyEl.style.display = 'none'; return; }
+    bodyEl.style.display = 'block';
+
+    const w = 320, h = 140, padTop = 8, padBottom = 8;
+    const histStart = result.windowed[0].t;
+    const projectEnd = Date.now() + NW_TRAJ_PROJECT_DAYS * 86400000;
+    const totalSpan = projectEnd - histStart;
+    const allVals = result.windowed.map(p => p.v).concat(result.goal != null && !isNaN(result.goal) ? [result.goal] : []);
+    Object.keys(result.scenarios).forEach(key => {
+      allVals.push(result.current + result.scenarios[key] * (NW_TRAJ_PROJECT_DAYS / 30.44));
+    });
+    const yMin = Math.min.apply(null, allVals), yMax = Math.max.apply(null, allVals);
+    const pad = Math.max((yMax - yMin) * 0.08, 1);
+    function X(t) { return ((t - histStart) / totalSpan) * w; }
+    function Y(v) { return h - padBottom - ((v - (yMin - pad)) / ((yMax + pad) - (yMin - pad))) * (h - padTop - padBottom); }
+
+    const histPts = result.windowed.map(p => X(p.t).toFixed(1) + ',' + Y(p.v).toFixed(1));
+    const nowX = X(Date.now());
+    let svg = '';
+    if (result.goal != null && !isNaN(result.goal)) {
+      const gy = Y(result.goal).toFixed(1);
+      svg += '<line x1="0" y1="' + gy + '" x2="' + w + '" y2="' + gy + '" stroke="rgba(34,211,245,0.5)" stroke-width="1" stroke-dasharray="4,4"/>';
+    }
+    svg += '<line x1="' + nowX.toFixed(1) + '" y1="0" x2="' + nowX.toFixed(1) + '" y2="' + h + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>';
+    svg += '<polyline points="' + histPts.join(' ') + '" fill="none" stroke="#22D3F5" stroke-width="2"/>';
+    const scenarioColor = { slow: '#FF5470', typical: '#FBBF24', fast: '#3FE0A8' };
+    Object.keys(result.scenarios).forEach(key => {
+      const rate = result.scenarios[key];
+      const endVal = result.current + rate * (NW_TRAJ_PROJECT_DAYS / 30.44);
+      svg += '<line x1="' + nowX.toFixed(1) + '" y1="' + Y(result.current).toFixed(1) + '" x2="' + X(projectEnd).toFixed(1)
+        + '" y2="' + Y(endVal).toFixed(1) + '" stroke="' + scenarioColor[key] + '" stroke-width="1.5" stroke-dasharray="5,3"/>';
+    });
+    document.getElementById('nwTrajSvg').innerHTML = svg;
+
+    document.getElementById('nwTrajRateGrid').innerHTML = ['slow', 'typical', 'fast'].map(key => {
+      const rate = result.scenarios[key];
+      const sign = rate >= 0 ? '+' : '−';
+      return '<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:9px 8px;text-align:center">'
+        + '<div style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:' + scenarioColor[key] + '">' + sign + fmtMoney(Math.abs(rate)) + '</div>'
+        + '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em;margin-top:3px">' + key + ' /mo</div></div>';
+    }).join('');
+
+    const etaEl = document.getElementById('nwGoalEtaTable');
+    if (etaEl) {
+      if (result.goal == null || isNaN(result.goal)) {
+        etaEl.textContent = '';
+      } else if (!result.etas.typical) {
+        etaEl.textContent = '';
+      } else {
+        etaEl.textContent = 'Slow: ' + result.etas.slow.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          + ' · Typical: ' + result.etas.typical.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          + ' · Fast: ' + result.etas.fast.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      }
+    }
+  }
+
   // Auto-updating summary — called from renderNetWorthChart() every time
   // net worth actually changes. DOM refs are looked up fresh each call
   // (not cached at module scope) — this function is invoked from
@@ -2929,6 +3068,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         milestoneEl.textContent = 'Net worth is flat or declining recently — no forward projection.';
       }
     }
+    const goalEl = document.getElementById('nwGoalAmount');
+    const currentGoal = goalEl && goalEl.value !== '' ? parseFloat(goalEl.value) : null;
+    renderNwTrajectory(currentGoal != null && !isNaN(currentGoal) ? currentGoal : null);
   }
 
   function renderGoalProjection() {
@@ -2936,7 +3078,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const goalEl = document.getElementById('nwGoalAmount');
     if (!resultEl || !goalEl) return;
     const target = parseFloat(goalEl.value);
-    if (isNaN(target)) { resultEl.textContent = ''; return; }
+    if (isNaN(target)) { resultEl.textContent = ''; renderNwTrajectory(null); return; }
     const history = storeGet(NW_HISTORY_KEY) || [];
     const trend = computeNetWorthTrend(history, FORECAST_WINDOW_DAYS);
     if (!trend) { resultEl.textContent = 'Not enough tracked history yet to project — add or edit a few net worth entries over a few days first.'; return; }
@@ -2944,6 +3086,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!(trend.monthlyRate > 0)) { resultEl.textContent = 'Net worth isn\'t currently trending upward, so this can\'t be projected forward.'; return; }
     const proj = projectDateToReach(trend.currentValue, trend.monthlyRate, target);
     resultEl.textContent = 'At the current rate, you\'d hit ' + fmtMoney(target) + ' around ' + proj.date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + ' (~' + Math.round(proj.months) + ' months).';
+    renderNwTrajectory(target);
   }
 
   function renderPurchaseImpact() {
