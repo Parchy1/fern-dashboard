@@ -2507,9 +2507,9 @@ img, video, canvas, svg { max-width: 100%; }
   // peak.html already uses, hit fresh here rather than shared — WHOOP's own
   // fetched data lives only in peak.html's in-memory `whoop` variable, not
   // persisted anywhere cross-page) when connected. Falls back to last
-  // night's manually-logged Peak sleep quality (1-5) otherwise — the same
-  // "poor sleep" signal that already delays the Telegram gym reminder (see
-  // SLEEP_POOR_THRESHOLD in api/send-reminders.js).
+  // night's manually-logged sleep quality (1-5, from sleep.html) otherwise —
+  // the same "poor sleep" signal that already delays the Telegram gym
+  // reminder (see SLEEP_POOR_THRESHOLD in api/send-reminders.js).
   const RECOVERY_WHOOP_POOR_THRESHOLD = 33; // WHOOP's own published "red zone" recovery cutoff
   const RECOVERY_SLEEP_QUALITY_POOR_THRESHOLD = 2;
   function localGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
@@ -2527,9 +2527,9 @@ img, video, canvas, svg { max-width: 100%; }
         }
       } catch (e) {}
     }
-    const morning = localGet('peak:morning') || {};
+    const nights = localGet('sleep:nights') || {};
     const today = wtDateKey(new Date());
-    const q = morning[today] && morning[today].sleepQuality;
+    const q = nights[today] && nights[today].sleepQuality;
     if (q != null) return { source: 'sleep', value: q, poor: q <= RECOVERY_SLEEP_QUALITY_POOR_THRESHOLD };
     return null;
   }

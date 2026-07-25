@@ -65,41 +65,6 @@ main {
 }
 .section-title::before { content: '≡'; font-size: 14px; opacity: 0.5; }
 
-.sleep-open-btn {
-  display: flex; align-items: center; gap: 14px;
-  margin: 0 0 24px;
-  padding: 16px 18px;
-  background: linear-gradient(135deg, rgba(125, 211, 252, 0.10), rgba(168, 162, 255, 0.08));
-  border: 1px solid rgba(168, 162, 255, 0.18);
-  border-radius: 16px;
-  text-decoration: none; color: var(--text-primary);
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s, transform 0.10s;
-}
-.sleep-open-btn:hover {
-  background: linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(168, 162, 255, 0.14));
-}
-.sleep-open-btn:active { transform: scale(0.985); }
-.sleep-open-icon {
-  font-size: 22px; line-height: 1;
-  filter: grayscale(20%);
-}
-.sleep-open-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.sleep-open-title {
-  font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
-}
-.sleep-open-sub {
-  font-size: 11px; font-weight: 500;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  letter-spacing: 0.08em; text-transform: uppercase;
-}
-.sleep-open-chevron {
-  font-size: 22px; line-height: 1;
-  color: var(--text-tertiary);
-  font-weight: 300;
-}
-
 .water-embed { margin-top: 56px; }
 .water-iframe {
   display: block;
@@ -604,6 +569,15 @@ main { position: relative; }
 <body>
 
 <main>
+
+  <a class="link-out-card" href="sleep.html" style="margin-bottom:24px">
+    <span class="link-out-icon">😴</span>
+    <span class="link-out-text">
+      <span class="link-out-title">Log last night's sleep</span>
+      <span class="link-out-sub">Bedtime, wake-up, quality &amp; RHR — the manual tracker, alongside WHOOP below</span>
+    </span>
+    <span class="link-out-chevron">→</span>
+  </a>
 
   <!-- ===== WHOOP card (full) ===== -->
   <style>

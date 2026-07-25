@@ -108,8 +108,8 @@ Replace the old URL/key in these files:
 > **Recovery-adaptive gym suggestions:** with WHOOP connected, the Gym tab shows a heads-up banner
 > on days your recovery score is in WHOOP's own "red zone" (below 33%) — a suggestion to trim
 > volume/intensity, never an automatic change to your actual program. Without WHOOP connected, it
-> falls back to last night's manually-logged Peak sleep quality (2/5 or below) as the signal
-> instead — the same "poor sleep" threshold that already delays the Telegram gym reminder.
+> falls back to last night's manually-logged sleep quality (2/5 or below, from Sleep — see step 17)
+> as the signal instead — the same "poor sleep" threshold that already delays the Telegram gym reminder.
 
 ---
 
@@ -237,8 +237,8 @@ at the exact same robotic minute every day. If something's still undone once its
 it nags again every 90 minutes until you mark it done or until `BEDTIME_LOCAL` passes, after
 which it goes quiet for the day rather than pinging you overnight.
 
-**Gym reminders are pushed back after a bad night's sleep:** if last night's Peak morning
-check-in logged a sleep quality of 2 or lower, any recurring item that looks like a gym/workout
+**Gym reminders are pushed back after a bad night's sleep:** if last night's sleep log (Sleep
+page, step 17) recorded a sleep quality of 2 or lower, any recurring item that looks like a gym/workout
 reminder (matching "gym", "workout", or "lift" in its name) has its effective time delayed by 90
 minutes that day. The idea is to not nag you to hit the gym at your usual time when you're
 clearly running on too little sleep — everything else on your list still reminds you at its
@@ -260,7 +260,7 @@ auto-deduct — a heads-up is still useful even for ones that charge automatical
 **A daily morning briefing** goes out once a day at `MORNING_BRIEFING_TIME` (24h `HH:MM`,
 default `07:00`) — a single message listing everything scheduled today and still undone
 (recurring items plus any timed one-off to-dos), last night's logged sleep quality if you've
-been using the Peak morning check-in, and a nod to any subscription renewals coming up soon.
+been logging it on the Sleep page, and a nod to any subscription renewals coming up soon.
 It's a one-shot per day, same as the catch-all digest, so it won't repeat once sent.
 
 It can also add a 💡 line acting on a real pattern in your own history — e.g. "your sleep tends
@@ -513,7 +513,7 @@ assistant"** steps further down, after the core setup below.
 > "night") right when you're about to fall asleep, and it marks the moment. The next time you
 > text it anything that sounds like waking up — "good morning" alone is enough, no other details
 > needed — it computes your actual sleep duration and wake time from the real elapsed time and
-> logs them on the Peak tab's morning check-in, same as if you'd typed the numbers in yourself.
+> logs them to the Sleep page's data (step 17), same as if you'd typed the numbers in yourself there.
 > Mention resting heart rate or a sleep-quality rating in that same wake-up message and those get
 > logged too. If you explicitly state a sleep-hours number yourself ("slept about 6"), that wins
 > over the tracked time. Skipping `log_bedtime` entirely still works exactly like before — this is
@@ -954,8 +954,8 @@ A few more pieces used to live on this page and have since moved to where they f
     before 2pm — shown as last night's score (ring gauge) plus a 7-night average. Same "leave a
     dimension out entirely rather than score it as a zero" principle as Today Score: the caffeine
     dimension only counts if you've logged caffeine at least once.
-  - **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights from Peak's
-    morning check-in, shown as a ring gauge, so you see the accumulated deficit rather than just
+  - **Sleep Debt** — sums `(8 hours − actual sleep)` across your last 14 logged nights (from the
+    Sleep page below), shown as a ring gauge, so you see the accumulated deficit rather than just
     one bad night. Needs at least 5 logged nights.
   - **Burnout Risk** — compares this week to last week across three signals (rising stress,
     falling sleep quality, slipping habit/to-do consistency), reported as Low/Moderate/Elevated
@@ -1038,6 +1038,32 @@ streak (consecutive days practiced, ending today or yesterday).
 
 ---
 
+## 21. Sleep
+
+Front page → **Body** → **😴 Sleep**. Its own dedicated page for both halves of a night — going to
+bed and waking up — rather than a couple of fields buried inside Peak's old morning check-in
+(which this page fully replaces; Peak now just reads whatever's logged here for its energy curve,
+the same way it already treats WHOOP as an optional override).
+
+- **Wind-Down** — tap **🛌 Going to bed** to timestamp the moment (no need to remember a clock
+  time), with an optional wind-down checklist (screens off, room cool, no late caffeine, wound
+  down/read) and a free-text note.
+- **Wake Up** — tap **☀️ I'm up** and, if you logged a bedtime, your sleep duration is computed
+  automatically from the real elapsed time (capped at 16h so a forgotten wake-up doesn't log a
+  bogus multi-day "sleep"). No bedtime logged? Enter a bedtime + wake clock time directly, or just
+  type total hours slept — whichever's fastest. Also logs sleep quality (1-5), a groggy-to-sharp
+  wake-feel scale, resting heart rate, and a wake-up note.
+- **Recent Nights** — the last 10 logged nights at a glance (hours, quality, wake-feel, RHR), plus
+  a link out to **Recovery** (Body hub) for the deeper trend analysis — Night Score, Sleep Debt,
+  Burnout Risk — since that's an analysis page, not a logging one.
+- The Telegram assistant's `log_bedtime`/`log_morning_checkin` tools write to this same data, so
+  texting "going to bed" / "good morning" (see step 8 above) and using this page are two front ends
+  onto one night's log, not two separate places sleep can live.
+
+No setup beyond Supabase sync (step 2) — this data syncs like everything else on the dashboard.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -1061,4 +1087,5 @@ streak (consecutive days practiced, ending today or yesterday).
 18. Daily Leverage Task: nothing to set up — ⭐ button on any to-do item, see step 18 above.
 19. Mistake / Risk Log: nothing to set up — ⚠️ Mistake Log on the Reflect hub, see step 19 above.
 20. Skill Stack Tracker: nothing to set up — 🏗️ Skill Stack on the Reflect hub, see step 20 above.
-21. Change the password in `lock.js`. Done.
+21. Sleep: nothing to set up — 😴 Sleep on the Body hub, see step 21 above.
+22. Change the password in `lock.js`. Done.

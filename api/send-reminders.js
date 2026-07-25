@@ -179,8 +179,8 @@ export function shouldSendMorningBriefing(nowMin, briefingMin, bedtimeMin, alrea
 
 // todayNames: everything scheduled today and not yet done (recurring +
 // one-off timed to-dos) — a plain list of names is enough, no need to know
-// their individual times for a summary. sleepQuality is last night's Peak
-// morning check-in (null if not logged). dueSubsCount is how many
+// their individual times for a summary. sleepQuality is last night's logged
+// sleep (from sleep.html, null if not logged). dueSubsCount is how many
 // subscriptions are coming up within the reminder window. actionableInsight
 // is an optional one-line nudge from computeActionableInsight() below — a
 // real pattern in your own history worth acting on today, not just a status
@@ -237,7 +237,7 @@ function shiftDateKeyPlain(dateKey, days) {
   return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
 }
 
-export function computeCaffeineSleepInsight(caffeineData, peakData) {
+export function computeCaffeineSleepInsight(caffeineData, sleepData) {
   const cafLogs = (caffeineData && caffeineData['caf:logs']) || [];
   const lateCaffeineDays = new Set();
   cafLogs.forEach(l => {
@@ -245,7 +245,7 @@ export function computeCaffeineSleepInsight(caffeineData, peakData) {
     const d = new Date(l.ts);
     if (d.getHours() >= 14) lateCaffeineDays.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
   });
-  const morning = (peakData && peakData['peak:morning']) || {};
+  const morning = (sleepData && sleepData['sleep:nights']) || {};
   const withLate = [], withoutLate = [];
   Object.keys(morning).forEach(dateKey => {
     const q = morning[dateKey] && morning[dateKey].sleepQuality;
@@ -274,8 +274,8 @@ export function computeGymCheckinInsight(gymData, peakData, checkinField) {
   return { avgWith: avg(withGym), avgWithout: avg(withoutGym), nWith: withGym.length, nWithout: withoutGym.length };
 }
 
-export function computeActionableInsight(caffeineData, peakData, gymData, workoutDoneToday) {
-  const caf = computeCaffeineSleepInsight(caffeineData, peakData);
+export function computeActionableInsight(caffeineData, sleepData, peakData, gymData, workoutDoneToday) {
+  const caf = computeCaffeineSleepInsight(caffeineData, sleepData);
   if (caf && (caf.avgWithout - caf.avgWith) >= INSIGHT_MEANINGFUL_DIFF) {
     return 'Your sleep tends to suffer after caffeine at/past 2pm (' + caf.avgWith.toFixed(1) + '/5 vs '
       + caf.avgWithout.toFixed(1) + '/5) — worth cutting it off early today.';
@@ -322,11 +322,11 @@ function dateKeysBackFromPlain(n, todayPlain) {
 }
 
 // dateKeys should be most-recent-first (see dateKeysBackFromPlain above).
-export function computeDriftDayRows(dateKeys, goalsData, gymData, peakData) {
+export function computeDriftDayRows(dateKeys, goalsData, gymData, sleepData) {
   const doneDays = (gymData && gymData['po_coach_workout_done']) || {};
   const habitDefs = (goalsData && goalsData['habits:defs']) || [];
   const habitLog = (goalsData && goalsData['habits:log']) || {};
-  const morning = (peakData && peakData['peak:morning']) || {};
+  const morning = (sleepData && sleepData['sleep:nights']) || {};
 
   return dateKeys.map(dateKey => {
     const habitTotal = habitDefs.length;
@@ -410,8 +410,8 @@ function isGymItemName(name) { return /\bgym\b|workout|\blift/i.test(String(name
 
 // Returns null for a generic item with no assignable time — those go into
 // the once-daily catch-all digest instead of an individual reminder.
-// sleepQuality (1-5, optional — last night's Peak morning check-in) pushes a
-// gym reminder later on a poor-sleep night rather than nagging first thing
+// sleepQuality (1-5, optional — last night's logged sleep from sleep.html)
+// pushes a gym reminder later on a poor-sleep night rather than nagging first thing
 // when the more useful thing might be extra recovery. Doesn't touch
 // anything else — a to-do or a reading reminder doesn't have the same
 // "pushing through" tradeoff a workout does.
@@ -706,9 +706,11 @@ function sourceDoneToday(autoSource, ctx) {
     return items.every(it => taken[it.id]);
   }
   if (autoSource === 'peak_morning') {
-    // peak.html's morning check-in uses a plain calendar date, same as todayPlain here.
-    const morning = (ctx.peakData && ctx.peakData['peak:morning']) || {};
-    return !!morning[todayPlain];
+    // sleep.html's night log uses a plain calendar date, same as todayPlain
+    // here (kept the historical 'peak_morning' autoSource name so an
+    // already-saved recurring item keeps auto-checking without a silent break).
+    const nights = (ctx.sleepData && ctx.sleepData['sleep:nights']) || {};
+    return !!nights[todayPlain];
   }
   return false;
 }
@@ -794,13 +796,13 @@ export async function sendReminder(body, opts) {
 // real network calls. Returns bare names (unchanged shape from before);
 // the handler looks up each name's def.time itself.
 export async function computeUndone(fetchers) {
-  const { goalsData, healthData, gymData, businessData, readingData, peakData, todayKey6am, todayPlain, dow, utcToday } = fetchers;
+  const { goalsData, healthData, gymData, businessData, readingData, peakData, sleepData, todayKey6am, todayPlain, dow, utcToday } = fetchers;
   const defs = (goalsData && goalsData['recur:defs']) || [];
   const existingGoals = (goalsData && goalsData['goals:' + todayKey6am]) || [];
   const existingByText = {};
   existingGoals.forEach(g => { existingByText[g.text] = g; });
 
-  const ctx = { gymData, readingData, businessData, healthData, peakData, todayPlain, todayKey6am, utcToday };
+  const ctx = { gymData, readingData, businessData, healthData, peakData, sleepData, todayPlain, todayKey6am, utcToday };
   const undone = [];
   defs.forEach(def => {
     if (!isScheduledToday(def, dow)) return;
@@ -841,13 +843,14 @@ export default async function handler(req, res) {
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
-    const [goalsData, healthData, gymData, businessData, readingData, peakData, financeData, stateRow, subsRemindedRow, caffeineData] = await Promise.all([
+    const [goalsData, healthData, gymData, businessData, readingData, peakData, sleepData, financeData, stateRow, subsRemindedRow, caffeineData] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'po-coach'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'business'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reading'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'peak'),
+      fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'sleep'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'finance'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'subs_reminders'),
@@ -859,7 +862,7 @@ export default async function handler(req, res) {
     const utcToday = new Date().toISOString().slice(0, 10);
 
     const defs = (goalsData && goalsData['recur:defs']) || [];
-    const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, peakData, todayKey6am, todayPlain, dow, utcToday });
+    const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, peakData, sleepData, todayKey6am, todayPlain, dow, utcToday });
     const recurItems = undoneRecurNames.map(name => ({ name, time: (defs.find(d => d.name === name) || {}).time || null }));
     const oneOffItems = computeOneOffTimedUndone(goalsData, todayKey6am, defs);
     const allItems = recurItems.concat(oneOffItems);
@@ -867,8 +870,8 @@ export default async function handler(req, res) {
     const todayState = (stateRow && stateRow[todayKey6am]) || {};
     const dueIndividual = [];
     const catchAllNames = [];
-    // peak.html's morning check-in uses a plain calendar date, same as todayPlain.
-    const lastNightMorning = (peakData && peakData['peak:morning'] && peakData['peak:morning'][todayPlain]) || null;
+    // sleep.html's night log uses a plain calendar date, same as todayPlain.
+    const lastNightMorning = (sleepData && sleepData['sleep:nights'] && sleepData['sleep:nights'][todayPlain]) || null;
     const lastNightSleepQuality = lastNightMorning ? lastNightMorning.sleepQuality : null;
 
     allItems.forEach(({ name, time }) => {
@@ -923,10 +926,10 @@ export default async function handler(req, res) {
     if (morningBriefingDue) {
       const todayNames = undoneRecurNames.concat(oneOffItems.map(i => i.name));
       const workoutDoneToday = !!((gymData && gymData['po_coach_workout_done'] || {})[todayPlain]);
-      const actionableInsight = computeActionableInsight(caffeineData, peakData, gymData, workoutDoneToday);
-      // No extra Supabase reads needed — goalsData/gymData/peakData are
+      const actionableInsight = computeActionableInsight(caffeineData, sleepData, peakData, gymData, workoutDoneToday);
+      // No extra Supabase reads needed — goalsData/gymData/sleepData are
       // already fetched above for computeUndone().
-      const driftDayRows = computeDriftDayRows(dateKeysBackFromPlain(DRIFT_BASELINE_DAYS, todayPlain), goalsData, gymData, peakData);
+      const driftDayRows = computeDriftDayRows(dateKeysBackFromPlain(DRIFT_BASELINE_DAYS, todayPlain), goalsData, gymData, sleepData);
       const driftInsight = computeDriftInsight(driftDayRows);
       const body = composeMorningBriefing(todayNames, lastNightSleepQuality, dueSubs.length, actionableInsight, driftInsight);
       try {

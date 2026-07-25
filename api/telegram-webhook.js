@@ -1238,14 +1238,14 @@ function clamp15(n) { return Math.max(1, Math.min(5, Math.round(Number(n)))); }
 // need to guess which morning it belongs to; that's resolved later, whenever
 // log_morning_checkin actually closes it out.
 async function execLogBedtime(args) {
-  return patchRow('peak', (peak) => {
+  return patchRow('sleep', (sleep) => {
     let ts = Date.now();
     if (args.at != null) {
       const parsed = new Date(args.at).getTime();
       if (isNaN(parsed)) return { ok: false, reason: 'could not understand the time "' + args.at + '"' };
       ts = parsed;
     }
-    peak['peak:pendingBedtime'] = { ts };
+    sleep['sleep:pendingBedtime'] = { ts };
     return { ok: true, ts };
   });
 }
@@ -1257,11 +1257,11 @@ async function execLogBedtime(args) {
 const MAX_TRACKED_SLEEP_HOURS = 16;
 
 async function execLogMorningCheckin(args) {
-  return patchRow('peak', (peak) => {
-    const morning = peak['peak:morning'] || {};
+  return patchRow('sleep', (sleep) => {
+    const nights = sleep['sleep:nights'] || {};
     const key = plainDateKey();
-    const existing = morning[key] || {};
-    const pending = peak['peak:pendingBedtime'];
+    const existing = nights[key] || {};
+    const pending = sleep['sleep:pendingBedtime'];
     let sleepHours = args.sleep_hours != null ? Number(args.sleep_hours) : null;
     let trackedFromBedtime = false;
     if (sleepHours == null && pending && pending.ts) {
@@ -1279,12 +1279,12 @@ async function execLogMorningCheckin(args) {
       sleepQuality: args.sleep_quality != null ? clamp15(args.sleep_quality) : (existing.sleepQuality || null),
       ts: Date.now(),
     };
-    morning[key] = entry;
-    peak['peak:morning'] = morning;
+    nights[key] = entry;
+    sleep['sleep:nights'] = nights;
     // Cleared whenever a check-in is logged, whether or not it was actually
     // used above — a stale/rejected pending bedtime shouldn't linger and
     // confuse a LATER night's tracking.
-    if (pending) delete peak['peak:pendingBedtime'];
+    if (pending) delete sleep['sleep:pendingBedtime'];
     return { ok: true, entry, trackedFromBedtime };
   });
 }
@@ -1702,7 +1702,7 @@ function summarizeNotesForContext(notesData) {
 
 // ---------- context for Claude (read-only, all best-effort) ----------
 async function buildContext() {
-  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'caffeine', 'notes', 'life_context', 'assistant_memory'];
+  const keys = ['goals', 'health', 'po-coach', 'finance', 'business', 'reading', 'peak', 'sleep', 'caffeine', 'notes', 'life_context', 'assistant_memory'];
   const rows = await Promise.all(keys.map(k => readRow(k).catch(() => ({}))));
   const context = {};
   keys.forEach((k, i) => { context[k] = rows[i]; });

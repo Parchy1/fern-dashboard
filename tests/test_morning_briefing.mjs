@@ -88,20 +88,20 @@ function freezeClockAt(hour, minute) {
         const day = 20 + i;
         morning[dk(2026, 1, day + 1)] = { sleepQuality: 4 };
       }
-      const insight = computeCaffeineSleepInsight({ 'caf:logs': cafLogs }, { 'peak:morning': morning });
+      const insight = computeCaffeineSleepInsight({ 'caf:logs': cafLogs }, { 'sleep:nights': morning });
       assertTrue(!!insight, 'enough samples on both sides produces a caffeine/sleep insight');
       assertEq(insight.avgWith, 2, 'average sleep quality after late caffeine');
       assertEq(insight.avgWithout, 4, 'average sleep quality without late caffeine');
 
       const tooFew = computeCaffeineSleepInsight(
         { 'caf:logs': [{ ts: mkTs(2026, 1, 1, 15) }] },
-        { 'peak:morning': { [dk(2026, 1, 2)]: { sleepQuality: 2 } } }
+        { 'sleep:nights': { [dk(2026, 1, 2)]: { sleepQuality: 2 } } }
       );
       assertEq(tooFew, null, 'below the minimum sample size on either side returns null');
 
       const earlyOnly = computeCaffeineSleepInsight(
         { 'caf:logs': [{ ts: mkTs(2026, 1, 1, 9) }] }, // 9am, not "late"
-        { 'peak:morning': {} }
+        { 'sleep:nights': {} }
       );
       assertEq(earlyOnly, null, 'caffeine before 2pm is not counted as "late"');
     }
@@ -141,12 +141,12 @@ function freezeClockAt(hour, minute) {
       }
       for (let i = 0; i < 6; i++) morning[dk(2026, 3, 21 + i)] = { sleepQuality: 4 };
       const caffeineData = { 'caf:logs': cafLogs };
-      const peakData = { 'peak:morning': morning };
+      const sleepData = { 'sleep:nights': morning };
 
-      const line = computeActionableInsight(caffeineData, peakData, {}, false);
+      const line = computeActionableInsight(caffeineData, sleepData, {}, {}, false);
       assertTrue(!!line && line.toLowerCase().includes('caffeine'), 'caffeine/sleep pattern surfaces as an actionable line');
 
-      const none = computeActionableInsight({}, {}, {}, false);
+      const none = computeActionableInsight({}, {}, {}, {}, false);
       assertEq(none, null, 'no insight at all when there is not enough history either way');
 
       // Gym/mood pattern, but a workout is already logged today -> no nudge.
@@ -155,9 +155,9 @@ function freezeClockAt(hour, minute) {
       for (let i = 0; i < 6; i++) { const dateKey = dk(2026, 4, 20 + i); checkins.push({ dateKey, feeling: 2 }); }
       const gymData = { po_coach_workout_done: doneDays };
       const peakData2 = { 'peak:checkins': checkins };
-      const suppressed = computeActionableInsight({}, peakData2, gymData, true);
+      const suppressed = computeActionableInsight({}, {}, peakData2, gymData, true);
       assertEq(suppressed, null, 'gym/mood nudge is suppressed once a workout is already logged today');
-      const shown = computeActionableInsight({}, peakData2, gymData, false);
+      const shown = computeActionableInsight({}, {}, peakData2, gymData, false);
       assertTrue(!!shown && shown.toLowerCase().includes('workout'), 'gym/mood nudge shows when no workout is logged yet today');
     }
   }
@@ -186,8 +186,8 @@ function freezeClockAt(hour, minute) {
       };
       goalsData['goals:' + dateKeys[0]] = [{ text: 'a', done: true }, { text: 'b', done: false }];
       const gymData = { po_coach_workout_done: { [dateKeys[0]]: true } };
-      const peakData = { 'peak:morning': { [dateKeys[0]]: { sleepQuality: 3 } } };
-      const rows = computeDriftDayRows(dateKeys.slice(0, 2), goalsData, gymData, peakData);
+      const sleepData = { 'sleep:nights': { [dateKeys[0]]: { sleepQuality: 3 } } };
+      const rows = computeDriftDayRows(dateKeys.slice(0, 2), goalsData, gymData, sleepData);
       assertEq(rows[0].workoutDone, 1, 'a logged workout day is 1');
       assertEq(rows[1].workoutDone, 0, 'a day with no logged workout is 0');
       assertEq(rows[0].habitRate, 0.5, 'habitRate reflects 1 of 2 habits done');
@@ -200,14 +200,14 @@ function freezeClockAt(hour, minute) {
     {
       const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
       const gymData = { po_coach_workout_done: {} };
-      const peakData = { 'peak:morning': {} };
+      const sleepData = { 'sleep:nights': {} };
       // Baseline (days 14-59 back, 46 days): workout and habit done every day.
       for (let i = 14; i < 60; i++) {
         gymData.po_coach_workout_done[dateKeys[i]] = true;
         goalsData['habits:log'].h1[dateKeys[i]] = true;
       }
       // Recent (days 0-13): neither logged at all.
-      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, sleepData);
       const drifted = computeDrift(dayRows);
       assertTrue(drifted.length >= 2, 'both workouts and habit completion are flagged as drifted');
       assertTrue(drifted.some(d => d.field === 'workoutDone'), 'workout rate is one of the drifted metrics');
@@ -221,9 +221,9 @@ function freezeClockAt(hour, minute) {
     {
       const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
       const gymData = { po_coach_workout_done: {} };
-      const peakData = { 'peak:morning': {} };
+      const sleepData = { 'sleep:nights': {} };
       dateKeys.forEach(k => { gymData.po_coach_workout_done[k] = true; goalsData['habits:log'].h1[k] = true; });
-      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, sleepData);
       assertEq(computeDrift(dayRows).length, 0, 'no metrics are flagged when recent matches baseline');
       assertEq(computeDriftInsight(dayRows), null, 'no insight at all when nothing has drifted');
     }
@@ -232,11 +232,11 @@ function freezeClockAt(hour, minute) {
     {
       const goalsData = { 'habits:defs': [{ id: 'h1' }], 'habits:log': { h1: {} } };
       const gymData = { po_coach_workout_done: {} };
-      const peakData = { 'peak:morning': {} };
+      const sleepData = { 'sleep:nights': {} };
       for (let i = 14; i < 60; i++) { gymData.po_coach_workout_done[dateKeys[i]] = true; goalsData['habits:log'].h1[dateKeys[i]] = true; }
       // Habit completion stays intact through the recent window too; only workouts drop.
       for (let i = 0; i < 14; i++) goalsData['habits:log'].h1[dateKeys[i]] = true;
-      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, sleepData);
       const drifted = computeDrift(dayRows);
       assertEq(drifted.length, 1, 'only the workout metric alone is flagged as drifted');
       assertEq(computeDriftInsight(dayRows), null, 'a single drifted metric alone does not produce an insight (avoids single-metric noise)');
@@ -244,11 +244,11 @@ function freezeClockAt(hour, minute) {
 
     // ---- too few samples on either side ----
     {
-      const goalsData = {}; const gymData = { po_coach_workout_done: {} }; const peakData = { 'peak:morning': {} };
+      const goalsData = {}; const gymData = { po_coach_workout_done: {} }; const sleepData = { 'sleep:nights': {} };
       gymData.po_coach_workout_done[dateKeys[0]] = true;
       gymData.po_coach_workout_done[dateKeys[1]] = true;
       gymData.po_coach_workout_done[dateKeys[20]] = true;
-      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, peakData);
+      const dayRows = computeDriftDayRows(dateKeys, goalsData, gymData, sleepData);
       assertEq(computeDrift(dayRows).length, 0, 'too few logged days on either side of a metric excludes it rather than guessing');
     }
   }
@@ -286,7 +286,7 @@ function freezeClockAt(hour, minute) {
       let writtenState = null;
       const rows = {
         goals: { 'recur:defs': [{ name: 'Gym', freq: 'daily' }] },
-        peak: { 'peak:morning': {} },
+        sleep: { 'sleep:nights': {} },
       };
       global.fetch = async (url, opts) => {
         const u = String(url);

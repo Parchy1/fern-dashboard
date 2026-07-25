@@ -46,7 +46,7 @@ function gymStat(days, storeGet) {
 
 // ---- new for this page ----
 function sleepStat(days, storeGet) {
-  const morning = storeGet('peak:morning') || {};
+  const morning = storeGet('sleep:nights') || {};
   const keys = new Set(days.map(dateToKey));
   const entries = Object.keys(morning).filter(k => keys.has(k) && morning[k].sleepHours != null);
   if (!entries.length) return null;
@@ -128,7 +128,7 @@ function mockStore(data) { return (k) => (Object.prototype.hasOwnProperty.call(d
   const today = stripTime(new Date());
   const days = daysList(new Date(today.getTime() - 2 * 86400000), today);
   const k0 = dateToKey(days[0]), k1 = dateToKey(days[1]);
-  const store = mockStore({ 'peak:morning': { [k0]: { sleepHours: 7, sleepQuality: 4 }, [k1]: { sleepHours: 8, sleepQuality: 3 } } });
+  const store = mockStore({ 'sleep:nights': { [k0]: { sleepHours: 7, sleepQuality: 4 }, [k1]: { sleepHours: 8, sleepQuality: 3 } } });
   const s = sleepStat(days, store);
   assertEq(s, { avgHours: 7.5, avgQuality: 3.5, loggedDays: 2, totalDays: 3 }, 'sleepStat averages hours and quality across logged nights only');
   assertEq(sleepStat(days, mockStore({})), null, 'sleepStat returns null with no morning entries at all');
