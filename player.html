@@ -191,6 +191,8 @@
   const CARD_KEY = 'player:card';
   const WINDOW_DAYS = 30;
   const NW_WINDOW_DAYS = 90;   // net worth moves slowly — a 30-day window is too noisy to rate on
+  const WLT_MIN_POINTS = 3;    // fewer than this is just a line between two dots, not a real trend
+  const WLT_MONTHLY_TARGET = 0.03; // sustained +3%/mo net worth growth (smoothed across the window) maxes Wealth — aggressive but real, and averaged across every logged point rather than one lucky snapshot
 
   // Targets that define "a 99" for each input. Deliberately demanding but
   // reachable, so a genuinely strong month reads in the 80s-90s rather
@@ -315,6 +317,31 @@
       cursor.setDate(cursor.getDate() - 1);
     }
     return out;
+  }
+
+  // Least-squares slope over every sample in the window (same regression
+  // finance.html's own Net Worth Forecast already computes), returned as a
+  // fraction of current net worth per month — a rate, not a raw two-point
+  // delta, so a single volatile snapshot can't swing the whole result.
+  // Requires WLT_MIN_POINTS samples before it'll call anything a trend.
+  function computeMonthlyGrowthRate(history, windowDays, now) {
+    if (!Array.isArray(history)) return null;
+    const cutoff = now - windowDays * 86400000;
+    const pts = history.filter(h => h && typeof h.t === 'number' && typeof h.v === 'number' && h.t >= cutoff)
+      .slice().sort((a, b) => a.t - b.t);
+    if (pts.length < WLT_MIN_POINTS) return null;
+    const t0 = pts[0].t;
+    const xs = pts.map(p => (p.t - t0) / 86400000);
+    const ys = pts.map(p => p.v);
+    const n = xs.length;
+    const sumX = xs.reduce((a, b) => a + b, 0), sumY = ys.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0), sumXX = xs.reduce((a, x) => a + x * x, 0);
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null; // all points landed at the same x (duplicate timestamps) — no slope to fit
+    const slopePerDay = (n * sumXY - sumX * sumY) / denom;
+    const base = ys[ys.length - 1];
+    if (Math.abs(base) < 0.01) return null; // can't express a meaningful percentage off ~zero net worth
+    return (slopePerDay * 30.44) / Math.abs(base);
   }
 
   /* ---------- Lifetime XP ---------- */
@@ -496,17 +523,18 @@
     ]);
 
     // ---- WLT: is net worth actually climbing ----
-    const nwCut = now - NW_WINDOW_DAYS * 86400000;
-    const hist = (d.nwHistory || []).filter(h => h && typeof h.t === 'number' && h.t >= nwCut)
-      .slice().sort((a, b) => a.t - b.t);
-    if (hist.length >= 2) {
-      const first = hist[0].v, last = hist[hist.length - 1].v;
-      // ±10% over the window spans the whole scale, so flat sits mid-table
-      // rather than reading as a failure.
-      const pct = Math.abs(first) > 0.01 ? (last - first) / Math.abs(first) : (last > first ? 0.1 : last < first ? -0.1 : 0);
-      const ratio = clamp01((pct * 100 + 10) / 20);
-      const shown = Math.round(pct * 1000) / 10;
-      out.WLT = { ratio, parts: [{ key: 'networth', label: (shown > 0 ? '+' : '') + shown + '% net worth over ' + NW_WINDOW_DAYS + 'd', ratio, weight: 100 }] };
+    // A least-squares trend over every sample in the window (same math
+    // finance.html's own Net Worth Forecast already uses), not a raw
+    // first-vs-last delta — two points is just a line between two dots, so
+    // one volatile snapshot (a crypto swing, a one-time deposit) could
+    // swing the whole rating on its own. Regressing across every logged
+    // point averages that noise out, and requires at least 3 points before
+    // calling it a trend at all.
+    const rate = computeMonthlyGrowthRate(d.nwHistory, NW_WINDOW_DAYS, now);
+    if (rate != null) {
+      const ratio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
+      const pct = Math.round(rate * 1000) / 10;
+      out.WLT = { ratio, parts: [{ key: 'networth', label: (pct > 0 ? '+' : '') + pct + '%/mo net worth trend', ratio, weight: 100 }] };
     } else {
       out.WLT = null;
     }
@@ -546,6 +574,7 @@
   window.__playerLogic = {
     xpForLevel, levelForXp, ratingFromRatio, tierForOvr, blend, overallFromAttrs,
     computeXpCounts, computeLifetimeXp, computeAttributes, computeRating, dayKeysBack, clamp01,
+    computeMonthlyGrowthRate,
     ATTRS, XP_SOURCES, WINDOW_DAYS,
   };
 
