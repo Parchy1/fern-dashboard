@@ -62,6 +62,25 @@
 .recap-sub { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.4; }
 .recap-empty { font-size: 12px; font-style: italic; color: var(--text-tertiary); margin-top: 10px; }
 
+/* ===== Period grade ===== */
+.grade-card {
+  display: flex; align-items: center; gap: 18px; margin-bottom: 16px; padding: 18px 20px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(34,211,245,0.10) 0%, rgba(167,139,250,0.08) 100%);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.grade-letter {
+  font-size: 46px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; min-width: 78px; text-align: center;
+  font-variant-numeric: tabular-nums; color: var(--text-primary);
+}
+.grade-body { flex: 1; min-width: 0; }
+.grade-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.grade-score { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.grade-delta { font-size: 12px; font-weight: 600; }
+.grade-delta.up { color: var(--success); }
+.grade-delta.down { color: var(--danger); }
+.grade-delta.flat { color: var(--text-tertiary); }
+.grade-sub { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.5; }
+
 /* ===== Reflection ===== */
 .refl-draft-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
 .refl-draft-hint { font-size: 11.5px; color: var(--text-tertiary); line-height: 1.4; flex: 1; min-width: 180px; }
@@ -119,6 +138,16 @@
   <!-- RECAP -->
   <div class="section">
     <div class="section-title">Recap</div>
+    <div class="grade-card" id="gradeCard" style="display:none">
+      <div class="grade-letter" id="gradeLetter">—</div>
+      <div class="grade-body">
+        <div class="grade-head">
+          <span class="grade-score" id="gradeScore"></span>
+          <span class="grade-delta" id="gradeDelta"></span>
+        </div>
+        <div class="grade-sub" id="gradeSub"></div>
+      </div>
+    </div>
     <div class="recap-grid" id="recapGrid"></div>
   </div>
 
@@ -319,6 +348,81 @@
 
   function peakTier(v) { if (v>=80) return 'Peak'; if (v>=62) return 'High'; if (v>=44) return 'Steady'; if (v>=28) return 'Dip'; return 'Low'; }
 
+  /* ============ Period grade ============
+   * One letter for the whole week/month, from the same per-domain stats the
+   * recap cards below already compute — so the grade can never disagree
+   * with the numbers sitting right under it.
+   *
+   * A domain you don't track at all is left out of the average entirely
+   * rather than counted as a zero (same fairness rule as the home screen's
+   * Today Score), so the grade reflects how you did at the things you
+   * actually do, not how many dashboard features you've set up.
+   */
+  const GYM_SESSIONS_PER_WEEK = 4;   // what "full marks" on training looks like
+  const READING_DAY_SHARE = 0.4;     // reading on ~40% of days is full marks
+
+  function letterForScore(s) {
+    if (s >= 97) return 'A+'; if (s >= 93) return 'A'; if (s >= 90) return 'A-';
+    if (s >= 87) return 'B+'; if (s >= 83) return 'B'; if (s >= 80) return 'B-';
+    if (s >= 77) return 'C+'; if (s >= 73) return 'C'; if (s >= 70) return 'C-';
+    if (s >= 67) return 'D+'; if (s >= 63) return 'D'; if (s >= 60) return 'D-';
+    return 'F';
+  }
+  function gradeBlurb(letter) {
+    const c = letter.charAt(0);
+    if (c === 'A') return 'Exceptional period — this is the standard to hold.';
+    if (c === 'B') return 'Strong period. A couple of areas away from an A.';
+    if (c === 'C') return 'Middling — the basics happened, the edge didn\'t.';
+    if (c === 'D') return 'Slipped. Pick one area below and rebuild from it.';
+    return 'Rough period. Reset with the single easiest habit first.';
+  }
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+  // Returns { score, letter, parts } or null when nothing at all is tracked.
+  function computePeriodGrade(days) {
+    const n = days.length || 1;
+    const parts = [];
+    const add = (label, ratio, weight) => { if (ratio != null && isFinite(ratio)) parts.push({ label, ratio: clamp01(ratio), weight }); };
+
+    const pk = peakStat(days); if (pk) add('energy', pk.avg / 100, 15);
+    const h = habitsStat(days); if (h) add('habits', h.rate / 100, 20);
+    const t = todosStat(days); if (t) add('to-dos', t.rate / 100, 15);
+    const g = gymStat(days); if (g) add('training', g.sessions / (n * GYM_SESSIONS_PER_WEEK / 7), 20);
+    const s = supplementsStat(days); if (s) add('supplements', s.rate / 100, 10);
+    const w = waterStat(days); if (w) add('water', w.rate / 100, 10);
+    const b = businessStat(days); if (b && b.rate != null) add('commitments', b.rate / 100, 15);
+
+    if (!parts.length) return null;
+    let sum = 0, wt = 0;
+    parts.forEach(p => { sum += p.ratio * p.weight; wt += p.weight; });
+    const score = Math.round((sum / wt) * 100);
+    return { score, letter: letterForScore(score), parts };
+  }
+
+  function renderGrade(curDays, priorDays) {
+    const el = $('gradeCard');
+    const cur = computePeriodGrade(curDays);
+    if (!cur) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    $('gradeLetter').textContent = cur.letter;
+    $('gradeScore').textContent = cur.score + '/100';
+
+    const prior = computePeriodGrade(priorDays);
+    const dEl = $('gradeDelta');
+    if (prior) {
+      const diff = cur.score - prior.score;
+      dEl.className = 'grade-delta ' + (diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat');
+      dEl.textContent = (diff > 0 ? '▲ +' : diff < 0 ? '▼ ' : '● ') + diff + ' vs last period (' + prior.letter + ')';
+    } else {
+      dEl.className = 'grade-delta flat';
+      dEl.textContent = '';
+    }
+    // Name the weakest tracked area — that's the actionable half of a grade.
+    const worst = cur.parts.slice().sort((a, b) => a.ratio - b.ratio)[0];
+    $('gradeSub').textContent = gradeBlurb(cur.letter)
+      + (cur.parts.length > 1 ? ' Weakest area: ' + worst.label + ' (' + Math.round(worst.ratio * 100) + '%).' : '');
+  }
+
   /* ============ Recap card rendering ============ */
   function deltaRow(diff, unit, goodDirection) {
     // goodDirection: 1 = up is good, -1 = down is good, 0 = neutral (no color judgment)
@@ -396,6 +500,8 @@
   function statsSummaryText(mode, label, curDays, priorDays) {
     const lines = ['Period: ' + label + ' (' + curDays.length + ' days so far)'];
     const push = (name, cur, prior) => { if (cur != null) lines.push(name + ': ' + cur + (prior != null ? (' (prior period: ' + prior + ')') : '')); };
+    const gr1 = computePeriodGrade(curDays), gr0 = computePeriodGrade(priorDays);
+    if (gr1) push('Overall grade', gr1.letter + ' (' + gr1.score + '/100)', gr0 && (gr0.letter + ' (' + gr0.score + '/100)'));
     const pk1 = peakStat(curDays), pk0 = peakStat(priorDays); if (pk1) push('Peak score', pk1.avg, pk0 && pk0.avg);
     const h1 = habitsStat(curDays), h0 = habitsStat(priorDays); if (h1) push('Habit completion', h1.rate + '%', h0 && h0.rate + '%');
     const t1 = todosStat(curDays), t0 = todosStat(priorDays); if (t1) push('To-do completion', t1.rate + '%', t0 && t0.rate + '%');
@@ -553,6 +659,7 @@
     $('periodTag').textContent = isCurrent ? ('So far — ' + curDays.length + ' day' + (curDays.length === 1 ? '' : 's') + ' in') : 'Complete';
     $('nextPeriod').disabled = isCurrent;
 
+    renderGrade(curDays, priorDays);
     renderRecap(curDays, priorDays);
     renderInsight(periodK);
     loadReflection(periodK);

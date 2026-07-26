@@ -1089,6 +1089,70 @@ No setup beyond Supabase sync (step 2) — this data syncs like everything else 
 
 ---
 
+## 22. Player Card (overall rating & level)
+
+Front page → the gold **Player Card** strip under your Today Score (also on the **Reflect** hub).
+A FIFA/2K-style rating for you as a whole, built entirely from data the rest of the dashboard
+already collects — nothing new to log, no setup beyond Supabase sync.
+
+It deliberately splits into **two numbers that behave differently**:
+
+**LEVEL / XP — your career progress. Only ever goes up.** Every real thing you've ever logged
+earns XP: workouts (40), leverage tasks finished (20), work commitments (15), skill and reading
+sessions (12), mistakes logged and nights slept (10), habit check-ins and days with food logged
+(8), notes / days hydrated / days supplemented (6), weigh-ins and feeling check-ins (5). The level
+curve is superlinear, so early levels come fast and later ones genuinely mean something. Because
+it's a running total of work already done, it can never drop — a bad week costs you rating, not
+progress. (To-dos are represented by the lifetime **Leverage Task** tally rather than raw
+to-dos, because `main.html` deletes each past day's to-do list on rollover, so that history
+genuinely isn't recoverable.)
+
+**OVR + six attributes — your current form. Moves both ways.** A 1-99 rating over a rolling
+30-day window, so it reflects how you're actually living right now:
+
+| | Attribute | Built from |
+|---|---|---|
+| **PHY** | Physical | Training sessions vs ~4/week, plus how consistently you log food |
+| **VIT** | Vitality | Sleep hours & quality (scaled by how much of the window you actually logged), water, supplements |
+| **DIS** | Discipline | Habit check-in rate, plus how often you finish the Leverage Task you set |
+| **HUS** | Hustle | Daily work commitments kept, plus days with income coming in |
+| **WLT** | Wealth | Net worth direction over 90 days — ±10% spans the scale, so flat sits mid-table |
+| **MND** | Mind | Reading days, skill practice, notes written, mistakes logged |
+
+OVR is a weighted blend (Discipline and Physical 20 each, Vitality 18, Mind 16, Hustle 14, Wealth
+12) and maps to a card tier: **Icon** 90+, **Elite** 85+, **World Class** 80+, **Quality** 72+,
+**Solid** 62+, **Developing** 50+, **Rebuilding** below.
+
+> **A domain you don't track is excluded from the rating entirely, not counted as a zero** — the
+> same fairness rule the Today Score uses. So the card rates you on the things you actually do,
+> and only starts counting a new area once you begin tracking it. The flip side is real: start
+> tracking something you're currently bad at and your OVR will drop, because it's now measuring
+> something true that it previously couldn't see.
+
+Tap your name on the card to rename it. The page is read-only across every other domain — it owns
+nothing but the display name and a small cached summary the home-screen strip reads, so it can't
+corrupt anything another page writes.
+
+---
+
+## 23. Weekly / monthly grade
+
+Front page → **Reflect** → **🪞 Review**, at the top of the Recap section. One letter — **A+
+through F** — for the whole week or month, computed from the very same per-domain stats the recap
+cards directly underneath it show, so the grade can never disagree with the numbers next to it.
+
+Weighted across energy (15), habits (20), to-dos (15), training (20), supplements (10), water
+(10) and work commitments (15), renormalized over whichever of those you actually track. Training
+scales with period length, so 4 sessions is full marks in a week but a quarter of the mark across
+a month. It shows the numeric score, the change vs the prior period, and calls out your weakest
+tracked area — the actionable half of a grade. The letter is also handed to Nova when you generate
+the period's insight, so its write-up knows how the period actually graded.
+
+Same fairness rule as everywhere else: domains you don't track are left out rather than scored
+zero, so a strong week at the one thing you track still grades well.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
@@ -1113,4 +1177,6 @@ No setup beyond Supabase sync (step 2) — this data syncs like everything else 
 19. Mistake / Risk Log: nothing to set up — ⚠️ Mistake Log on the Reflect hub, see step 19 above.
 20. Skill Stack Tracker: nothing to set up — 🏗️ Skill Stack on the Reflect hub, see step 20 above.
 21. Sleep: nothing to set up — 😴 Sleep on the Body hub, see step 21 above.
-22. Change the password in `lock.js`. Done.
+22. Player Card: nothing to set up — the gold strip on the front page, see step 22 above.
+23. Weekly/monthly grade: nothing to set up — top of Review's Recap, see step 23 above.
+24. Change the password in `lock.js`. Done.
