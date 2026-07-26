@@ -380,6 +380,68 @@ export function computeDriftInsight(dayRows) {
     + phrases.join(' and ') + '.';
 }
 
+// ---------- Reactive low-energy nudge (suggests caffeine/nicotine) ----------
+// A simplified server-side port of caffeine.html's energy model — the same
+// exponential-decay caffeine math (dose * 0.5^(elapsedHours/halfLife), summed
+// across every log) and circadian/lunch-dip/sleep-pressure curve, just
+// enough to answer one in-the-moment question: "is energy dipping right
+// now, and is caffeine not already doing something about it?" Deliberately
+// NOT the full multi-factor Peak curve (hydration/nutrition/supplements/
+// workouts) — those don't have a fast-acting remedy the way a stimulant
+// does, so they stay as a daily morning-briefing insight instead of a
+// same-day nudge.
+const ENERGY_LOW_THRESHOLD = 44; // matches caffeine.html's "Dip"/"Low" bands
+const ENERGY_LOW_CAFFEINE_MG_CEILING = 30; // below this, caffeine still has real room to help
+const ENERGY_NUDGE_START_MIN = 8 * 60; // don't fire before 8am regardless of timezone default
+const ENERGY_NUDGE_MIN_GAP_MIN = 90; // don't suggest right after already logging one
+const ENERGY_NUDGE_COOLDOWN_MIN = 120; // don't repeat the nudge more often than this
+const ENERGY_CAF_HALF_LIFE_H = 5;
+const ENERGY_DEFAULT_WAKE_HOUR = 8;
+
+function gaussAt(x, mean, sd) { return Math.exp(-((x - mean) * (x - mean)) / (2 * sd * sd)); }
+function circadianAt(t) { return 50 + 18 * Math.cos(2 * Math.PI * (t - 16.5) / 24); }
+function lunchDipAt(t) { return 10 * gaussAt(t, 14, 1.4); }
+function sleepPressureAt(awakeHours) { return Math.max(0, Math.min(24, awakeHours)) * 1.7; }
+function morningBumpAt(t, wakeHour) {
+  const d = t - wakeHour;
+  return (d < 0 || d > 4) ? 0 : 10 * gaussAt(d, 1.2, 0.9);
+}
+function caffeineActiveAt(mg, logTs, atTs) {
+  const hrs = (atTs - logTs) / 3600000;
+  return hrs < 0 ? 0 : mg * Math.pow(0.5, hrs / ENERGY_CAF_HALF_LIFE_H);
+}
+function totalCaffeineActiveAt(cafLogs, atTs) {
+  return (cafLogs || []).reduce((sum, l) => sum + (l && typeof l.ts === 'number' ? caffeineActiveAt(l.mg || 0, l.ts, atTs) : 0), 0);
+}
+function caffeineBoostAt(activeMg) { return 34 * (1 - Math.exp(-activeMg / 110)); }
+
+// nowHour/wakeHour are decimal hours (e.g. 14.5 = 2:30pm). nowTs is a real
+// epoch ms timestamp, used only for the caffeine decay math.
+export function computeCurrentEnergy(cafLogs, wakeHour, nowHour, nowTs) {
+  const activeCaffeineMg = totalCaffeineActiveAt(cafLogs, nowTs);
+  const raw = circadianAt(nowHour) - lunchDipAt(nowHour) - sleepPressureAt(nowHour - wakeHour) + morningBumpAt(nowHour, wakeHour);
+  const energy = Math.max(0, Math.min(100, raw + caffeineBoostAt(activeCaffeineMg)));
+  return { energy, activeCaffeineMg };
+}
+
+// lastStimulantTs is the most recent caffeine OR nicotine log timestamp
+// (whichever is more recent), or null if neither has ever been logged.
+// nudgeState mirrors the { lastMinutes } shape already used by
+// shouldSendFeelingCheckin's cooldown tracking.
+export function shouldSendEnergyNudge(energyResult, nowMin, lastStimulantTs, nowTs, nudgeState) {
+  if (nowMin < ENERGY_NUDGE_START_MIN) return false;
+  if (energyResult.energy >= ENERGY_LOW_THRESHOLD) return false;
+  if (energyResult.activeCaffeineMg >= ENERGY_LOW_CAFFEINE_MG_CEILING) return false;
+  if (lastStimulantTs != null && (nowTs - lastStimulantTs) < ENERGY_NUDGE_MIN_GAP_MIN * 60000) return false;
+  if (nudgeState && (nowMin - nudgeState.lastMinutes) < ENERGY_NUDGE_COOLDOWN_MIN) return false;
+  return true;
+}
+
+export function composeEnergyNudge(energyResult) {
+  return '🔋 Energy is dipping right now (' + Math.round(energyResult.energy) + '/100) and caffeine isn\'t doing much '
+    + 'for you at the moment — might be worth a coffee, tea, or a Zyn if that\'s more your speed.';
+}
+
 function parseHM(hm) {
   const parts = String(hm || '').split(':').map(Number);
   const h = parts[0] || 0, m = parts[1] || 0;
@@ -712,6 +774,14 @@ function sourceDoneToday(autoSource, ctx) {
     const nights = (ctx.sleepData && ctx.sleepData['sleep:nights']) || {};
     return !!nights[todayPlain];
   }
+  if (autoSource === 'food') {
+    const entries = (healthData && healthData['cal:entries']) || [];
+    return entries.some(e => e && e.dateKey === todayPlain);
+  }
+  if (autoSource === 'weight') {
+    const entries = (gymData && gymData['po_coach_weights']) || [];
+    return entries.some(e => e && e.dateKey === todayPlain);
+  }
   return false;
 }
 
@@ -890,6 +960,23 @@ export default async function handler(req, res) {
     const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
     const morningBriefingDue = shouldSendMorningBriefing(nowMin, morningBriefingMin, bedtimeMin, todayState.__morning_briefing__);
 
+    // Reactive low-energy nudge — reuses today's actual wake time from
+    // sleep.html if logged, falling back to a default, since that's already
+    // fetched above for computeUndone() (no extra reads).
+    const cafLogs = (caffeineData && caffeineData['caf:logs']) || [];
+    const nicLogs = (caffeineData && caffeineData['nic:logs']) || [];
+    const wakeHour = lastNightMorning && lastNightMorning.wakeTime
+      ? parseHM(lastNightMorning.wakeTime) / 60
+      : ENERGY_DEFAULT_WAKE_HOUR;
+    const nowTs = Date.now();
+    const nowHour = nowMin / 60;
+    const currentEnergy = computeCurrentEnergy(cafLogs, wakeHour, nowHour, nowTs);
+    const lastStimulantTs = cafLogs.concat(nicLogs)
+      .reduce((max, l) => (l && typeof l.ts === 'number' && l.ts > max ? l.ts : max), -Infinity);
+    const energyNudgeDue = shouldSendEnergyNudge(
+      currentEnergy, nowMin, lastStimulantTs === -Infinity ? null : lastStimulantTs, nowTs, todayState.__energy_nudge__
+    );
+
     // Only checked during the same waking window as the morning briefing —
     // no reason to evaluate this (extra Supabase reads) on every 15-minute
     // tick around the clock, and it keeps the "quiet checking in" tone from
@@ -907,7 +994,7 @@ export default async function handler(req, res) {
       inactivityNudgeDue = shouldSendInactivityNudge(daysSinceActivity, lastNudgeSentAtMs, Date.now(), inactivityNudgeDays, inactivityNudgeDays);
     }
 
-    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue && !inactivityNudgeDue) {
+    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue && !inactivityNudgeDue && !energyNudgeDue) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
@@ -972,6 +1059,17 @@ export default async function handler(req, res) {
         results.push({ name: '__feeling_checkin__', method: result.method });
       } catch (e) {
         results.push({ name: '__feeling_checkin__', error: e && e.message ? e.message : String(e) });
+      }
+    }
+    if (energyNudgeDue) {
+      const body = composeEnergyNudge(currentEnergy);
+      try {
+        const result = await sendReminder(body);
+        todayState.__energy_nudge__ = { lastMinutes: nowMin };
+        stateChanged = true;
+        results.push({ name: '__energy_nudge__', method: result.method });
+      } catch (e) {
+        results.push({ name: '__energy_nudge__', error: e && e.message ? e.message : String(e) });
       }
     }
     let subsRemindedChanged = false;

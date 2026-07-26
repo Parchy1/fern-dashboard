@@ -287,6 +287,10 @@ function freezeClockAt(hour, minute) {
       const rows = {
         goals: { 'recur:defs': [{ name: 'Gym', freq: 'daily' }] },
         sleep: { 'sleep:nights': {} },
+        // __energy_nudge__ pre-cooled-down — this test is about the morning
+        // briefing, and 8am with no caffeine logged is exactly the kind of
+        // moment the reactive low-energy nudge is designed to fire in.
+        reminder_state: { [new Date().toISOString().slice(0, 10)]: { __energy_nudge__: { lastMinutes: 8 * 60 } } },
       };
       global.fetch = async (url, opts) => {
         const u = String(url);

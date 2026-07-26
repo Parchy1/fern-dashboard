@@ -58,7 +58,7 @@ const NW_CATS = ['cash', 'bank', 'stocks', 'crypto', 'other'];
 // constrains what Claude can even pass as a tool argument, so a stray "CHF"
 // can no longer reach the executors from a real Telegram conversation.
 const PUR_CCY_KEYS = ['USD', 'DOP'];
-const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'business', 'water', 'supplements', 'peak_morning'];
+const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'business', 'water', 'supplements', 'peak_morning', 'food', 'weight'];
 
 // ---------- date helpers (must match the dashboard's own conventions) ----------
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -590,7 +590,7 @@ const TOOLS = [
   },
   {
     name: 'add_recurring_item',
-    description: 'Create a new recurring item on the Main tab\'s Recurring Items list (e.g. a daily reminder to do something). If the item corresponds to something this assistant can auto-detect as done (a Peak morning check-in, a gym day, a reading session, water, supplements, AM/PM stretch routines, or side-hustle activity), set auto_source so it self-completes instead of needing a manual checkbox.',
+    description: 'Create a new recurring item on the Main tab\'s Recurring Items list (e.g. a daily reminder to do something). If the item corresponds to something this assistant can auto-detect as done (last night\'s sleep being logged, a gym day, a meal being logged, a weigh-in, a reading session, water, supplements, AM/PM stretch routines, or side-hustle activity), set auto_source so it self-completes instead of needing a manual checkbox.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1745,7 +1745,7 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'sleep") so the next log_morning_checkin — triggered by any wake-up signal, even a bare "good morning", no '
   + 'other details needed — computes actual sleep hours/wake time from that instead of an estimate, '
   + 'create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
-  + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements when the new item corresponds to one '
+  + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements/food/weight when the new item corresponds to one '
   + 'of those, so it self-completes instead of needing a manual checkbox), log a food/meal entry, log caffeine or '
   + 'nicotine intake, add a note, and undo the single most recent change any tool made (e.g. "undo that", "oops, '
   + 'wrong exercise, undo") via undo_last_action — don\'t try to manually reverse a mistake yourself (e.g. by '
