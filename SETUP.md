@@ -1116,12 +1116,18 @@ genuinely isn't recoverable.)
 | **VIT** | Vitality | Sleep hours & quality (scaled by how much of the window you actually logged), water, supplements |
 | **DIS** | Discipline | Habit check-in rate, plus how often you finish the Leverage Task you set |
 | **HUS** | Hustle | Daily work commitments kept, plus days with income coming in |
-| **WLT** | Wealth | Net worth direction over 90 days — ±10% spans the scale, so flat sits mid-table |
+| **WLT** | Wealth | Net worth trend over 90 days — a sustained +3%/mo (smoothed across every logged point, not just two snapshots) maxes it out, flat sits mid-table |
 | **MND** | Mind | Reading days, skill practice, notes written, mistakes logged |
 
 OVR is a weighted blend (Discipline and Physical 20 each, Vitality 18, Mind 16, Hustle 14, Wealth
 12) and maps to a card tier: **Icon** 90+, **Elite** 85+, **World Class** 80+, **Quality** 72+,
 **Solid** 62+, **Developing** 50+, **Rebuilding** below.
+
+Wealth is deliberately the hardest attribute to max — it needs at least 3 logged net-worth
+snapshots in the window and fits a trend line across all of them (the same regression
+`finance.html`'s own Net Worth Forecast uses), rather than just comparing two points. A single
+volatile day — a crypto swing, a one-time deposit — can't swing it to 99 on its own the way a raw
+first-vs-last comparison would.
 
 > **A domain you don't track is excluded from the rating entirely, not counted as a zero** — the
 > same fairness rule the Today Score uses. So the card rates you on the things you actually do,

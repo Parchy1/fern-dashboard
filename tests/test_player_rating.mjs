@@ -21,6 +21,8 @@ function assertTrue(cond, label) { if (cond) { pass++; console.log('PASS:', labe
 
 const WINDOW_DAYS = 30;
 const NW_WINDOW_DAYS = 90;
+const WLT_MIN_POINTS = 3;
+const WLT_MONTHLY_TARGET = 0.03;
 const T = {
   gymSessions: 16, nutritionDays: 24, sleepHours: 8, revenueDays: 8,
   readingDays: 12, skillSessions: 12, noteEntries: 8, mistakeEntries: 3,
@@ -83,6 +85,25 @@ function dayKeysBack(days, now) {
   const cursor = new Date(now);
   for (let i = 0; i < days; i++) { out.push(dateToKey(cursor)); cursor.setDate(cursor.getDate() - 1); }
   return out;
+}
+function computeMonthlyGrowthRate(history, windowDays, now) {
+  if (!Array.isArray(history)) return null;
+  const cutoff = now - windowDays * 86400000;
+  const pts = history.filter(h => h && typeof h.t === 'number' && typeof h.v === 'number' && h.t >= cutoff)
+    .slice().sort((a, b) => a.t - b.t);
+  if (pts.length < WLT_MIN_POINTS) return null;
+  const t0 = pts[0].t;
+  const xs = pts.map(p => (p.t - t0) / 86400000);
+  const ys = pts.map(p => p.v);
+  const n = xs.length;
+  const sumX = xs.reduce((a, b) => a + b, 0), sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0), sumXX = xs.reduce((a, x) => a + x * x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+  const slopePerDay = (n * sumXY - sumX * sumY) / denom;
+  const base = ys[ys.length - 1];
+  if (Math.abs(base) < 0.01) return null;
+  return (slopePerDay * 30.44) / Math.abs(base);
 }
 function computeXpCounts(d) {
   const c = {};
@@ -222,12 +243,9 @@ function computeAttributes(d, now) {
     ((d.bizRevenue || []).length || (d.bizPayments || []).length) ? { key: 'revenue', ratio: revCount / T.revenueDays, weight: 30 } : null,
   ]);
 
-  const nwCut = now - NW_WINDOW_DAYS * 86400000;
-  const hist = (d.nwHistory || []).filter(h => h && typeof h.t === 'number' && h.t >= nwCut).slice().sort((a, b) => a.t - b.t);
-  if (hist.length >= 2) {
-    const first = hist[0].v, last = hist[hist.length - 1].v;
-    const pct = Math.abs(first) > 0.01 ? (last - first) / Math.abs(first) : (last > first ? 0.1 : last < first ? -0.1 : 0);
-    const ratio = clamp01((pct * 100 + 10) / 20);
+  const rate = computeMonthlyGrowthRate(d.nwHistory, NW_WINDOW_DAYS, now);
+  if (rate != null) {
+    const ratio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
     out.WLT = { ratio, parts: [{ key: 'networth', ratio, weight: 100 }] };
   } else {
     out.WLT = null;
@@ -433,21 +451,65 @@ function keysBack(n) { return dayKeysBack(n, NOW); }
 }
 
 {
-  // WLT — net worth direction.
+  // WLT — net worth trend. Now a least-squares regression across every
+  // logged point (same math as finance.html's own Net Worth Forecast)
+  // rather than a raw first-vs-last delta, and it takes a genuinely
+  // sustained +3%/mo to max out — not a single lucky snapshot.
   const day = 86400000;
-  const flat = computeAttributes({ nwHistory: [{ t: NOW - 60 * day, v: 10000 }, { t: NOW - day, v: 10000 }] }, NOW);
-  assertEq(ratingFromRatio(flat.WLT.ratio), 50, 'flat net worth sits mid-table rather than reading as a failure');
+  function linearNwHistory(monthlyRate, base, daysAgoList) {
+    const slopePerDay = monthlyRate * base / 30.44;
+    return daysAgoList.map(daysAgo => ({ t: NOW - daysAgo * day, v: base - slopePerDay * daysAgo }));
+  }
 
-  const up = computeAttributes({ nwHistory: [{ t: NOW - 60 * day, v: 10000 }, { t: NOW - day, v: 11000 }] }, NOW);
-  assertEq(ratingFromRatio(up.WLT.ratio), 99, '+10% over the window maxes Wealth');
+  const flat = computeAttributes({ nwHistory: linearNwHistory(0, 10000, [89, 60, 30, 1]) }, NOW);
+  assertEq(ratingFromRatio(flat.WLT.ratio), 50, 'a genuinely flat trend across several points sits mid-table rather than reading as a failure');
 
-  const down = computeAttributes({ nwHistory: [{ t: NOW - 60 * day, v: 10000 }, { t: NOW - day, v: 9000 }] }, NOW);
-  assertEq(ratingFromRatio(down.WLT.ratio), 1, '-10% bottoms it out');
+  const up = computeAttributes({ nwHistory: linearNwHistory(WLT_MONTHLY_TARGET, 10000, [89, 60, 30, 1]) }, NOW);
+  assertEq(ratingFromRatio(up.WLT.ratio), 99, 'a sustained +3%/mo trend across several points maxes Wealth');
+
+  const halfUp = computeAttributes({ nwHistory: linearNwHistory(WLT_MONTHLY_TARGET / 2, 10000, [89, 60, 30, 1]) }, NOW);
+  assertEq(ratingFromRatio(halfUp.WLT.ratio), 74, 'half the target growth rate reads well below max, not maxed');
+
+  const down = computeAttributes({ nwHistory: linearNwHistory(-WLT_MONTHLY_TARGET, 10000, [89, 60, 30, 1]) }, NOW);
+  assertEq(ratingFromRatio(down.WLT.ratio), 1, 'a sustained -3%/mo trend bottoms it out');
+
+  // The actual fix: a single volatile spike (a crypto swing, a one-time
+  // deposit) logged right before the rating is computed must not alone max
+  // out Wealth the way a naive first-vs-last comparison would have.
+  const noisy = computeAttributes({ nwHistory: [
+    { t: NOW - 90 * day, v: 10000 },
+    { t: NOW - 70 * day, v: 10010 },
+    { t: NOW - 50 * day, v: 10005 },
+    { t: NOW - 30 * day, v: 9995 },
+    { t: NOW - 1 * day, v: 11000 }, // a +10% one-day jump — under the OLD first-vs-last algorithm this exact shape maxed Wealth at 99
+  ] }, NOW);
+  assertTrue(ratingFromRatio(noisy.WLT.ratio) < 99,
+    'the same +10% swing that used to max out Wealth under the old two-point comparison no longer maxes it once the flat history in between is factored in via regression');
 
   assertEq(computeAttributes({ nwHistory: [{ t: NOW - day, v: 10000 }] }, NOW).WLT, null,
     'a single data point cannot establish a trend, so Wealth stays unrated');
-  assertEq(computeAttributes({ nwHistory: [{ t: NOW - 200 * day, v: 1 }, { t: NOW - 190 * day, v: 2 }] }, NOW).WLT, null,
+  assertEq(computeAttributes({ nwHistory: [{ t: NOW - 60 * day, v: 10000 }, { t: NOW - day, v: 11000 }] }, NOW).WLT, null,
+    'even two points showing a big swing is not enough on its own anymore — at least 3 points are required before calling it a real trend');
+  assertEq(computeAttributes({ nwHistory: linearNwHistory(0.05, 1, [200, 190, 180]) }, NOW).WLT, null,
     'history entirely outside the 90-day window leaves Wealth unrated rather than reporting ancient growth');
+}
+
+// ==================== computeMonthlyGrowthRate directly ====================
+{
+  const day = 86400000;
+  assertEq(computeMonthlyGrowthRate([], NW_WINDOW_DAYS, NOW), null, 'no history at all returns null, not a crash');
+  assertEq(computeMonthlyGrowthRate([{ t: NOW, v: 100 }, { t: NOW, v: 200 }], NW_WINDOW_DAYS, NOW), null,
+    'fewer than WLT_MIN_POINTS samples is not enough to fit a real trend');
+  assertEq(computeMonthlyGrowthRate([{ t: NOW - day, v: 100 }, { t: NOW - day, v: 100 }, { t: NOW - day, v: 100 }], NW_WINDOW_DAYS, NOW), null,
+    'every sample landing at the exact same timestamp cannot fit a slope');
+  assertEq(computeMonthlyGrowthRate([{ t: NOW - 2 * day, v: 0 }, { t: NOW - day, v: 0 }, { t: NOW, v: 0 }], NW_WINDOW_DAYS, NOW), null,
+    'a net worth of ~zero cannot express a meaningful percentage rate');
+
+  const rate = computeMonthlyGrowthRate(
+    [{ t: NOW - 60 * day, v: 10000 }, { t: NOW - 30 * day, v: 10500 }, { t: NOW - 1 * day, v: 11000 }],
+    NW_WINDOW_DAYS, NOW
+  );
+  assertTrue(rate > 0, 'genuinely rising values across three real points produce a positive rate');
 }
 
 {
