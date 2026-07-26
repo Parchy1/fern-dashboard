@@ -64,7 +64,7 @@ function nowMinUtc() {
     assertTrue(Math.abs(effPM - (BEDTIME - 30)) <= 10, 'no explicit time + "(PM)" in name defaults near 30min before bedtime: got ' + effPM + ' vs bedtime-30=' + (BEDTIME - 30));
 
     const effGeneric = effectiveTimeMinutes('Clean up room (no time set)', null, BEDTIME, '2026-07-20');
-    assertEq(effGeneric, null, 'a generic name with no explicit time and no AM/PM hint returns null (goes to catch-all)');
+    assertTrue(Math.abs(effGeneric - 9 * 60) <= 10, 'a generic name with no explicit time and no AM/PM hint defaults near 9:00am (GENERIC_ITEM_DEFAULT_MIN), same as any other item — no more null/catch-all special case: got ' + effGeneric);
 
     const effDeterministic1 = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20');
     const effDeterministic2 = effectiveTimeMinutes('Gym', '18:00', BEDTIME, '2026-07-20');
@@ -192,10 +192,10 @@ function nowMinUtc() {
   // Full handler integration
   // ============================================================
   // Frozen at a comfortably-midday UTC time so every scenario below (an
-  // overdue item, a bedtime hours out, a bedtime already passed, the
-  // catch-all window, the 9am-bedtime feeling-checkin window) is always
-  // constructible and always deterministic, regardless of the real time
-  // this suite happens to run at.
+  // overdue item, a bedtime hours out, a bedtime already passed, a generic
+  // item's default GENERIC_ITEM_DEFAULT_MIN window, the 9am-bedtime
+  // feeling-checkin window) is always constructible and always
+  // deterministic, regardless of the real time this suite happens to run at.
   const unfreeze = freezeClockAt(14, 0);
   const nowMin = nowMinUtc();
   const pastTime = minToHM(Math.max(0, nowMin - 45));
@@ -362,38 +362,31 @@ function nowMinUtc() {
     delete process.env.CRON_SECRET;
   }
 
-  // ---- catch-all digest: a generic (no-time, no AM/PM) recurring item
-  // fires once the catch-all window is open, and not again within the
-  // re-nag cooldown the same tick ----
+  // ---- a generic (no-time, no AM/PM) recurring item gets its own
+  // individual message, not bundled with anything else — and re-nags on
+  // its own per-item cooldown same as a timed item ----
   {
     process.env.CRON_SECRET && delete process.env.CRON_SECRET;
-    // Clamped (not wrapped past midnight) — BEDTIME_LOCAL is a same-day HH:MM
-    // cutoff, so wrapping past 23:59 back to e.g. 00:15 would make it look
-    // like bedtime already passed hours ago instead of "coming up soon"
-    // whenever this test happens to run near midnight UTC.
-    const bedtimeSoon = minToHM(Math.min(1439, nowMin + 20)); // clock is frozen at 14:00 (past CATCHALL_START_MIN of 9am), so the catch-all window is already open regardless of bedtime
-    process.env.BEDTIME_LOCAL = bedtimeSoon;
+    process.env.BEDTIME_LOCAL = bedtimeFuture; // clock is frozen at 14:00, past GENERIC_ITEM_DEFAULT_MIN (9am), so this item's default time has already arrived
     const { fetchStub, getWrittenState, getSentPayloads } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
     });
     global.fetch = fetchStub;
     const res = mockRes();
     await handler({ headers: {} }, res);
-    assertEq(res._body.sent, true, 'a generic untimed item triggers the catch-all digest once bedtime is close enough');
-    assertEq(res._body.results.length, 1, 'exactly one catch-all message sent (not one per generic item)');
-    assertEq(res._body.results[0].name, '__catchall__', 'the catch-all result is tagged distinctly from individual item reminders');
-    assertEq(res._body.results[0].items, ['Clean up room'], 'the catch-all lists the correct generic item(s)');
-    assertTrue(!getSentPayloads()[0].reply_markup, 'the catch-all digest (covers multiple items at once) does not carry a single-item Done button');
+    assertEq(res._body.sent, true, 'a generic untimed item is due on its own, defaulting near GENERIC_ITEM_DEFAULT_MIN');
+    assertEq(res._body.results.length, 1, 'exactly one message sent for the one undone item');
+    assertEq(res._body.results[0].name, 'Clean up room', 'the result names the item directly, same as any individual timed reminder — no separate catch-all tag');
+    assertTrue(!!getSentPayloads()[0].reply_markup, 'a generic item still gets its own single-item Done button, same as a timed item (no more bundled-digest exception)');
     const written = getWrittenState();
     const todayKey6amActual = Object.keys(written)[0];
-    assertEq(written[todayKey6amActual].__catchall__.lastMinutes, nowMin, 'catch-all-sent state persisted with the firing minute, for the re-nag cooldown');
+    assertEq(written[todayKey6amActual]['Clean up room'].lastMinutes, nowMin, 'per-item state persisted under the item\'s own name, same shape as a timed item');
 
-    // Second tick right away (same nowMin, well within the re-nag cooldown): catch-all should NOT fire again.
+    // Second tick right away (same nowMin, well within the re-nag cooldown): should NOT resend.
     const { fetchStub: fetchStub2 } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
       stateRow: written[todayKey6amActual] ? { [todayKey6amActual]: written[todayKey6amActual] } : null,
     });
-    // fakeSupabase's stateRow option wraps the whole row already keyed by date — pass it through as-is.
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('key=eq.reminder_state') && (!opts || opts.method !== 'POST')) return { ok: true, json: async () => [{ data: written }] };
@@ -401,21 +394,23 @@ function nowMinUtc() {
     };
     const res2 = mockRes();
     await handler({ headers: {} }, res2);
-    assertEq(res2._body.sent, false, 'the catch-all digest does not fire a second time the same day once already sent');
+    assertEq(res2._body.sent, false, 'does not resend within the 90-minute re-nag cooldown');
 
-    // Third tick, past the RENAG_INTERVAL_MIN cooldown since the first send: the catch-all fires again.
+    // Third tick, past the RENAG_INTERVAL_MIN cooldown: fires again.
     const { fetchStub: fetchStub3 } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
-      stateRow: { [todayKey6amActual]: { __catchall__: { lastMinutes: nowMin - 91 } } },
+      stateRow: { [todayKey6amActual]: { 'Clean up room': { count: 1, lastMinutes: nowMin - 91 } } },
     });
     global.fetch = fetchStub3;
     const res3 = mockRes();
     await handler({ headers: {} }, res3);
-    assertEq(res3._body.sent, true, 'the catch-all re-nags again once RENAG_INTERVAL_MIN has passed since it last fired, same cadence as individual items');
+    assertEq(res3._body.sent, true, 're-nags again once RENAG_INTERVAL_MIN has passed since it last fired, same cadence as a timed item');
   }
 
-  // ---- catch-all digest also picks up untimed to-dos and undone habits,
-  // previously invisible to this whole engine ----
+  // ---- multiple undone generic items (untimed recurring item, untimed
+  // to-do, undone habit) each become their OWN separate message in the same
+  // tick, instead of one bundled digest — this is the whole point: more
+  // frequent individual texts instead of one big list ----
   {
     process.env.CRON_SECRET && delete process.env.CRON_SECRET;
     process.env.BEDTIME_LOCAL = bedtimeFuture;
@@ -424,8 +419,8 @@ function nowMinUtc() {
       if (d.getHours() < 6) d.setDate(d.getDate() - 1);
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
-    const { fetchStub, getWrittenState } = fakeSupabase({
-      recurDefs: [],
+    const { fetchStub, getSentPayloads } = fakeSupabase({
+      recurDefs: [{ id: 'r1', name: 'Water plants', freq: 'daily', days: null, autoSource: null, time: null }],
       goalsExtra: {
         ['goals:' + todayKey6amActual]: [{ text: 'Call the dentist', done: false }],
         'habits:defs': [{ id: 'h1', name: 'Cold shower' }],
@@ -435,10 +430,11 @@ function nowMinUtc() {
     global.fetch = fetchStub;
     const res = mockRes();
     await handler({ headers: {} }, res);
-    assertEq(res._body.sent, true, 'an untimed to-do and an undone habit are enough to trigger the catch-all on their own');
-    assertEq(res._body.results[0].items, ['Call the dentist', 'Cold shower'], 'the catch-all digest names both the untimed to-do and the undone habit');
-    const written = getWrittenState();
-    assertTrue(!!written[todayKey6amActual].__catchall__, 'catch-all state persisted for this tick too');
+    assertEq(res._body.sent, true, 'three separately-undone generic items are all due at once');
+    assertEq(res._body.results.length, 3, 'three separate results — one per item — not one combined digest result');
+    assertEq(res._body.results.map(r => r.name).sort(), ['Call the dentist', 'Cold shower', 'Water plants'], 'each item is named individually');
+    assertEq(getSentPayloads().length, 3, 'three separate Telegram messages actually went out, not one bundled text');
+    assertTrue(getSentPayloads().every(p => !!p.reply_markup), 'every one of the three separate messages carries its own Done button');
   }
 
   // ============================================================

@@ -20,11 +20,10 @@
 //      "morning" defaults to 8:00am.
 //   3. Anything left with no time at all — generic recurring items,
 //      untimed to-dos, and daily habits (main.html's separate habit
-//      tracker) — has no individual moment, so it's swept into a "still
-//      open" catch-all digest instead. That digest isn't once-a-day either:
-//      starting at CATCHALL_START_MIN, it re-nags every RENAG_INTERVAL_MIN
-//      same as a timed item, right up until bedtime, so nothing you're
-//      behind on ever goes silently unmentioned all day.
+//      tracker) — defaults to GENERIC_ITEM_DEFAULT_MIN. Each one is still its own
+//      separate individual message though, not bundled into one big list:
+//      you get a text per undone thing, right up until bedtime, so nothing
+//      you're behind on ever goes silently unmentioned all day.
 //
 // A deterministic (not truly random, so a given day is reproducible)
 // +/-10 minute jitter is applied per item per day, so reminders don't land
@@ -49,8 +48,8 @@
 // Also separately, once a day at MORNING_BRIEFING_TIME a single "here's
 // today" summary goes out — everything scheduled and still undone, last
 // night's sleep quality if logged, and a nod to any subscription renewals
-// coming up. One-shot per day, tracked in the same reminder_state bucket as
-// the catch-all digest.
+// coming up. One-shot per day (unlike the individual per-item reminders
+// above, which repeat), tracked in the same reminder_state bucket.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
@@ -88,7 +87,7 @@
 // ============================================================
 
 const RENAG_INTERVAL_MIN = 90;       // how often to re-nag an undone item until it's done or bedtime
-const CATCHALL_START_MIN = 9 * 60;   // the "everything else" digest doesn't start before this, then repeats every RENAG_INTERVAL_MIN until bedtime — independent of MORNING_BRIEFING_TIME on purpose, so the two features stay decoupled
+const GENERIC_ITEM_DEFAULT_MIN = 9 * 60;   // default effective time for an item with no explicit time and no AM/PM name hint — still gets its own individual message and re-nag cadence like anything else, just anchored here instead of a real scheduled time. Independent of MORNING_BRIEFING_TIME on purpose, so the two features stay decoupled
 const PM_BEDTIME_OFFSET_MIN = 30;    // "(PM)"/evening items with no explicit time default to this many minutes before bedtime
 const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit time default to 8:00am
 const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per item per day
@@ -170,9 +169,8 @@ export function composeSubsMessage(dueSubs) {
 // A single once-a-day summary, independent of the per-item nag model above
 // (same reasoning as the feeling check-in / subs reminders: this doesn't fit
 // the "one moment per item" shape). Fires once MORNING_BRIEFING_TIME has
-// passed, tracked via todayState.__morning_briefing__ same as __catchall__ —
-// fine to live in the day-scoped reminder_state row since it's inherently
-// daily.
+// passed, tracked via todayState.__morning_briefing__ — fine to live in the
+// day-scoped reminder_state row since it's inherently daily.
 export function shouldSendMorningBriefing(nowMin, briefingMin, bedtimeMin, alreadySent) {
   if (alreadySent) return false;
   if (nowMin < briefingMin) return false;
@@ -473,8 +471,8 @@ function jitterMinutes(seed) {
 
 function isGymItemName(name) { return /\bgym\b|workout|\blift/i.test(String(name)); }
 
-// Returns null for a generic item with no assignable time — those go into
-// the once-daily catch-all digest instead of an individual reminder.
+// A generic item with no assignable time still gets its own effective time
+// (GENERIC_ITEM_DEFAULT_MIN) rather than being bundled with anything else.
 // sleepQuality (1-5, optional — last night's logged sleep from sleep.html)
 // pushes a gym reminder later on a poor-sleep night rather than nagging first thing
 // when the more useful thing might be extra recovery. Doesn't touch
@@ -488,7 +486,10 @@ export function effectiveTimeMinutes(name, explicitTime, bedtimeMin, dateKey, sl
     const n = String(name).toLowerCase();
     if (/\(pm\)|\bevening\b/.test(n)) base = bedtimeMin - PM_BEDTIME_OFFSET_MIN;
     else if (/\(am\)|\bmorning\b/.test(n)) base = DEFAULT_AM_MINUTES;
-    else return null;
+    // Nothing to key off of at all — still gets its own individual message
+    // (not bundled with anything else), just starting from a generic
+    // default time instead of something derived from its name.
+    else base = GENERIC_ITEM_DEFAULT_MIN;
   }
   let eff = Math.max(0, base + jitterMinutes(dateKey + '|' + name));
   if (sleepQuality != null && sleepQuality <= SLEEP_POOR_THRESHOLD && isGymItemName(name)) {
@@ -505,24 +506,6 @@ export function shouldSendNow(state, nowMin, effMin, bedtimeMin) {
   if (nowMin >= bedtimeMin) return false;  // stop nagging for the day
   if (!state) return true;                 // never reminded — due for the first nudge
   return (nowMin - state.lastMinutes) >= RENAG_INTERVAL_MIN;
-}
-
-// Varies the opening line across catch-all sends (same undone list
-// otherwise reads identically every time it repeats) — deterministic by
-// date+hour rather than random, so a given run is reproducible if re-sent.
-const INTROS = [
-  'Still todo today:',
-  "Yo — still haven't done:",
-  "Don't forget:",
-  'Reminder, still open:',
-  'Knock these out:',
-  'Still waiting on you for:',
-  'Hey, still undone:',
-  'Circling back — still todo:',
-];
-function pickIntro(dateKey, hour) {
-  const day = Number(dateKey.slice(-2)) || 0;
-  return INTROS[(day + hour) % INTROS.length];
 }
 
 // ---------- Per-item phrasing ----------
@@ -632,17 +615,6 @@ export function composeSingleMessage(name, dateKey, nagCount) {
   const pool = PHRASES[categorizeItem(name)] || PHRASES.generic;
   const seed = hashStr(dateKey + '|' + name + '|' + (nagCount || 0));
   return pool[seed % pool.length](name);
-}
-
-// The once-daily catch-all digest for items with no assignable time.
-export function composeMessage(undone, dateKey, hour) {
-  const intro = pickIntro(dateKey, hour);
-  const lines = undone.map(name => {
-    const pool = PHRASES[categorizeItem(name)] || PHRASES.generic;
-    const seed = hashStr(dateKey + '|' + hour + '|' + name);
-    return '- ' + pool[seed % pool.length](name);
-  });
-  return intro + '\n' + lines.join('\n');
 }
 
 // Mirrors the dashboard's own day-key conventions (6 AM boundary for
@@ -901,10 +873,9 @@ export function computeOneOffTimedUndone(goalsData, todayKey6am, defs) {
 
 // One-off to-dos with NO time set at all (plain items typed into main.html's
 // list) — previously invisible to this whole engine, since only timed
-// one-offs (above) and recurring items were ever reminded. These have no
-// individual moment of their own, so they're merged into the catch-all
-// digest downstream via effectiveTimeMinutes returning null for them, same
-// as an untimed recurring item.
+// one-offs (above) and recurring items were ever reminded. These get their
+// own individual message too, defaulting to GENERIC_ITEM_DEFAULT_MIN via
+// effectiveTimeMinutes downstream, same as an untimed recurring item.
 export function computeUntimedGoalsUndone(goalsData, todayKey6am, defs) {
   const existingGoals = (goalsData && goalsData['goals:' + todayKey6am]) || [];
   const defNames = new Set((defs || []).map(d => d.name));
@@ -969,27 +940,23 @@ export default async function handler(req, res) {
 
     const todayState = (stateRow && stateRow[todayKey6am]) || {};
     const dueIndividual = [];
-    const catchAllNames = [];
     // sleep.html's night log uses a plain calendar date, same as todayPlain.
     const lastNightMorning = (sleepData && sleepData['sleep:nights'] && sleepData['sleep:nights'][todayPlain]) || null;
     const lastNightSleepQuality = lastNightMorning ? lastNightMorning.sleepQuality : null;
 
+    // Every item gets its own effective time now (explicit, name-based, or
+    // the GENERIC_ITEM_DEFAULT_MIN default) and its own independent per-item
+    // state/re-nag cadence — so an undone generic to-do or habit becomes its
+    // own separate text, not lumped into one big bundled message with
+    // everything else that's also undone.
     allItems.forEach(({ name, time }) => {
       const eff = effectiveTimeMinutes(name, time, bedtimeMin, todayKey6am, lastNightSleepQuality);
-      if (eff == null) { catchAllNames.push(name); return; }
       const st = todayState[name];
       if (shouldSendNow(st, nowMin, eff, bedtimeMin)) {
         dueIndividual.push({ name, count: st ? st.count : 0 });
       }
     });
 
-    // Re-nags every RENAG_INTERVAL_MIN, same cadence as individual timed
-    // items, rather than firing once near bedtime — untimed to-dos/habits/
-    // recurring items are just as much "still behind on this" as anything
-    // with a clock time, so they get the same insistence.
-    const catchAllState = todayState.__catchall__;
-    const catchAllDue = catchAllNames.length > 0 && nowMin >= CATCHALL_START_MIN && nowMin < bedtimeMin
-      && (!catchAllState || (nowMin - catchAllState.lastMinutes) >= RENAG_INTERVAL_MIN);
     const feelingCheckinDue = shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, todayState.__feeling_checkin__);
     const subsRemindedMap = subsRemindedRow || {};
     const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
@@ -1029,7 +996,7 @@ export default async function handler(req, res) {
       inactivityNudgeDue = shouldSendInactivityNudge(daysSinceActivity, lastNudgeSentAtMs, Date.now(), inactivityNudgeDays, inactivityNudgeDays);
     }
 
-    if (!dueIndividual.length && !catchAllDue && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue && !inactivityNudgeDue && !energyNudgeDue) {
+    if (!dueIndividual.length && !feelingCheckinDue && !dueSubs.length && !morningBriefingDue && !inactivityNudgeDue && !energyNudgeDue) {
       return res.status(200).json({ sent: false, reason: 'nothing due right now', nowMin, bedtimeMin });
     }
 
@@ -1072,17 +1039,6 @@ export default async function handler(req, res) {
         results.push({ name, method: result.method });
       } catch (e) {
         results.push({ name, error: e && e.message ? e.message : String(e) });
-      }
-    }
-    if (catchAllDue) {
-      const body = composeMessage(catchAllNames, todayPlain, Math.floor(nowMin / 60));
-      try {
-        const result = await sendReminder(body);
-        todayState.__catchall__ = { lastMinutes: nowMin };
-        stateChanged = true;
-        results.push({ name: '__catchall__', items: catchAllNames, method: result.method });
-      } catch (e) {
-        results.push({ name: '__catchall__', items: catchAllNames, error: e && e.message ? e.message : String(e) });
       }
     }
     if (feelingCheckinDue) {
