@@ -215,35 +215,32 @@ so you're not re-spending an API call every time you revisit.
 
 ## 7. Text reminders (optional)
 
-`main.html`'s "Recurring Items" list (Gym, Water, Read, etc.) — and any one-off to-do you've
-given a time via the Schedule/Calendar time field — can text you individually, right around
-each item's own scheduled time, instead of one bundled digest of everything undone. This runs
-entirely server-side on a schedule — it doesn't need the dashboard open in a browser. It reuses
-your existing Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed
-there. Pick **one** of the delivery methods below — if you've set up the **Telegram Assistant**
-(step 8), it's already covered and you can skip this whole section: Telegram is preferred
-automatically over Twilio, which is preferred over the email gateway, whenever more than one
-happens to be configured.
+`main.html`'s "Recurring Items" list (Gym, Water, Read, etc.), any one-off to-do you've given a
+time via the Schedule/Calendar time field, untimed to-dos, and undone Daily Habits (the separate
+habit tracker on Main) can all text you — each as its own **separate** message, right around its
+own moment, rather than one bundled text listing everything undone at once. This runs entirely
+server-side on a schedule — it doesn't need the dashboard open in a browser. It reuses your
+existing Supabase `SUPABASE_URL`/`SUPABASE_ANON_KEY` from step 2, so nothing extra needed there.
+Pick **one** of the delivery methods below — if you've set up the **Telegram Assistant** (step 8),
+it's already covered and you can skip this whole section: Telegram is preferred automatically over
+Twilio, which is preferred over the email gateway, whenever more than one happens to be configured.
 
 **How the timing works:** each recurring item can have a time set in the Recurring Items form
 (and a one-off to-do can have one via the Schedule/Calendar view). If it doesn't:
 - a name containing `(PM)` or "evening" defaults to shortly before your `BEDTIME_LOCAL` (below);
 - a name containing `(AM)` or "morning" defaults to 8:00am;
-- anything else with no time and no AM/PM hint has no single moment of its own — it's swept
-  into a combined "still open" catch-all digest instead (see below).
+- anything else with no time and no AM/PM hint — a generic recurring item, an untimed to-do, an
+  undone habit — defaults to 9:00am instead.
+
+Whichever bucket it falls into, every item still gets its own text and its own tappable **✅ Done**
+button — nothing gets merged into someone else's message. If several things are undone at once,
+you'll get several separate texts back to back rather than one message listing all of them, so
+each is easy to act on (or ignore) on its own.
 
 A small (±10 minute) deterministic jitter is applied per item per day, so reminders don't land
 at the exact same robotic minute every day. If something's still undone once its time arrives,
 it nags again every 90 minutes until you mark it done or until `BEDTIME_LOCAL` passes, after
 which it goes quiet for the day rather than pinging you overnight.
-
-**The catch-all digest covers everything with no time of its own — not just recurring items:**
-untimed one-off to-dos (typed straight into the Main to-do list with no Schedule/Calendar time)
-and undone Daily Habits (the separate habit tracker on Main) are folded in alongside untimed
-recurring items, so nothing you're tracking anywhere in the dashboard sits invisible to the bot.
-It's not a once-a-day message either — starting at 9am, it repeats every 90 minutes (same cadence
-as an individual item) for as long as anything on the list is still undone, right up until
-`BEDTIME_LOCAL`, rather than mentioning everything you're behind on just once near bedtime.
 
 **Gym reminders are pushed back after a bad night's sleep:** if last night's sleep log (Sleep
 page, step 17) recorded a sleep quality of 2 or lower, any recurring item that looks like a gym/workout
@@ -287,7 +284,7 @@ auto-deduct — a heads-up is still useful even for ones that charge automatical
 default `07:00`) — a single message listing everything scheduled today and still undone
 (recurring items plus any timed one-off to-dos), last night's logged sleep quality if you've
 been logging it on the Sleep page, and a nod to any subscription renewals coming up soon.
-It's a one-shot per day (unlike the catch-all digest above, which repeats), so it won't send twice.
+It's a one-shot per day (unlike the individual item reminders above, which repeat), so it won't send twice.
 
 It can also add a 💡 line acting on a real pattern in your own history — e.g. "your sleep tends
 to suffer after caffeine at/past 2pm, worth cutting it off early today" or "you tend to feel
@@ -378,8 +375,8 @@ Every US carrier lets you "text" a phone by emailing a special address. A free s
      firing on the next tick, or trigger it immediately yourself: repo → **Actions** tab →
      **Dashboard reminders** → **Run workflow**.
    - The function itself decides *whether anything's actually due right now* on every tick —
-     each item's own scheduled time (or the bedtime-anchored default, or the repeating
-     catch-all) is the real gate, not how often the workflow happens to ping the endpoint.
+     each item's own scheduled time (explicit, bedtime-anchored, or the generic 9am default)
+     is the real gate, not how often the workflow happens to ping the endpoint.
 
    > **Twice a year**, around DST changes (mid-March, early November), the workflow's fixed UTC
    > cron hours land an hour off from local time for about a week until manually nudged — ticks
@@ -488,8 +485,8 @@ renew my passport in 3 months," "remind me to call the dentist next Tuesday at 2
 to-do to that day's Schedule/Calendar entry directly (same as picking that date in the Calendar
 tab and typing it in yourself), and it'll get reminded on its own once that day arrives.
 
-Every individual item reminder (not the repeating catch-all digest, subscription heads-up, or
-morning briefing — just the "your time is up for this one thing" nudges) comes with a tappable
+Every individual item reminder (not the subscription heads-up or morning briefing, which are their
+own separate summaries — just the "your time is up for this one thing" nudges) comes with a tappable
 **✅ Done** button, so you don't have to type anything back to mark it done — one tap, and the
 message updates in place to confirm it. It's exactly equivalent to texting "mark X done" — same
 fuzzy name matching, same materialization of a not-yet-opened-today recurring item — just without

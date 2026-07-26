@@ -1294,7 +1294,7 @@ async function execLogFeelingCheckin(args) {
   return patchRow('peak', (peak) => {
     const list = peak['peak:checkins'] || [];
     list.push({
-      id: 'ck' + Date.now() + Math.floor(Math.random() * 1000), ts: Date.now(), dateKey: plainDateKey(),
+      id: 'ck' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), ts: Date.now(), dateKey: plainDateKey(),
       feeling: args.feeling != null ? clamp15(args.feeling) : null,
       stress: args.stress != null ? clamp15(args.stress) : null,
       note: args.note || '',
