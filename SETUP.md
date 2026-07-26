@@ -251,6 +251,24 @@ actual logged check-in (spontaneous or via the assistant) in that window — log
 the 4-hour clock immediately, and it goes quiet once `BEDTIME_LOCAL` passes, same as everything
 else.
 
+**A reactive low-energy nudge** checks every tick (from 8am on) whether your energy is actually
+dipping *right now* and whether caffeine would still help — a simplified server-side version of
+the same circadian/lunch-dip/sleep-pressure curve `caffeine.html` uses, fed your real caffeine log
+so it knows how much is already active in your system. It only fires when energy reads below the
+"Dip" band, less than 30mg of caffeine is currently active (so there's real room for it to help),
+you haven't logged caffeine or nicotine in the last 90 minutes, and it hasn't already nudged you
+in the last 2 hours — tuned to avoid nagging you every 15-minute tick during a genuine multi-hour
+slump. The message just suggests coffee/tea or a Zyn, whichever's your speed; it doesn't try to
+guess which one you'd prefer.
+
+**Two more auto-detectable recurring items:** `food` (a meal logged today via Health's calorie
+tracker) and `weight` (a weigh-in logged today via Gym's weight tracker) — same self-completing
+behavior as gym/reading/water/etc., so "Log a meal" and "Log weight" recurring items (seeded by
+default on a fresh install) check themselves off instead of needing a manual tap. If you already
+had a `recur:defs` list before this was added, add these two yourself from the Recurring Items
+form's auto-check dropdown (or ask the Telegram assistant to add them — see step 8) since code
+changes don't retroactively touch a list you've already saved.
+
 **Subscription renewals (Finance tab) work differently too:** rather than a daily nag, you get a
 one-time heads-up 3 days before each subscription's renewal date (and again isn't sent for that
 same renewal once it's fired — the next one only fires ahead of the *following* cycle). Covers

@@ -403,6 +403,45 @@ function nowMinUtc() {
     assertEq(alreadyDone, [], 'Morning Check-In is NOT undone once sleep:nights has today\'s entry (peak_morning autoSource correctly wired)');
   }
 
+  // ==================== food/weight autoSource ====================
+  {
+    const todayPlainActual = (() => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    const goalsData = {
+      'recur:defs': [
+        { id: 'rcf', name: 'Log a meal', freq: 'daily', days: null, autoSource: 'food' },
+        { id: 'rcw', name: 'Log weight', freq: 'daily', days: null, autoSource: 'weight' },
+      ],
+    };
+    const baseFetchers = { goalsData, healthData: {}, gymData: {}, businessData: {}, readingData: {}, sleepData: {}, todayKey6am: todayPlainActual, todayPlain: todayPlainActual, dow: new Date().getDay(), utcToday: new Date().toISOString().slice(0, 10) };
+
+    const neitherLogged = await computeUndone(baseFetchers);
+    assertEq(neitherLogged.sort(), ['Log a meal', 'Log weight'], 'both food and weight are undone when nothing has been logged today');
+
+    const foodLogged = await computeUndone(Object.assign({}, baseFetchers, {
+      healthData: { 'cal:entries': [{ id: 'e1', dateKey: todayPlainActual, calories: 500 }] },
+    }));
+    assertEq(foodLogged, ['Log weight'], 'a meal entry dated today satisfies the food autoSource, leaving only weight undone');
+
+    const weightLogged = await computeUndone(Object.assign({}, baseFetchers, {
+      gymData: { po_coach_weights: [{ dateKey: todayPlainActual, weight: 180 }] },
+    }));
+    assertEq(weightLogged, ['Log a meal'], 'a weigh-in dated today satisfies the weight autoSource, leaving only food undone');
+
+    const bothLogged = await computeUndone(Object.assign({}, baseFetchers, {
+      healthData: { 'cal:entries': [{ id: 'e1', dateKey: todayPlainActual }] },
+      gymData: { po_coach_weights: [{ dateKey: todayPlainActual, weight: 180 }] },
+    }));
+    assertEq(bothLogged, [], 'both undone items clear once both are logged for today');
+
+    const staleFoodEntry = await computeUndone(Object.assign({}, baseFetchers, {
+      healthData: { 'cal:entries': [{ id: 'e0', dateKey: '2020-01-01' }] },
+    }));
+    assertEq(staleFoodEntry.sort(), ['Log a meal', 'Log weight'], 'a meal logged on a past date does not satisfy today\'s food autoSource');
+  }
+
   // ============================================================
   // Full handler: feeling check-in fires and is tracked in state
   // ============================================================

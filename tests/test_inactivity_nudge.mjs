@@ -92,7 +92,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
       goals: {}, peak: {},
       // Morning briefing already fired today, so it won't fire again and
       // muddy this test — only the inactivity nudge should be due.
-      reminder_state: { [new Date(now).toISOString().slice(0, 10)]: { __morning_briefing__: true } },
+      // __energy_nudge__ is pre-cooled-down too — this test isn't about the
+      // reactive low-energy nudge, and 8am with no caffeine logged is
+      // exactly the kind of moment that nudge is designed to fire in.
+      reminder_state: { [new Date(now).toISOString().slice(0, 10)]: { __morning_briefing__: true, __energy_nudge__: { lastMinutes: 8 * 60 } } },
       // The most recent genuine activity was 10 days ago -> well past the
       // 3-day threshold, and no inactivity_nudge row yet -> due.
       notes: { 'notes:items': [] },

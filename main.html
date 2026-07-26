@@ -825,6 +825,8 @@
           <option value="water">Auto-check: hit today's water target</option>
           <option value="supplements">Auto-check: all supplements taken today</option>
           <option value="peak_morning">Auto-check: last night's sleep is logged (sleep.html)</option>
+          <option value="food">Auto-check: a meal is logged today (Health)</option>
+          <option value="weight">Auto-check: a weigh-in is logged today (Gym)</option>
         </select>
         <input id="recurNote" class="gm-input" type="text" placeholder="Optional note (e.g. 3–6pm)">
         <label class="recur-time-label">Schedule time (optional, shows on the Schedule view)
@@ -1669,6 +1671,8 @@
     { id: 'rc8', name: 'Skin care (AM)', freq: 'daily', days: null, autoSource: null, note: '', time: '08:15' },
     { id: 'rc9', name: 'Skin care (PM)', freq: 'daily', days: null, autoSource: null, note: '', time: null },
     { id: 'rc10', name: 'Morning Check-In', freq: 'daily', days: null, autoSource: 'peak_morning', note: '', time: '08:00' },
+    { id: 'rc11', name: 'Log a meal', freq: 'daily', days: null, autoSource: 'food', note: '', time: '13:00' },
+    { id: 'rc12', name: 'Log weight', freq: 'daily', days: null, autoSource: 'weight', note: 'morning', time: '08:30' },
   ];
   function getRecurDefs() {
     const v = storeGet(RECUR_KEY);
@@ -1775,6 +1779,14 @@
       // the RECUR_DEFAULTS seed) keeps auto-checking without a silent break.
       const nights = storeGet('sleep:nights') || {};
       return !!nights[plainToday];
+    }
+    if (autoSource === 'food') {
+      const entries = storeGet('cal:entries') || [];
+      return entries.some(e => e && e.dateKey === plainToday);
+    }
+    if (autoSource === 'weight') {
+      const entries = storeGet('po_coach_weights') || [];
+      return entries.some(e => e && e.dateKey === plainToday);
     }
     return false;
   }
@@ -1886,7 +1898,7 @@
     const defs = getRecurDefs();
     list.innerHTML = '';
     empty.style.display = defs.length ? 'none' : 'block';
-    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles', water: 'auto: water', supplements: 'auto: supplements', peak_morning: 'auto: sleep' };
+    const SOURCE_LABEL = { gym: 'auto: gym', reading: 'auto: reading', stretch_am: 'auto: stretch AM', stretch_pm: 'auto: stretch PM', business: 'auto: side hustles', water: 'auto: water', supplements: 'auto: supplements', peak_morning: 'auto: sleep', food: 'auto: food log', weight: 'auto: weigh-in' };
     defs.forEach(def => {
       const li = document.createElement('li');
       li.className = 'recur-row';
