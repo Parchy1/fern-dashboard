@@ -18,10 +18,13 @@
 //   2. A name-based default: anything named/tagged "(PM)" or "evening"
 //      defaults to shortly before BEDTIME_LOCAL; anything "(AM)" or
 //      "morning" defaults to 8:00am.
-//   3. Anything left with no time at all (generic recurring items or
-//      one-off to-dos with no time) has no individual moment — it's swept
-//      into a single once-a-day "still open" digest, sent ~30 min before
-//      bedtime, so nothing silently never gets mentioned.
+//   3. Anything left with no time at all — generic recurring items,
+//      untimed to-dos, and daily habits (main.html's separate habit
+//      tracker) — has no individual moment, so it's swept into a "still
+//      open" catch-all digest instead. That digest isn't once-a-day either:
+//      starting at CATCHALL_START_MIN, it re-nags every RENAG_INTERVAL_MIN
+//      same as a timed item, right up until bedtime, so nothing you're
+//      behind on ever goes silently unmentioned all day.
 //
 // A deterministic (not truly random, so a given day is reproducible)
 // +/-10 minute jitter is applied per item per day, so reminders don't land
@@ -85,7 +88,7 @@
 // ============================================================
 
 const RENAG_INTERVAL_MIN = 90;       // how often to re-nag an undone item until it's done or bedtime
-const CATCHALL_OFFSET_MIN = 30;      // the once-daily "everything else" digest fires this many minutes before bedtime
+const CATCHALL_START_MIN = 9 * 60;   // the "everything else" digest doesn't start before this, then repeats every RENAG_INTERVAL_MIN until bedtime — independent of MORNING_BRIEFING_TIME on purpose, so the two features stay decoupled
 const PM_BEDTIME_OFFSET_MIN = 30;    // "(PM)"/evening items with no explicit time default to this many minutes before bedtime
 const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit time default to 8:00am
 const JITTER_MAX_MIN = 10;           // deterministic +/- jitter applied per item per day
@@ -896,6 +899,31 @@ export function computeOneOffTimedUndone(goalsData, todayKey6am, defs) {
     .map(g => ({ name: g.text, time: g.time }));
 }
 
+// One-off to-dos with NO time set at all (plain items typed into main.html's
+// list) — previously invisible to this whole engine, since only timed
+// one-offs (above) and recurring items were ever reminded. These have no
+// individual moment of their own, so they're merged into the catch-all
+// digest downstream via effectiveTimeMinutes returning null for them, same
+// as an untimed recurring item.
+export function computeUntimedGoalsUndone(goalsData, todayKey6am, defs) {
+  const existingGoals = (goalsData && goalsData['goals:' + todayKey6am]) || [];
+  const defNames = new Set((defs || []).map(d => d.name));
+  return existingGoals
+    .filter(g => !g.time && !g.done && !defNames.has(g.text))
+    .map(g => ({ name: g.text, time: null }));
+}
+
+// Daily habits (main.html's separate "Daily Habits" tracker, habits:defs /
+// habits:log) — same 6am day boundary as goals, and same as untimed goals
+// above, these had never been wired into the reminder engine at all.
+export function computeHabitsUndone(goalsData, todayKey6am) {
+  const defs = (goalsData && goalsData['habits:defs']) || [];
+  const log = (goalsData && goalsData['habits:log']) || {};
+  return defs
+    .filter(h => h && h.name && !(log[h.id] && log[h.id][todayKey6am]))
+    .map(h => ({ name: h.name, time: null }));
+}
+
 export default async function handler(req, res) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -935,7 +963,9 @@ export default async function handler(req, res) {
     const undoneRecurNames = await computeUndone({ goalsData, healthData, gymData, businessData, readingData, peakData, sleepData, todayKey6am, todayPlain, dow, utcToday });
     const recurItems = undoneRecurNames.map(name => ({ name, time: (defs.find(d => d.name === name) || {}).time || null }));
     const oneOffItems = computeOneOffTimedUndone(goalsData, todayKey6am, defs);
-    const allItems = recurItems.concat(oneOffItems);
+    const untimedGoalItems = computeUntimedGoalsUndone(goalsData, todayKey6am, defs);
+    const habitItems = computeHabitsUndone(goalsData, todayKey6am);
+    const allItems = recurItems.concat(oneOffItems, untimedGoalItems, habitItems);
 
     const todayState = (stateRow && stateRow[todayKey6am]) || {};
     const dueIndividual = [];
@@ -953,8 +983,13 @@ export default async function handler(req, res) {
       }
     });
 
-    const catchAllEff = bedtimeMin - CATCHALL_OFFSET_MIN;
-    const catchAllDue = catchAllNames.length > 0 && nowMin >= catchAllEff && nowMin < bedtimeMin && !todayState.__catchall__;
+    // Re-nags every RENAG_INTERVAL_MIN, same cadence as individual timed
+    // items, rather than firing once near bedtime — untimed to-dos/habits/
+    // recurring items are just as much "still behind on this" as anything
+    // with a clock time, so they get the same insistence.
+    const catchAllState = todayState.__catchall__;
+    const catchAllDue = catchAllNames.length > 0 && nowMin >= CATCHALL_START_MIN && nowMin < bedtimeMin
+      && (!catchAllState || (nowMin - catchAllState.lastMinutes) >= RENAG_INTERVAL_MIN);
     const feelingCheckinDue = shouldSendFeelingCheckin(peakData, nowMin, bedtimeMin, todayState.__feeling_checkin__);
     const subsRemindedMap = subsRemindedRow || {};
     const dueSubs = subsRenewalsDue((financeData && financeData.subs) || [], todayPlain, subsRemindedMap);
@@ -1043,7 +1078,7 @@ export default async function handler(req, res) {
       const body = composeMessage(catchAllNames, todayPlain, Math.floor(nowMin / 60));
       try {
         const result = await sendReminder(body);
-        todayState.__catchall__ = true;
+        todayState.__catchall__ = { lastMinutes: nowMin };
         stateChanged = true;
         results.push({ name: '__catchall__', items: catchAllNames, method: result.method });
       } catch (e) {
