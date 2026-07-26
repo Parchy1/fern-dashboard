@@ -408,9 +408,12 @@ function nowMinUtc() {
   }
 
   // ---- multiple undone generic items (untimed recurring item, untimed
-  // to-do, undone habit) each become their OWN separate message in the same
-  // tick, instead of one bundled digest — this is the whole point: more
-  // frequent individual texts instead of one big list ----
+  // to-do, undone habit) each become their OWN separate message rather than
+  // one bundled digest — but critically, only ONE goes out per tick even
+  // though all three are simultaneously due, so they drip out across
+  // separate ticks instead of arriving as a burst of texts within the same
+  // minute (which would read exactly like the old bundled digest even
+  // though the messages are technically separate) ----
   {
     process.env.CRON_SECRET && delete process.env.CRON_SECRET;
     process.env.BEDTIME_LOCAL = bedtimeFuture;
@@ -419,22 +422,50 @@ function nowMinUtc() {
       if (d.getHours() < 6) d.setDate(d.getDate() - 1);
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
-    const { fetchStub, getSentPayloads } = fakeSupabase({
-      recurDefs: [{ id: 'r1', name: 'Water plants', freq: 'daily', days: null, autoSource: null, time: null }],
-      goalsExtra: {
-        ['goals:' + todayKey6amActual]: [{ text: 'Call the dentist', done: false }],
-        'habits:defs': [{ id: 'h1', name: 'Cold shower' }],
-        'habits:log': {},
-      },
-    });
+    const goalsExtra = {
+      ['goals:' + todayKey6amActual]: [{ text: 'Call the dentist', done: false }],
+      'habits:defs': [{ id: 'h1', name: 'Cold shower' }],
+      'habits:log': {},
+    };
+    const recurDefs = [{ id: 'r1', name: 'Water plants', freq: 'daily', days: null, autoSource: null, time: null }];
+
+    // Tick 1: all three undone, nothing sent yet today -> only the first one goes out.
+    const { fetchStub, getWrittenState, getSentPayloads } = fakeSupabase({ recurDefs, goalsExtra });
     global.fetch = fetchStub;
     const res = mockRes();
     await handler({ headers: {} }, res);
     assertEq(res._body.sent, true, 'three separately-undone generic items are all due at once');
-    assertEq(res._body.results.length, 3, 'three separate results — one per item — not one combined digest result');
-    assertEq(res._body.results.map(r => r.name).sort(), ['Call the dentist', 'Cold shower', 'Water plants'], 'each item is named individually');
-    assertEq(getSentPayloads().length, 3, 'three separate Telegram messages actually went out, not one bundled text');
-    assertTrue(getSentPayloads().every(p => !!p.reply_markup), 'every one of the three separate messages carries its own Done button');
+    assertEq(res._body.results.length, 1, 'only ONE result this tick, even with three items simultaneously due');
+    assertEq(getSentPayloads().length, 1, 'only one Telegram message actually went out this tick — the rest wait for a later tick');
+    assertTrue(!!getSentPayloads()[0].reply_markup, 'the one message sent still carries its own Done button');
+    const firstSent = res._body.results[0].name;
+    let written = getWrittenState();
+    const stateAfterTick1 = written[todayKey6amActual];
+    assertEq(Object.keys(stateAfterTick1), [firstSent], 'state only records the one item actually sent, not the other two still waiting');
+
+    // Tick 2: same underlying undone items, but now with tick 1's state carried forward -> a DIFFERENT one goes out.
+    const { fetchStub: fetchStub2, getWrittenState: getWrittenState2, getSentPayloads: getSentPayloads2 } = fakeSupabase({
+      recurDefs, goalsExtra, stateRow: { [todayKey6amActual]: stateAfterTick1 },
+    });
+    global.fetch = fetchStub2;
+    const res2 = mockRes();
+    await handler({ headers: {} }, res2);
+    assertEq(res2._body.results.length, 1, 'still only one send on the next tick');
+    const secondSent = res2._body.results[0].name;
+    assertTrue(secondSent !== firstSent, 'the second tick picks a DIFFERENT undone item than the first tick already sent: ' + firstSent + ' vs ' + secondSent);
+    written = getWrittenState2();
+    const stateAfterTick2 = written[todayKey6amActual];
+
+    // Tick 3: both prior sends carried forward -> the last remaining item finally goes out.
+    const { fetchStub: fetchStub3 } = fakeSupabase({
+      recurDefs, goalsExtra, stateRow: { [todayKey6amActual]: stateAfterTick2 },
+    });
+    global.fetch = fetchStub3;
+    const res3 = mockRes();
+    await handler({ headers: {} }, res3);
+    assertEq(res3._body.results.length, 1, 'still only one send on the third tick');
+    const thirdSent = res3._body.results[0].name;
+    assertEq([firstSent, secondSent, thirdSent].sort(), ['Call the dentist', 'Cold shower', 'Water plants'], 'across three ticks, all three distinct items eventually each got their own separate message');
   }
 
   // ============================================================

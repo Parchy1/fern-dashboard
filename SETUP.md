@@ -234,8 +234,10 @@ Twilio, which is preferred over the email gateway, whenever more than one happen
 
 Whichever bucket it falls into, every item still gets its own text and its own tappable **✅ Done**
 button — nothing gets merged into someone else's message. If several things are undone at once,
-you'll get several separate texts back to back rather than one message listing all of them, so
-each is easy to act on (or ignore) on its own.
+only **one** goes out per scheduler tick (~15 minutes) rather than all of them firing together —
+otherwise several separate messages would still land in the same minute and read like one big
+burst. The rest stay due and get sent on the next tick(s) instead, so multiple undone things drip
+out one at a time over the following stretch of ticks rather than arriving all at once.
 
 A small (±10 minute) deterministic jitter is applied per item per day, so reminders don't land
 at the exact same robotic minute every day. If something's still undone once its time arrives,

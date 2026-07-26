@@ -29,6 +29,17 @@
 // +/-10 minute jitter is applied per item per day, so reminders don't land
 // at the exact same robotic minute every day.
 //
+// Only MAX_INDIVIDUAL_SENDS_PER_TICK individual items are actually sent per
+// invocation, even when several are simultaneously due (e.g. right after
+// this whole feature goes untouched for a while, or several generic items
+// all default to the same GENERIC_ITEM_DEFAULT_MIN) — otherwise they'd all
+// fire in the same ~15-minute tick and arrive as a burst of texts within
+// the same minute, which reads exactly like a bundled digest even though
+// they're technically separate messages. Whatever doesn't make the cut
+// stays undone (no state written) and gets sent on a later tick instead, so
+// several undone things drip out one at a time, spaced by however often the
+// scheduler runs, rather than landing together.
+//
 // If something's still undone once its time has passed, it nags again
 // every RENAG_INTERVAL_MIN until it's done OR until BEDTIME_LOCAL, after
 // which it goes quiet for the day rather than pinging you at 2am. Which
@@ -87,6 +98,7 @@
 // ============================================================
 
 const RENAG_INTERVAL_MIN = 90;       // how often to re-nag an undone item until it's done or bedtime
+const MAX_INDIVIDUAL_SENDS_PER_TICK = 1; // cap on individual-item messages sent in one invocation, so several simultaneously-due items drip out one per tick instead of bursting all at once
 const GENERIC_ITEM_DEFAULT_MIN = 9 * 60;   // default effective time for an item with no explicit time and no AM/PM name hint — still gets its own individual message and re-nag cadence like anything else, just anchored here instead of a real scheduled time. Independent of MORNING_BRIEFING_TIME on purpose, so the two features stay decoupled
 const PM_BEDTIME_OFFSET_MIN = 30;    // "(PM)"/evening items with no explicit time default to this many minutes before bedtime
 const DEFAULT_AM_MINUTES = 8 * 60;   // "(AM)"/morning items with no explicit time default to 8:00am
@@ -1030,7 +1042,15 @@ export default async function handler(req, res) {
         results.push({ name: '__morning_briefing__', error: e && e.message ? e.message : String(e) });
       }
     }
-    for (const { name, count } of dueIndividual) {
+    // Only ONE individual item goes out per tick, even when several are due
+    // at once — otherwise every simultaneously-overdue item fires in the
+    // same invocation and lands as a burst of texts within the same minute,
+    // which reads exactly like the old bundled digest even though they're
+    // technically separate messages. Whatever's left stays due (no state
+    // written for it) and gets picked up on a later tick instead, so
+    // multiple undone things drip out one at a time, spaced by however often
+    // the scheduler actually runs, rather than all landing together.
+    for (const { name, count } of dueIndividual.slice(0, MAX_INDIVIDUAL_SENDS_PER_TICK)) {
       const body = composeSingleMessage(name, todayKey6am, count);
       try {
         const result = await sendReminder(body, { inlineKeyboard: doneButton(name) });
