@@ -1,5 +1,6 @@
 import handler, {
   effectiveTimeMinutes, shouldSendNow, composeSingleMessage, computeOneOffTimedUndone,
+  computeUntimedGoalsUndone, computeHabitsUndone,
   shouldSendFeelingCheckin, computeUndone,
 } from '../api/send-reminders.js';
 
@@ -147,6 +148,47 @@ function nowMinUtc() {
   }
 
   // ============================================================
+  // computeUntimedGoalsUndone — plain to-dos with no time at all, previously
+  // invisible to the whole reminder engine
+  // ============================================================
+  {
+    const goalsData = {
+      'goals:2026-07-20': [
+        { text: 'Call the dentist', done: false },
+        { text: 'Already done thing', done: true },
+        { text: 'Buy milk', done: false, time: '11:00' }, // has a time -> handled by computeOneOffTimedUndone instead
+        { text: 'Gym', done: false }, // matches a recur def name below — should be excluded, already covered as a recurring item
+      ],
+    };
+    const defs = [{ id: 'r1', name: 'Gym', freq: 'daily' }];
+    const result = computeUntimedGoalsUndone(goalsData, '2026-07-20', defs);
+    assertEq(result, [{ name: 'Call the dentist', time: null }], 'only surfaces undone, untimed, non-recurring one-off goals');
+    assertEq(computeUntimedGoalsUndone({}, '2026-07-20', defs), [], 'no goals data at all does not throw, just returns empty');
+  }
+
+  // ============================================================
+  // computeHabitsUndone — main.html's separate Daily Habits tracker, also
+  // previously invisible to the whole reminder engine
+  // ============================================================
+  {
+    const goalsData = {
+      'habits:defs': [
+        { id: 'h1', name: 'Cold shower' },
+        { id: 'h2', name: 'No sugar' },
+        { id: 'h3', name: 'Journal' },
+      ],
+      'habits:log': {
+        h1: { '2026-07-20': true },
+        h2: { '2026-07-19': true }, // done yesterday, not today -> still undone today
+      },
+    };
+    const result = computeHabitsUndone(goalsData, '2026-07-20');
+    assertEq(result, [{ name: 'No sugar', time: null }, { name: 'Journal', time: null }], 'only habits not checked off for today\'s exact date key are undone');
+    assertEq(computeHabitsUndone({}, '2026-07-20'), [], 'no habits data at all does not throw, just returns empty');
+    assertEq(computeHabitsUndone({ 'habits:defs': [{ id: 'h1', name: 'Cold shower' }], 'habits:log': { h1: { '2026-07-20': true } } }, '2026-07-20'), [], 'a fully-done habit list returns empty');
+  }
+
+  // ============================================================
   // Full handler integration
   // ============================================================
   // Frozen at a comfortably-midday UTC time so every scenario below (an
@@ -167,7 +209,7 @@ function nowMinUtc() {
   // peakData defaults to a just-now check-in so the independent periodic
   // feeling-check-in reminder (tested separately below) never fires inside
   // tests that are really about something else.
-  function fakeSupabase({ recurDefs = [], oneOffGoals = [], stateRow = null, peakData = { 'peak:checkins': [{ ts: Date.now() }] } } = {}) {
+  function fakeSupabase({ recurDefs = [], oneOffGoals = [], goalsExtra = {}, stateRow = null, peakData = { 'peak:checkins': [{ ts: Date.now() }] } } = {}) {
     let writtenState = null;
     const sentPayloads = [];
     // Upserts (POST /rest/v1/app_state?on_conflict=key) carry the row key
@@ -181,7 +223,7 @@ function nowMinUtc() {
         return { ok: true, json: async () => ({}) };
       }
       if (u.includes('key=eq.goals')) {
-        return { ok: true, json: async () => [{ data: { 'recur:defs': recurDefs, ['goals:' + '__ignored__']: [] } }] };
+        return { ok: true, json: async () => [{ data: Object.assign({ 'recur:defs': recurDefs, ['goals:' + '__ignored__']: [] }, goalsExtra) }] };
       }
       if (u.includes('key=eq.reminder_state')) {
         return { ok: true, json: async () => (stateRow ? [{ data: stateRow }] : []) };
@@ -320,15 +362,16 @@ function nowMinUtc() {
     delete process.env.CRON_SECRET;
   }
 
-  // ---- catch-all digest: a generic (no-time, no AM/PM) recurring item only
-  // fires once near bedtime, and not a second time later the same day ----
+  // ---- catch-all digest: a generic (no-time, no AM/PM) recurring item
+  // fires once the catch-all window is open, and not again within the
+  // re-nag cooldown the same tick ----
   {
     process.env.CRON_SECRET && delete process.env.CRON_SECRET;
     // Clamped (not wrapped past midnight) — BEDTIME_LOCAL is a same-day HH:MM
     // cutoff, so wrapping past 23:59 back to e.g. 00:15 would make it look
     // like bedtime already passed hours ago instead of "coming up soon"
     // whenever this test happens to run near midnight UTC.
-    const bedtimeSoon = minToHM(Math.min(1439, nowMin + 20)); // catch-all fires at bedtime-30, so bedtime 20min out means catch-all window already open
+    const bedtimeSoon = minToHM(Math.min(1439, nowMin + 20)); // clock is frozen at 14:00 (past CATCHALL_START_MIN of 9am), so the catch-all window is already open regardless of bedtime
     process.env.BEDTIME_LOCAL = bedtimeSoon;
     const { fetchStub, getWrittenState, getSentPayloads } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
@@ -343,9 +386,9 @@ function nowMinUtc() {
     assertTrue(!getSentPayloads()[0].reply_markup, 'the catch-all digest (covers multiple items at once) does not carry a single-item Done button');
     const written = getWrittenState();
     const todayKey6amActual = Object.keys(written)[0];
-    assertEq(written[todayKey6amActual].__catchall__, true, 'catch-all-sent flag persisted in state');
+    assertEq(written[todayKey6amActual].__catchall__.lastMinutes, nowMin, 'catch-all-sent state persisted with the firing minute, for the re-nag cooldown');
 
-    // Second tick the same day: catch-all should NOT fire again.
+    // Second tick right away (same nowMin, well within the re-nag cooldown): catch-all should NOT fire again.
     const { fetchStub: fetchStub2 } = fakeSupabase({
       recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
       stateRow: written[todayKey6amActual] ? { [todayKey6amActual]: written[todayKey6amActual] } : null,
@@ -359,6 +402,43 @@ function nowMinUtc() {
     const res2 = mockRes();
     await handler({ headers: {} }, res2);
     assertEq(res2._body.sent, false, 'the catch-all digest does not fire a second time the same day once already sent');
+
+    // Third tick, past the RENAG_INTERVAL_MIN cooldown since the first send: the catch-all fires again.
+    const { fetchStub: fetchStub3 } = fakeSupabase({
+      recurDefs: [{ id: 'r1', name: 'Clean up room', freq: 'daily', days: null, autoSource: null, time: null }],
+      stateRow: { [todayKey6amActual]: { __catchall__: { lastMinutes: nowMin - 91 } } },
+    });
+    global.fetch = fetchStub3;
+    const res3 = mockRes();
+    await handler({ headers: {} }, res3);
+    assertEq(res3._body.sent, true, 'the catch-all re-nags again once RENAG_INTERVAL_MIN has passed since it last fired, same cadence as individual items');
+  }
+
+  // ---- catch-all digest also picks up untimed to-dos and undone habits,
+  // previously invisible to this whole engine ----
+  {
+    process.env.CRON_SECRET && delete process.env.CRON_SECRET;
+    process.env.BEDTIME_LOCAL = bedtimeFuture;
+    const todayKey6amActual = (() => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+      if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    const { fetchStub, getWrittenState } = fakeSupabase({
+      recurDefs: [],
+      goalsExtra: {
+        ['goals:' + todayKey6amActual]: [{ text: 'Call the dentist', done: false }],
+        'habits:defs': [{ id: 'h1', name: 'Cold shower' }],
+        'habits:log': {},
+      },
+    });
+    global.fetch = fetchStub;
+    const res = mockRes();
+    await handler({ headers: {} }, res);
+    assertEq(res._body.sent, true, 'an untimed to-do and an undone habit are enough to trigger the catch-all on their own');
+    assertEq(res._body.results[0].items, ['Call the dentist', 'Cold shower'], 'the catch-all digest names both the untimed to-do and the undone habit');
+    const written = getWrittenState();
+    assertTrue(!!written[todayKey6amActual].__catchall__, 'catch-all state persisted for this tick too');
   }
 
   // ============================================================
