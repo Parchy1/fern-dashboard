@@ -1159,6 +1159,32 @@ zero, so a strong week at the one thing you track still grades well.
 
 ---
 
+## 24. Rest timer — screen stays on + a notification when it ends
+
+Front page → **Fitness** → **Gym**. Logging a set already starts a rest timer sized to that set
+(rep range, compound vs isolation, how close it was to your best effort) with a countdown, a
+progress bar, and a chime + vibration when it finishes. Two more things happen now, tap the 🔔 in
+the rest timer to turn them on:
+
+- **The screen stays on while resting** (the Screen Wake Lock API), so the countdown is actually
+  glanceable instead of the phone auto-locking mid-rest.
+- **A real system notification fires the moment rest ends** — "Rest's over 💪 · Next: <exercise>"
+  — for whenever the screen dims anyway or you've switched to another app.
+
+> **What this is NOT:** a live-updating countdown bubble on the *lock screen* itself, the way
+> Apple Music's now-playing widget works. That's iOS's ActivityKit — a native-app-only API with no
+> web equivalent, so no website (including one added to the Home Screen) can put a ticking timer
+> on the lock screen. The wake lock + notification combo above is the closest a web app can
+> actually get: the phone doesn't lock in the first place while you're resting, and if it does
+> anyway, you get a real notification the second it's over.
+
+Nothing to set up beyond tapping the bell once (it asks for notification permission right there,
+a browser requirement) — the preference is saved per device, not synced, same as a permission
+setting. If your browser has notifications blocked for this site already, the bell tells you to
+fix that in your phone/browser settings rather than silently doing nothing.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,

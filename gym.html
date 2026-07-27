@@ -531,6 +531,13 @@ img, video, canvas, svg { max-width: 100%; }
 .po-rest-reason { font-size: 11.5px; color: var(--text-3); margin-bottom: 10px; }
 .po-rest-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .po-rest-actions .po-btn-secondary { padding: 10px; text-align: center; font-size: 12.5px; }
+.po-rest-notify-btn {
+  border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text-3);
+  border-radius: 999px; width: 30px; height: 30px; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.po-rest-notify-btn.on { background: rgba(34,211,245,0.16); border-color: var(--accent); color: var(--accent); }
 
 /* ----- Prescription card ----- */
 .po-rx-card {
@@ -1665,6 +1672,7 @@ img, video, canvas, svg { max-width: 100%; }
       <div class="po-rest-timer" id="restTimer">
         <div class="po-rest-top">
           <span class="po-rest-label">Rest</span>
+          <button type="button" class="po-rest-notify-btn" id="restNotifyBtn" aria-label="Notify me when rest ends" title="Notify me when rest ends">🔔</button>
           <span class="po-rest-value" id="restTimeValue">0:00</span>
         </div>
         <div class="po-rest-bar"><div class="po-rest-bar-fill" id="restBarFill"></div></div>
@@ -2025,7 +2033,76 @@ img, video, canvas, svg { max-width: 100%; }
   let restInterval = null;
   let restEndsAt = 0;
   let restTotalSeconds = 0;
+  let restExerciseName = '';
   let restAudioCtx = null;
+  let restWakeLock = null;
+
+  // ---------- Rest-end notification ----------
+  // There's no way for a website (even installed to the Home Screen) to
+  // put a live-updating countdown on the lock screen the way Apple Music
+  // does — that's iOS's ActivityKit, a native-app-only API with no web
+  // equivalent. The two things a web page CAN actually do: keep the screen
+  // from locking during rest (so the countdown right here on this page
+  // stays visible) via the Screen Wake Lock API, and fire a real system
+  // notification the moment rest ends, for whenever the screen dims anyway
+  // or the phone got set down. Both are opt-in (the bell toggle) since
+  // Notification permission requires a user gesture to request.
+  const REST_NOTIFY_PREF_KEY = 'po_coach_rest_notify';
+  function restNotifySupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+  function restNotifyEnabled() {
+    return restNotifySupported() && Notification.permission === 'granted' && localStorage.getItem(REST_NOTIFY_PREF_KEY) === '1';
+  }
+  function renderRestNotifyBtn() {
+    const btn = $('restNotifyBtn');
+    if (!btn) return;
+    if (!restNotifySupported()) { btn.style.display = 'none'; return; }
+    btn.classList.toggle('on', restNotifyEnabled());
+  }
+  async function toggleRestNotify() {
+    if (!restNotifySupported()) return;
+    if (restNotifyEnabled()) {
+      // Already on -> just turn the preference off. Leaving OS-level
+      // permission alone (no API to revoke it from JS anyway).
+      localStorage.setItem(REST_NOTIFY_PREF_KEY, '0');
+      renderRestNotifyBtn();
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      alert('Notifications are blocked for this site — enable them in your browser/phone settings, then tap the bell again.');
+      return;
+    }
+    // Must be requested directly inside this click handler (a user
+    // gesture) or Safari/iOS silently ignores it.
+    const perm = await Notification.requestPermission().catch(() => 'denied');
+    if (perm === 'granted') localStorage.setItem(REST_NOTIFY_PREF_KEY, '1');
+    renderRestNotifyBtn();
+  }
+  function fireRestDoneNotification() {
+    if (!restNotifyEnabled()) return;
+    try {
+      new Notification("Rest's over 💪", {
+        body: restExerciseName ? ('Next: ' + restExerciseName) : "Time for your next set",
+        tag: 'po-coach-rest',
+      });
+    } catch (e) {}
+  }
+
+  // ---------- Screen wake lock ----------
+  // Keeps the phone from auto-locking while a rest timer is actively
+  // running, so the on-screen countdown above is genuinely glanceable
+  // instead of you needing to unlock the phone to check it. The OS
+  // releases the lock automatically when the tab is backgrounded (e.g.
+  // switching apps) — the visibilitychange listener below re-acquires it
+  // when you switch back, if a rest timer is still going.
+  async function acquireRestWakeLock() {
+    try { if ('wakeLock' in navigator) restWakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  function releaseRestWakeLock() {
+    try { if (restWakeLock) { restWakeLock.release(); restWakeLock = null; } } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && restInterval) acquireRestWakeLock();
+  });
   function primeRestAudio() {
     // Created inside the Log Set click (a user gesture) so Safari/iOS still
     // allow it to play later, when the countdown actually finishes.
@@ -2059,20 +2136,24 @@ img, video, canvas, svg { max-width: 100%; }
     $('restBarFill').style.width = pct + '%';
     if (remaining <= 0) stopRestTimer(true);
   }
-  function startRestTimer(seconds, reasonText) {
+  function startRestTimer(seconds, reasonText, exerciseName) {
     clearInterval(restInterval);
     restTotalSeconds = seconds;
     restEndsAt = Date.now() + seconds * 1000;
+    restExerciseName = exerciseName || '';
     $('restReason').textContent = reasonText || '';
     $('restTimer').classList.add('show');
+    renderRestNotifyBtn();
     renderRestTimer();
     restInterval = setInterval(renderRestTimer, 250);
+    acquireRestWakeLock();
   }
   function stopRestTimer(completed) {
     clearInterval(restInterval);
     restInterval = null;
     $('restTimer').classList.remove('show');
-    if (completed) playRestDoneChime();
+    releaseRestWakeLock();
+    if (completed) { playRestDoneChime(); fireRestDoneNotification(); }
   }
   function adjustRestTimer(deltaSeconds) {
     if (!restInterval) return;
@@ -2082,6 +2163,8 @@ img, video, canvas, svg { max-width: 100%; }
   $('restSkipBtn').addEventListener('click', () => stopRestTimer(false));
   $('restPlus15Btn').addEventListener('click', () => adjustRestTimer(15));
   $('restMinus15Btn').addEventListener('click', () => adjustRestTimer(-15));
+  $('restNotifyBtn').addEventListener('click', toggleRestNotify);
+  renderRestNotifyBtn();
   function getFiltered() {
     return state.exercises.filter(e =>
       (e.gym === state.filterGym || e.gym === 'both') && e.day === state.filterDay);
@@ -2725,7 +2808,7 @@ img, video, canvas, svg { max-width: 100%; }
     setTimeout(() => { btn.style.transform = ''; }, 160);
     primeRestAudio();
     const rest = computeRest(ex, w, reps, priorLogs);
-    startRestTimer(rest.seconds, rest.reason);
+    startRestTimer(rest.seconds, rest.reason, ex.name);
   });
 
   // ============================================================
