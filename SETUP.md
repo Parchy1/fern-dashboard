@@ -1183,6 +1183,13 @@ a browser requirement) — the preference is saved per device, not synced, same 
 setting. If your browser has notifications blocked for this site already, the bell tells you to
 fix that in your phone/browser settings rather than silently doing nothing.
 
+**On iPhone, the bell only works from a Home Screen install.** iOS Safari doesn't expose
+notifications at all to a regular browser tab — not just permission, the whole feature is absent.
+Tap the bell in a normal Safari tab and it'll tell you to use the Share icon → **Add to Home
+Screen**, then open the dashboard from that icon instead of the bookmark/tab. The bell stays
+visible either way so the feature doesn't look like it's missing; it just explains itself the
+first time it can't do anything yet.
+
 ---
 
 ## TL;DR
