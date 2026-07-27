@@ -1105,6 +1105,18 @@ html, body {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Re-render when cloud sync pulls in a remote change (another device, or
+  // the Telegram assistant logging water/a supplement) — initCloudSync's
+  // onApplied callback below only dispatches this event; without a
+  // listener for it here, a remote write lands correctly in localStorage
+  // but this already-open page keeps showing whatever it rendered at load,
+  // making a bot-logged entry look like it never happened until the page
+  // gets a hard reload.
+  window.addEventListener('storage', () => {
+    state = loadState();
+    renderAll();
+  });
+
   // BOOT
   renderAll();
 })();
