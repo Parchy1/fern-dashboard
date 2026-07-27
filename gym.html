@@ -2049,17 +2049,34 @@ img, video, canvas, svg { max-width: 100%; }
   // Notification permission requires a user gesture to request.
   const REST_NOTIFY_PREF_KEY = 'po_coach_rest_notify';
   function restNotifySupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+  // iOS Safari only exposes the Notification API at all — not just
+  // permission, the whole `Notification` global is absent — to a site
+  // that's been added to the Home Screen (Share -> Add to Home Screen).
+  // A regular Safari tab (what most people are using the first time they
+  // try this) fails restNotifySupported() entirely, so the bell needs to
+  // explain that rather than just disappearing, which looks like the
+  // feature never shipped.
+  function isIosSafariTab() {
+    const ua = navigator.userAgent || '';
+    const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    return isIos && !isStandalone;
+  }
   function restNotifyEnabled() {
     return restNotifySupported() && Notification.permission === 'granted' && localStorage.getItem(REST_NOTIFY_PREF_KEY) === '1';
   }
   function renderRestNotifyBtn() {
     const btn = $('restNotifyBtn');
     if (!btn) return;
-    if (!restNotifySupported()) { btn.style.display = 'none'; return; }
     btn.classList.toggle('on', restNotifyEnabled());
   }
   async function toggleRestNotify() {
-    if (!restNotifySupported()) return;
+    if (!restNotifySupported()) {
+      alert(isIosSafariTab()
+        ? "iOS only allows notifications for a site added to your Home Screen. Tap the Share icon → \"Add to Home Screen\", then open it from there and tap the bell again."
+        : "This browser doesn't support notifications — the rest timer will still chime/vibrate and keep your screen on, just without a system notification.");
+      return;
+    }
     if (restNotifyEnabled()) {
       // Already on -> just turn the preference off. Leaving OS-level
       // permission alone (no API to revoke it from JS anyway).
