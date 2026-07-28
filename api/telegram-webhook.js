@@ -59,12 +59,11 @@ const NW_CATS = ['cash', 'bank', 'stocks', 'crypto', 'other'];
 // can no longer reach the executors from a real Telegram conversation.
 const PUR_CCY_KEYS = ['USD', 'DOP'];
 const KNOWN_AUTO_SOURCES = ['gym', 'reading', 'stretch_am', 'stretch_pm', 'business', 'water', 'supplements', 'peak_morning', 'food', 'weight'];
-const ACTION_HISTORY_KEY = 'telegram-action-history';
-const PROCESSED_UPDATES_KEY = 'telegram-processed-updates';
+const ACTION_KEY_PREFIX = 'telegram-action:';
+const UPDATE_KEY_PREFIX = 'telegram-update:';
 const PENDING_ACTION_KEY = 'telegram-pending-action';
 const MAX_ACTION_HISTORY = 20;
-const MAX_ACTION_HISTORY_BYTES = 750000;
-const MAX_PROCESSED_UPDATES = 100;
+const UPDATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
 const CONFIRMATION_REQUIRED_TOOLS = new Set(['cancel_subscription', 'delete_calendar_event']);
 
@@ -166,6 +165,51 @@ async function writeRow(key, data) {
   });
   if (!r.ok) throw new Error('Supabase write failed for "' + key + '": ' + r.status + ' ' + (await r.text()));
 }
+async function insertUniqueRow(key, data) {
+  const url = process.env.SUPABASE_URL + '/rest/v1/app_state?on_conflict=key';
+  const r = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: {
+      apikey: process.env.SUPABASE_ANON_KEY,
+      Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=ignore-duplicates,return=representation',
+    },
+    body: JSON.stringify({ key, data, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error('Supabase insert failed for "' + key + '": ' + r.status + ' ' + (await r.text()));
+  const rows = await r.json();
+  // PostgREST returns one inserted row or [] when the primary-key conflict
+  // was ignored. The primary key makes this decision atomic across separate
+  // Vercel invocations — unlike an application-level read followed by write.
+  return Array.isArray(rows) ? rows.length > 0 : true;
+}
+async function listRowsByPrefix(prefix, limit, oldestFirst, olderThan, retry) {
+  let url = process.env.SUPABASE_URL + '/rest/v1/app_state?key=like.' + encodeURIComponent(prefix + '*')
+    + '&select=key,data,updated_at&order=updated_at.' + (oldestFirst ? 'asc' : 'desc') + ',key.' + (oldestFirst ? 'asc' : 'desc')
+    + '&limit=' + Number(limit || 100);
+  if (olderThan) url += '&updated_at=lt.' + encodeURIComponent(olderThan);
+  const opts = { headers: { apikey: process.env.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY } };
+  const r = retry === false ? await fetch(url, opts) : await fetchWithRetry(url, opts);
+  if (!r.ok) throw new Error('Supabase list failed for "' + prefix + '": ' + r.status);
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+async function deleteRow(key, retry) {
+  const url = process.env.SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(key);
+  const opts = {
+    method: 'DELETE',
+    headers: {
+      apikey: process.env.SUPABASE_ANON_KEY,
+      Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY,
+      Prefer: 'return=representation',
+    },
+  };
+  const r = retry ? await fetchWithRetry(url, opts) : await fetch(url, opts);
+  if (!r.ok) throw new Error('Supabase delete failed for "' + key + '": ' + r.status);
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
 function actionId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -175,64 +219,98 @@ function actionSummary(row, result) {
   if (result && result.undone) return 'Undid ' + result.undone;
   return 'Updated ' + (ROW_LABELS[row] || row);
 }
-async function appendActionHistory(row, before, result) {
-  const stored = await readRow(ACTION_HISTORY_KEY).catch(() => ({}));
-  const actions = Array.isArray(stored.actions) ? stored.actions : [];
-  actions.push({
-    id: actionId(), row, before,
+async function appendActionHistory(row, before, after, result) {
+  const id = actionId();
+  const action = {
+    id, row, before, after,
     description: actionSummary(row, result),
     ts: Date.now(),
-  });
-  const retained = actions.slice(-MAX_ACTION_HISTORY);
-  // A snapshot can include a large notes/finance row. Keep at least the
-  // newest undo, but discard older snapshots before this one JSON row grows
-  // without bound and slows every subsequent bot write.
-  while (retained.length > 1 && JSON.stringify({ actions: retained }).length > MAX_ACTION_HISTORY_BYTES) retained.shift();
-  await writeRow(ACTION_HISTORY_KEY, { actions: retained });
+  };
+  await insertUniqueRow(ACTION_KEY_PREFIX + id, action);
+
+  // Each action is its own primary-keyed row, so concurrent appends cannot
+  // overwrite one another. Pruning is best-effort and only removes rows
+  // beyond the newest MAX_ACTION_HISTORY entries.
+  const rows = await listRowsByPrefix(ACTION_KEY_PREFIX, MAX_ACTION_HISTORY + 25, false, null, false).catch(() => []);
+  for (const old of rows.slice(MAX_ACTION_HISTORY)) await deleteRow(old.key).catch(() => {});
 }
 async function loadActionHistory() {
-  const stored = await readRow(ACTION_HISTORY_KEY).catch(() => ({}));
-  return Array.isArray(stored.actions) ? stored.actions : [];
+  const rows = await listRowsByPrefix(ACTION_KEY_PREFIX, MAX_ACTION_HISTORY, false);
+  return rows.map(item => Object.assign({}, item.data || {}, { _storageKey: item.key })).reverse();
 }
 async function claimTelegramUpdate(updateId) {
   if (updateId == null) return true;
-  const normalized = String(updateId);
-  const stored = await readRow(PROCESSED_UPDATES_KEY).catch(() => ({}));
-  const ids = Array.isArray(stored.ids) ? stored.ids.map(String) : [];
-  if (ids.includes(normalized)) return false;
-  ids.push(normalized);
-  await writeRow(PROCESSED_UPDATES_KEY, { ids: ids.slice(-MAX_PROCESSED_UPDATES), updatedAt: Date.now() });
-  return true;
+  const key = UPDATE_KEY_PREFIX + String(updateId);
+  const claimToken = actionId();
+  let claimed = await insertUniqueRow(key, { claimedAt: Date.now(), claimToken });
+  // If the first insert reached Supabase but its response was lost, the
+  // retry sees a conflict. Comparing the stored nonce distinguishes our own
+  // successful claim from a genuinely duplicated Telegram delivery.
+  if (!claimed) {
+    const stored = await readRow(key).catch(() => ({}));
+    claimed = stored.claimToken === claimToken;
+  }
+  if (claimed && Number(updateId) % 25 === 0) {
+    const cutoff = new Date(Date.now() - UPDATE_RETENTION_MS).toISOString();
+    const old = await listRowsByPrefix(UPDATE_KEY_PREFIX, 100, true, cutoff, false).catch(() => []);
+    for (const row of old) await deleteRow(row.key).catch(() => {});
+  }
+  return claimed;
 }
-function confirmationLabel(toolName, args) {
-  if (toolName === 'cancel_subscription') return 'Cancel subscription “' + (args.name || 'unknown') + '”';
-  if (toolName === 'delete_calendar_event') return 'Delete the selected Google Calendar event';
-  return 'Run ' + toolName;
+function formatCalendarMoment(start) {
+  if (!start) return 'time unavailable';
+  if (start.date) return start.date + ' (all day)';
+  if (!start.dateTime) return 'time unavailable';
+  return new Date(start.dateTime).toLocaleString('en-US', {
+    timeZone: tz(), month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+async function resolvePendingAction(toolName, rawArgs) {
+  const args = Object.assign({}, rawArgs || {});
+  if (toolName === 'cancel_subscription') {
+    const finance = await readRow('finance');
+    const hit = fuzzyFind(finance.subs || [], args.name, item => item.name);
+    if (!hit) throw new Error('no subscription found matching "' + (args.name || '') + '"');
+    args.name = hit.name;
+    return { args, label: 'Cancel subscription “' + hit.name + '”' };
+  }
+  if (toolName === 'delete_calendar_event') {
+    if (!args.event_id) throw new Error('event_id is required');
+    const tokens = await getValidGoogleTokens();
+    if (!tokens) throw new Error(GOOGLE_NOT_CONNECTED);
+    const event = await gFetch(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(args.event_id), tokens.access);
+    const title = event.summary || '(no title)';
+    return { args, label: 'Delete calendar event “' + title + '” — ' + formatCalendarMoment(event.start) };
+  }
+  return { args, label: 'Run ' + toolName };
 }
 async function createPendingAction(toolName, args) {
+  const resolved = await resolvePendingAction(toolName, args);
   const pending = {
-    id: actionId(), tool: toolName, args: args || {},
-    label: confirmationLabel(toolName, args || {}), createdAt: Date.now(),
+    id: actionId(), tool: toolName, args: resolved.args,
+    label: resolved.label, createdAt: Date.now(),
   };
   await writeRow(PENDING_ACTION_KEY, pending);
   return pending;
 }
-async function readPendingAction(id) {
-  const pending = await readRow(PENDING_ACTION_KEY).catch(() => ({}));
-  if (!pending.id || String(pending.id) !== String(id)) return null;
-  if (!CONFIRMATION_REQUIRED_TOOLS.has(pending.tool)) return null;
-  if (!pending.createdAt || Date.now() - Number(pending.createdAt) > PENDING_ACTION_TTL_MS) {
-    await writeRow(PENDING_ACTION_KEY, {}).catch(() => {});
-    return null;
-  }
+async function consumePendingAction(id) {
+  const url = process.env.SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(PENDING_ACTION_KEY)
+    + '&data->>id=eq.' + encodeURIComponent(String(id));
+  const r = await fetchWithRetry(url, {
+    method: 'DELETE',
+    headers: {
+      apikey: process.env.SUPABASE_ANON_KEY,
+      Authorization: 'Bearer ' + process.env.SUPABASE_ANON_KEY,
+      Prefer: 'return=representation',
+    },
+  });
+  if (!r.ok) throw new Error('Supabase could not consume the pending confirmation: ' + r.status);
+  const rows = await r.json();
+  const pending = rows && rows[0] && rows[0].data;
+  if (!pending || !CONFIRMATION_REQUIRED_TOOLS.has(pending.tool)) return null;
+  if (!pending.createdAt || Date.now() - Number(pending.createdAt) > PENDING_ACTION_TTL_MS) return null;
   return pending;
 }
-async function clearPendingAction() {
-  await writeRow(PENDING_ACTION_KEY, {});
-}
-// Read-modify-write in one step: `mutate` receives the row's current data
-// object (safe to mutate directly) and its return value (if any) is passed
-// back to the caller as the tool result.
 // Friendly labels for the undo-confirmation reply — purely cosmetic, falls
 // back to the raw key for anything not listed here.
 const ROW_LABELS = {
@@ -243,8 +321,9 @@ const ROW_LABELS = {
 // Read-modify-write in one step: `mutate` receives the row's current data
 // object (safe to mutate directly) and its return value (if any) is passed
 // back to the caller as the tool result. Also transparently snapshots the
-// pre-mutation state into a bounded action-history row (skipped when the
-// call didn't actually change anything, i.e. result.ok === false) so undo
+// pre- and post-mutation state into an independent action-history row
+// (skipped when the call didn't actually change anything, i.e.
+// result.ok === false) so undo
 // can step backward without every executor wiring up custom reversal logic.
 async function patchRow(key, mutate) {
   const data = await readRow(key);
@@ -252,7 +331,7 @@ async function patchRow(key, mutate) {
   const result = await mutate(data);
   await writeRow(key, data);
   if (!result || result.ok !== false) {
-    await appendActionHistory(key, before, result).catch(() => {});
+    await appendActionHistory(key, before, JSON.parse(JSON.stringify(data)), result).catch(() => {});
     // Retain the old single-action row during the transition so existing
     // deployments can still undo if the history row has not been created yet.
     await writeRow('last_action', { row: key, before, description: ROW_LABELS[key] || key, ts: Date.now() }).catch(() => {});
@@ -260,13 +339,27 @@ async function patchRow(key, mutate) {
   return result;
 }
 async function execUndoLastAction() {
-  const stored = await readRow(ACTION_HISTORY_KEY).catch(() => ({}));
-  const actions = Array.isArray(stored.actions) ? stored.actions : [];
+  const actions = await loadActionHistory();
   const last = actions.length ? actions[actions.length - 1] : await readRow('last_action');
   if (!last || !last.row) return { ok: false, reason: 'nothing to undo' };
+  if (last.after) {
+    const current = await readRow(last.row);
+    if (JSON.stringify(current) !== JSON.stringify(last.after)) {
+      if (last._storageKey) {
+        await deleteRow(last._storageKey, true).catch(() => {});
+        const previous = actions[actions.length - 2];
+        await writeRow('last_action', previous || {}).catch(() => {});
+      }
+      return {
+        ok: false,
+        stale: true,
+        reason: 'that change can no longer be safely undone because the same dashboard section changed afterward; current data was left untouched',
+      };
+    }
+  }
   await writeRow(last.row, last.before);
   if (actions.length) {
-    await writeRow(ACTION_HISTORY_KEY, { actions: actions.slice(0, -1) });
+    if (last._storageKey) await deleteRow(last._storageKey, true);
     const previous = actions[actions.length - 2];
     await writeRow('last_action', previous || {});
   } else {
@@ -1954,18 +2047,21 @@ async function callClaude(apiKey, context, userContent, priorHistory) {
   return { text: lastText || "Something went wrong — I looped too many times without finishing. Try rephrasing?", usage };
 }
 
-async function tgSend(token, chatId, messageText, replyMarkup) {
-  const body = { chat_id: chatId, text: String(messageText).slice(0, 4000) };
-  if (replyMarkup) body.reply_markup = replyMarkup;
-  const r = await fetchWithRetry('https://api.telegram.org/bot' + token + '/sendMessage', {
+async function tgCall(token, method, body) {
+  const r = await fetchWithRetry('https://api.telegram.org/bot' + token + '/' + method, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error('Telegram send failed: HTTP ' + r.status);
+  if (!r.ok) throw new Error('Telegram ' + method + ' failed: HTTP ' + r.status);
   const json = await r.json();
-  if (!json.ok) throw new Error('Telegram send failed: ' + (json.description || 'unknown API error'));
+  if (!json.ok) throw new Error('Telegram ' + method + ' failed: ' + (json.description || 'unknown API error'));
   return json.result;
+}
+async function tgSend(token, chatId, messageText, replyMarkup) {
+  const body = { chat_id: chatId, text: String(messageText).slice(0, 4000) };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  return tgCall(token, 'sendMessage', body);
 }
 
 function confirmationKeyboard(confirmation) {
@@ -2075,7 +2171,7 @@ async function handleCommand(token, chatId, command) {
   }
   if (command === '/undo') {
     const result = await execUndoLastAction();
-    await tgSend(token, chatId, result.ok ? 'Undone: ' + result.undone : 'There’s nothing to undo.');
+    await tgSend(token, chatId, result.ok ? 'Undone: ' + result.undone : (result.reason || 'There’s nothing to undo.'));
     return true;
   }
   return false;
@@ -2145,29 +2241,17 @@ async function transcribeAudio(apiKey, buffer, mimeType) {
 // button's loading spinner on the user's client. `text` (optional, shows as
 // a small toast) is capped well under Telegram's 200-char limit.
 async function tgAnswerCallback(token, callbackQueryId, text) {
-  await fetch('https://api.telegram.org/bot' + token + '/answerCallbackQuery', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ callback_query_id: callbackQueryId, text: text ? String(text).slice(0, 180) : undefined }),
-  });
+  await tgCall(token, 'answerCallbackQuery', { callback_query_id: callbackQueryId, text: text ? String(text).slice(0, 180) : undefined });
 }
 
 // Strips the inline keyboard off an already-sent message once its button's
 // action has been handled, so a second tap can't double-fire the same tool.
 async function tgClearKeyboard(token, chatId, messageId) {
-  await fetch('https://api.telegram.org/bot' + token + '/editMessageReplyMarkup', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }),
-  });
+  await tgCall(token, 'editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
 }
 
 async function tgEditText(token, chatId, messageId, text) {
-  await fetch('https://api.telegram.org/bot' + token + '/editMessageText', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId, text: String(text).slice(0, 4000) }),
-  });
+  await tgCall(token, 'editMessageText', { chat_id: chatId, message_id: messageId, text: String(text).slice(0, 4000) });
 }
 
 // A tapped inline-keyboard button skips the Claude tool-use loop entirely —
@@ -2184,14 +2268,22 @@ async function handleCallbackQuery(botToken, callback, res) {
   if (data.startsWith('confirm:') || data.startsWith('cancel:')) {
     const isConfirm = data.startsWith('confirm:');
     const id = data.slice(isConfirm ? 8 : 7);
-    const pending = await readPendingAction(id);
+    let pending;
+    try {
+      // The conditional DELETE is the claim. Exactly one concurrent tap can
+      // receive the pending row, and a storage failure leaves it available
+      // for a safe retry instead of executing an action that may run twice.
+      pending = await consumePendingAction(id);
+    } catch (e) {
+      try { await tgAnswerCallback(botToken, callback.id, 'Could not confirm yet. Please try again.'); } catch (answerError) {}
+      return res.status(200).json({ ok: true, callback: true, retry: true });
+    }
     if (!pending) {
       try { await tgAnswerCallback(botToken, callback.id, 'This confirmation expired.'); } catch (e) {}
       if (chatId && messageId) try { await tgClearKeyboard(botToken, chatId, messageId); } catch (e) {}
       return res.status(200).json({ ok: true, callback: true, expired: true });
     }
 
-    await clearPendingAction();
     const original = callback.message && typeof callback.message.text === 'string' ? callback.message.text : pending.label;
     if (!isConfirm) {
       try { await tgAnswerCallback(botToken, callback.id, 'Canceled'); } catch (e) {}

@@ -19,18 +19,49 @@ function mockRes() {
 }
 function makeHarness(seed, anthropicReplies) {
   const rows = JSON.parse(JSON.stringify(seed || {}));
+  const updatedAt = {};
+  let writeCounter = 0;
   const calls = { anthropic: [], sendMessage: [], answerCallbackQuery: [], editMessageReplyMarkup: [], editMessageText: [] };
   const replies = (anthropicReplies || []).slice();
   async function fetchStub(url, opts) {
     const u = String(url);
     if (u.includes('/rest/v1/app_state')) {
       if (!opts || !opts.method || opts.method === 'GET') {
+        const like = u.match(/key=like\.([^&]+)/);
+        if (like) {
+          const prefix = decodeURIComponent(like[1]).replace(/\*$/, '');
+          const descending = u.includes('order=updated_at.desc');
+          const limit = Number((u.match(/[?&]limit=(\d+)/) || [])[1] || 100);
+          const matches = Object.keys(rows).filter(key => key.startsWith(prefix)).map(key => ({
+            key, data: JSON.parse(JSON.stringify(rows[key])), updated_at: updatedAt[key] || 0,
+          })).sort((a, b) => descending ? b.updated_at - a.updated_at : a.updated_at - b.updated_at);
+          return { ok: true, json: async () => matches.slice(0, limit) };
+        }
         const key = decodeURIComponent(u.match(/key=eq\.([^&]+)/)[1]);
-        return { ok: true, json: async () => [{ data: rows[key] || {} }] };
+        return { ok: true, json: async () => Object.hasOwn(rows, key) ? [{ data: JSON.parse(JSON.stringify(rows[key])) }] : [] };
+      }
+      if (opts.method === 'DELETE') {
+        const key = decodeURIComponent(u.match(/key=eq\.([^&]+)/)[1]);
+        const idMatch = u.match(/data->>id=eq\.([^&]+)/);
+        const matchesId = !idMatch || String((rows[key] || {}).id) === decodeURIComponent(idMatch[1]);
+        if (!Object.hasOwn(rows, key) || !matchesId) return { ok: true, json: async () => [] };
+        const prior = rows[key];
+        delete rows[key];
+        delete updatedAt[key];
+        return { ok: true, json: async () => [{ key, data: JSON.parse(JSON.stringify(prior)) }] };
       }
       const body = JSON.parse(opts.body);
+      const unique = String(opts.headers && opts.headers.Prefer || '').includes('ignore-duplicates');
+      if (unique && Object.hasOwn(rows, body.key)) return { ok: true, json: async () => [] };
       rows[body.key] = body.data;
-      return { ok: true, json: async () => ({}) };
+      updatedAt[body.key] = ++writeCounter;
+      return { ok: true, json: async () => unique ? [body] : {} };
+    }
+    if (u.includes('/rest/v1/google_tokens')) {
+      return { ok: true, json: async () => [{ access: 'google-access', refresh: 'google-refresh', expires: Date.now() + 3600000 }] };
+    }
+    if (u.includes('googleapis.com/calendar/v3/calendars/primary/events/event-123')) {
+      return { ok: true, json: async () => ({ id: 'event-123', summary: 'Dentist', start: { dateTime: '2026-08-03T14:00:00Z' } }) };
     }
     if (u.includes('api.anthropic.com')) {
       calls.anthropic.push(JSON.parse(opts.body));
@@ -69,7 +100,7 @@ function makeHarness(seed, anthropicReplies) {
       { finance: { subs: [{ name: 'Netflix', amount: 20 }] } },
       [{
         stop_reason: 'tool_use', usage: { input_tokens: 10, output_tokens: 5 },
-        content: [{ type: 'tool_use', id: 'tool-1', name: 'cancel_subscription', input: { name: 'Netflix' } }],
+        content: [{ type: 'tool_use', id: 'tool-1', name: 'cancel_subscription', input: { name: 'net' } }],
       }],
     );
     global.fetch = harness.fetchStub;
@@ -79,6 +110,7 @@ function makeHarness(seed, anthropicReplies) {
     assertEq(res._status, 200, 'a destructive request returns normally while waiting for confirmation');
     assertEq(harness.rows.finance.subs.length, 1, 'the subscription is not removed before confirmation');
     assertEq(harness.calls.sendMessage.length, 1, 'the bot sends one confirmation message');
+    assertTrue(harness.calls.sendMessage[0].text.includes('Netflix'), 'the confirmation names the actual matched subscription, not the fuzzy query');
     const keyboard = harness.calls.sendMessage[0].reply_markup.inline_keyboard[0];
     assertEq(keyboard.map(button => button.text), ['Confirm', 'Cancel'], 'the message includes explicit Confirm and Cancel buttons');
     const confirmData = keyboard[0].callback_data;
@@ -100,17 +132,38 @@ function makeHarness(seed, anthropicReplies) {
     assertTrue(res._body.expired, 'replaying the same confirmation cannot execute the destructive action twice');
   }
 
-  // ==================== duplicate Telegram updates are ignored ====================
+  // ==================== concurrent duplicate Telegram updates are atomically ignored ====================
   {
     const harness = makeHarness({});
     global.fetch = harness.fetchStub;
     const update = { update_id: 2002, message: { chat: { id: 555 }, text: '/help' } };
-    await handler({ method: 'POST', headers, body: update }, mockRes());
-    const duplicateRes = mockRes();
-    await handler({ method: 'POST', headers, body: update }, duplicateRes);
-    assertEq(harness.calls.sendMessage.length, 1, 'the same Telegram update id produces only one reply');
+    const firstRes = mockRes(), duplicateRes = mockRes();
+    await Promise.all([
+      handler({ method: 'POST', headers, body: update }, firstRes),
+      handler({ method: 'POST', headers, body: update }, duplicateRes),
+    ]);
+    assertEq(harness.calls.sendMessage.length, 1, 'simultaneous deliveries of the same Telegram update produce only one reply');
     assertEq(harness.calls.anthropic.length, 0, '/help and its duplicate make no Claude calls');
-    assertEq(duplicateRes._body.duplicate, true, 'the duplicate response is explicitly marked as ignored');
+    assertEq([firstRes._body, duplicateRes._body].filter(body => body && body.duplicate).length, 1, 'exactly one concurrent delivery is marked as ignored');
+  }
+
+  // ==================== calendar deletion confirmation identifies the real event ====================
+  {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+    process.env.GOOGLE_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+    const harness = makeHarness({}, [{
+      stop_reason: 'tool_use', usage: { input_tokens: 10, output_tokens: 5 },
+      content: [{ type: 'tool_use', id: 'tool-calendar', name: 'delete_calendar_event', input: { event_id: 'event-123' } }],
+    }]);
+    global.fetch = harness.fetchStub;
+    await handler({ method: 'POST', headers, body: { update_id: 2500, message: { chat: { id: 555 }, text: 'delete my dentist appointment' } } }, mockRes());
+    const confirmation = harness.calls.sendMessage[0].text;
+    assertTrue(confirmation.includes('Dentist'), 'calendar deletion confirmation includes the resolved event title');
+    assertTrue(confirmation.includes('Aug 3') && confirmation.includes('2:00 PM'), 'calendar deletion confirmation includes the event date and time');
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   }
 
   // ==================== /today is a fast, deterministic dashboard summary ====================

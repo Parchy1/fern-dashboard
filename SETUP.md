@@ -470,14 +470,19 @@ unlogged today doesn't look like a broken streak before the day's actually over.
 
 If it logs something wrong — misheard a name, wrong amount, wrong exercise — just say "undo
 that" or send `/undo`. It keeps the 20 most recent dashboard changes, so repeated undo requests
-can step backward through more than one mistake. `/recent` shows the latest 10 changes before
-you undo anything. Google Calendar changes are external and are not part of this undo history.
+can step backward through more than one mistake. Each change has its own history record so two
+messages arriving together cannot erase each other's undo entry. Before restoring a snapshot,
+the bot verifies that the same dashboard section has not changed again; if it has, undo stops and
+leaves the newer data untouched. `/recent` shows the latest 10 changes before you undo anything.
+Google Calendar changes are external and are not part of this undo history.
 
 Destructive actions do not run on Claude's judgment alone. Canceling a subscription or deleting
 a real Google Calendar event first produces explicit **Confirm** and **Cancel** buttons; the
 action only runs after Confirm is tapped, and each confirmation expires after 10 minutes and can
-only be used once. Telegram update IDs are also remembered in a bounded list so a retried webhook
-cannot accidentally log the same purchase, workout, meal, or other change twice.
+only be used once. The confirmation names the actual matched subscription or calendar event before
+anything is removed. Telegram update IDs are claimed atomically and retained for seven days, so
+even simultaneous webhook retries cannot accidentally log the same purchase, workout, meal, or
+other change twice.
 
 The bot has a small command menu for common zero-friction actions:
 
