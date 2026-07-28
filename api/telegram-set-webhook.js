@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   if (!token || !secret) return res.status(500).json({ error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_WEBHOOK_SECRET not configured' });
 
   const provided = (req.query && req.query.secret) || '';
-  if (provided !== secret) return res.status(401).json({ error: 'unauthorized — visit this URL with ?secret=<your TELEGRAM_WEBHOOK_SECRET>' });
+  if (provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
   const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0];
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -33,5 +33,24 @@ export default async function handler(req, res) {
     body: JSON.stringify({ url: webhookUrl, secret_token: secret }),
   });
   const json = await setRes.json();
-  return res.status(setRes.ok ? 200 : 500).json(Object.assign({ webhookUrl }, json));
+  if (!setRes.ok || !json.ok) return res.status(500).json({ webhookUrl, ok: false, error: 'Telegram rejected the webhook setup' });
+
+  const commandsRes = await fetch('https://api.telegram.org/bot' + token + '/setMyCommands', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commands: [
+      { command: 'today', description: 'See today at a glance' },
+      { command: 'recent', description: 'See recent dashboard changes' },
+      { command: 'undo', description: 'Undo the latest dashboard change' },
+      { command: 'status', description: 'Check connections and API usage' },
+      { command: 'help', description: 'See what the bot can do' },
+    ] }),
+  });
+  const commandsJson = await commandsRes.json();
+  return res.status(commandsRes.ok && commandsJson.ok ? 200 : 500).json({
+    ok: commandsRes.ok && commandsJson.ok,
+    webhookUrl,
+    webhookRegistered: true,
+    commandsRegistered: !!commandsJson.ok,
+  });
 }

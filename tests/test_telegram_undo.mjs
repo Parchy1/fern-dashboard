@@ -1,8 +1,6 @@
 // undo_last_action: patchRow() transparently snapshots the pre-mutation
-// state of whichever row it just touched into a 'last_action' row, and
-// undo_last_action reverts to that snapshot — verified here across
-// multiple different tools/rows to confirm it's genuinely generic (wired
-// into the shared patchRow helper), not special-cased per tool.
+// state of whichever row it just touched into a bounded action-history row,
+// and repeated undo calls can step backward through recent changes.
 import { TOOL_EXECUTORS } from '../api/telegram-webhook.js';
 
 let pass = 0, fail = 0;
@@ -82,7 +80,7 @@ function makeFakeSupabase(seed) {
     assertTrue(Object.keys(fake.rows['po-coach'].po_coach_workout_done).length === 1, 'the earlier gym mark (a different row) is untouched by undoing the habit action');
   }
 
-  // ==================== undo is single-level, not a full history stack ====================
+  // ==================== undo steps backward through multiple recent actions ====================
   {
     const fake = makeFakeSupabase({ notes: { 'notes:items': [] } });
     global.fetch = fake.fetchStub;
@@ -99,10 +97,13 @@ function makeFakeSupabase(seed) {
     assertEq(fake.rows.notes['notes:items'].length, 1, 'only the most recent note (B) is removed by undo — A remains');
     assertEq(fake.rows.notes['notes:items'][0].body, 'Note A', 'the remaining note is the older one');
 
-    // Calling undo again immediately must NOT also remove Note A — only one level of undo is kept.
+    // Calling undo again steps back through the bounded history and removes Note A too.
     const undo2 = await TOOL_EXECUTORS.undo_last_action();
-    assertEq(undo2.ok, false, 'a second consecutive undo reports nothing left to undo, rather than undoing further back');
-    assertEq(fake.rows.notes['notes:items'].length, 1, 'Note A is untouched by the second undo attempt');
+    assertEq(undo2.ok, true, 'a second consecutive undo steps backward through the history');
+    assertEq(fake.rows.notes['notes:items'].length, 0, 'the second undo restores the state from before Note A');
+
+    const undo3 = await TOOL_EXECUTORS.undo_last_action();
+    assertEq(undo3.ok, false, 'undo reports nothing left after the history has been exhausted');
   }
 
   // ==================== a failed tool call does not overwrite the undo snapshot ====================
@@ -116,7 +117,19 @@ function makeFakeSupabase(seed) {
 
     const undo = await TOOL_EXECUTORS.undo_last_action();
     assertEq(undo.ok, true, 'undo is still available');
-    assertEq(undo.undone, 'to-dos/habits/recurring items', 'undo reverts the last SUCCESSFUL action (adding the todo), not overwritten by the failed mark_todo_done call');
+    assertEq(undo.undone, 'Updated to-dos/habits/recurring items', 'undo reverts the last SUCCESSFUL action (adding the todo), not overwritten by the failed mark_todo_done call');
+  }
+
+  // ==================== history is bounded rather than growing forever ====================
+  {
+    const fake = makeFakeSupabase({ notes: { 'notes:items': [] } });
+    global.fetch = fake.fetchStub;
+    for (let i = 1; i <= 25; i++) await TOOL_EXECUTORS.add_note({ body: 'Note ' + i });
+    assertEq(fake.rows['telegram-action-history'].actions.length, 20, 'undo history keeps at most the 20 newest dashboard changes');
+    for (let i = 0; i < 20; i++) await TOOL_EXECUTORS.undo_last_action();
+    assertEq(fake.rows.notes['notes:items'].length, 5, 'the retained history can undo exactly the latest 20 changes');
+    const exhausted = await TOOL_EXECUTORS.undo_last_action();
+    assertEq(exhausted.ok, false, 'older changes beyond the retention limit are not accidentally undone');
   }
 
   global.fetch = origFetch;
