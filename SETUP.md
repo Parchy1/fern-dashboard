@@ -469,9 +469,28 @@ the 🔥 counters already on the Main and Gym tabs) when it's more than a day or
 unlogged today doesn't look like a broken streak before the day's actually over.
 
 If it logs something wrong — misheard a name, wrong amount, wrong exercise — just say "undo
-that" and it reverts the single most recent change exactly, rather than you having to work out
-the opposite correction yourself. It only keeps one level of undo (the very last thing it did),
-not a full history.
+that" or send `/undo`. It keeps the 20 most recent dashboard changes, so repeated undo requests
+can step backward through more than one mistake. Each change has its own history record so two
+messages arriving together cannot erase each other's undo entry. Before restoring a snapshot,
+the bot verifies that the same dashboard section has not changed again; if it has, undo stops and
+leaves the newer data untouched. `/recent` shows the latest 10 changes before you undo anything.
+Google Calendar changes are external and are not part of this undo history.
+
+Destructive actions do not run on Claude's judgment alone. Canceling a subscription or deleting
+a real Google Calendar event first produces explicit **Confirm** and **Cancel** buttons; the
+action only runs after Confirm is tapped, and each confirmation expires after 10 minutes and can
+only be used once. The confirmation names the actual matched subscription or calendar event before
+anything is removed. Telegram update IDs are claimed atomically and retained for seven days, so
+even simultaneous webhook retries cannot accidentally log the same purchase, workout, meal, or
+other change twice.
+
+The bot has a small command menu for common zero-friction actions:
+
+- `/today` — today's task, habit, water, and Google Calendar summary without an AI call
+- `/recent` — the latest dashboard changes
+- `/undo` — reverse the latest dashboard change
+- `/status` — connection status, today's estimated Claude usage, and undo depth
+- `/help` — examples and the command list
 
 > Not covered: Avatar Lab and the weekly/monthly Review tab's reflection notes are local-feeling
 > pages the assistant intentionally doesn't touch — the former has no synced data at all, and the
@@ -511,8 +530,10 @@ assistant"** steps further down, after the core setup below.
 
 3. Redeploy so those env vars take effect.
 4. Visit `https://your-app.vercel.app/api/telegram-set-webhook?secret=<your TELEGRAM_WEBHOOK_SECRET>`
-   once, in your own browser — this registers the webhook with Telegram. You should get back a
-   small JSON blob with `"ok":true`.
+   once, in your own browser — this registers the webhook and the bot's command menu with
+   Telegram. You should get back a small JSON blob with `"ok":true`,
+   `"webhookRegistered":true`, and `"commandsRegistered":true`. Because the setup secret is in
+   the URL, close that tab afterward and do not share or screenshot the URL.
 5. Open a chat with your bot in Telegram (search its username) and send it any message. Since
    `TELEGRAM_CHAT_ID` isn't set yet, it'll reply with **your chat ID** instead of doing anything
    else — copy that number.
