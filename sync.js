@@ -143,16 +143,49 @@
     // there until some unrelated key happened to be written again, which
     // could leave a real edit stuck unsynced indefinitely on a flaky
     // connection (e.g. spotty mobile signal right after making a change).
+    // Merges this browser's locally-changed keys onto the CURRENT server
+    // row instead of blindly replacing the whole row with a stale local
+    // snapshot. Without this, an old copy sitting in localStorage (e.g. a
+    // backgrounded tab that hasn't pulled recently) can silently wipe out
+    // a change written by someone else in the meantime — most concretely,
+    // the Telegram assistant logging something (like water) between this
+    // browser's last pull and its next push. "Changed by us" is judged
+    // against lastSyncedJson (the last row content we know we're in sync
+    // with) key-by-key, so a key we haven't touched keeps whatever the
+    // server currently has for it, even if that's newer than our copy.
+    function mergeForPush(local, remote) {
+      const lastKnown = lastSyncedJson ? JSON.parse(lastSyncedJson) : {};
+      const merged = Object.assign({}, remote);
+      for (const k of Object.keys(local)) {
+        if (JSON.stringify(local[k]) !== JSON.stringify(lastKnown[k])) merged[k] = local[k];
+      }
+      for (const k of Object.keys(lastKnown)) {
+        if (!matches(k) || k in local) continue;
+        // Explicitly deleted locally (present in what we last synced,
+        // matches our scope, but no longer in localStorage) — only
+        // propagate that deletion if the server hadn't already moved
+        // that key on without us (i.e. it still matches our last-known
+        // value), same "changed by us" test as above.
+        if (JSON.stringify(remote[k]) === JSON.stringify(lastKnown[k])) delete merged[k];
+      }
+      return merged;
+    }
     async function pushNow(attempt) {
       attempt = attempt || 0;
       pushInFlight = true;
       if (!supa) { pushInFlight = false; return; }
-      const state = collect();
-      const json = JSON.stringify(state);
-      if (json === lastSyncedJson) { pushInFlight = false; return; }
+      const local = collect();
+      const localJson = JSON.stringify(local);
+      if (localJson === lastSyncedJson) { pushInFlight = false; return; }
       try {
+        const { data: remoteRow, error: readErr } = await supa
+          .from('app_state').select('data').eq('key', appKey).maybeSingle();
+        if (readErr) throw readErr;
+        const remote = (remoteRow && remoteRow.data) || {};
+        const merged = mergeForPush(local, remote);
+        const json = JSON.stringify(merged);
         const { error } = await supa.from('app_state').upsert(
-          { key: appKey, data: state, updated_at: new Date().toISOString() },
+          { key: appKey, data: merged, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         );
         if (!error) { lastSyncedJson = json; pushInFlight = false; return; }
