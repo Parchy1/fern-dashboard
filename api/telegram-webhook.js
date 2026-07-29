@@ -66,6 +66,12 @@ const MAX_ACTION_HISTORY = 20;
 const UPDATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
 const CONFIRMATION_REQUIRED_TOOLS = new Set(['cancel_subscription', 'delete_calendar_event']);
+// Mirrors insights-recovery.html's Night Score constants exactly — keep in
+// sync if that page's formula ever changes, since the wake-up recap and the
+// dashboard's own Night Score gauge should always agree on the same number.
+const NIGHT_SCORE_TARGET_HOURS = 8;
+const NIGHT_SCORE_WINDOW_DAYS = 7;
+const TARGET_SLEEP_HOURS = 8;
 
 // ---------- date helpers (must match the dashboard's own conventions) ----------
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -738,7 +744,7 @@ const TOOLS = [
   },
   {
     name: 'log_morning_checkin',
-    description: 'Log this morning\'s check-in on the Peak tab: wake time, resting heart rate, sleep hours, and/or sleep quality. Only include fields the user actually mentioned — omit the rest. If a bedtime was tracked earlier via log_bedtime and sleep_hours isn\'t explicitly given, sleep hours (and wake time) are computed automatically from the real elapsed time — more accurate than an estimate, so DON\'T pass sleep_hours yourself in that case unless the user states an exact number that should override it. Call this on any wake-up signal — "good morning", "just woke up", "I\'m up" — even with zero other details, since that alone is enough to close out a tracked night\'s sleep.',
+    description: 'Log this morning\'s check-in on the Peak tab: wake time, resting heart rate, sleep hours, and/or sleep quality. Only include fields the user actually mentioned — omit the rest. If a bedtime was tracked earlier via log_bedtime and sleep_hours isn\'t explicitly given, sleep hours (and wake time) are computed automatically from the real elapsed time — more accurate than an estimate, so DON\'T pass sleep_hours yourself in that case unless the user states an exact number that should override it. Call this on any wake-up signal — "good morning", "just woke up", "I\'m up" — even with zero other details, since that alone is enough to close out a tracked night\'s sleep. On success the result includes a `recap` field (a pre-formatted Sleep Recap: score, duration, quality, 7-night trend, sleep debt, and a tip) whenever there was enough data to score the night — see the system instructions for how to use it.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1431,7 +1437,110 @@ async function execLogBedtime(args) {
 // rather than silently logging a bogus 30-hour "sleep".
 const MAX_TRACKED_SLEEP_HOURS = 16;
 
+// Same tz()-aware conversion tzNow()/plainDateKey() use, parameterized by an
+// arbitrary timestamp instead of "now" — needed to bucket a caffeine log's
+// raw epoch ts into the user's own wall-clock date/hour rather than the
+// server's (Vercel runs UTC), matching how plainDateKey() itself works.
+function dateKeyFor(ts) {
+  const d = new Date(new Date(ts).toLocaleString('en-US', { timeZone: tz() }));
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function hourFor(ts) {
+  return new Date(new Date(ts).toLocaleString('en-US', { timeZone: tz() })).getHours();
+}
+
+// Ports insights-recovery.html's computeNightScore/tierForNightScore exactly
+// (same weights, same 0-100 scale) so a score read out over Telegram always
+// matches what the Night Score gauge on the dashboard would show for the
+// same night — sleepHours/sleepQuality/lateCaffeine/caffeineTracked mirror
+// that page's own dayRow/factors shape.
+function computeNightScore(sleepHours, sleepQuality, lateCaffeine, caffeineTracked) {
+  if (sleepHours == null && sleepQuality == null) return null;
+  const parts = [];
+  if (sleepHours != null) parts.push({ weight: 35, ratio: Math.min(1, sleepHours / NIGHT_SCORE_TARGET_HOURS) });
+  if (sleepQuality != null) parts.push({ weight: 35, ratio: sleepQuality / 5 });
+  if (caffeineTracked) parts.push({ weight: 30, ratio: lateCaffeine ? 0 : 1 });
+  const weightTotal = parts.reduce((a, p) => a + p.weight, 0);
+  if (!weightTotal) return null;
+  const weightedSum = parts.reduce((a, p) => a + p.ratio * p.weight, 0);
+  return Math.round((weightedSum / weightTotal) * 100);
+}
+function tierForNightScore(s) {
+  if (s >= 85) return 'Restorative night';
+  if (s >= 65) return 'Solid night';
+  if (s >= 45) return 'Rough night';
+  return 'Wrecked night';
+}
+function formatSleepDuration(hours) {
+  if (hours == null) return null;
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return h + 'h' + (m ? ' ' + m + 'm' : '');
+}
+
+// Builds the wake-up recap sent back over Telegram: today's Night Score
+// (identical formula to the dashboard's own gauge), how long/well they
+// slept, a 7-night trend so a single rough night reads in context, running
+// sleep debt against the 8h target, and — if the score isn't already
+// maxed — a one-line pointer at whichever factor (hours, quality, late
+// caffeine) dragged it down the most. Pure function: `nights` is the
+// sleep:nights map (today's entry already merged in by the caller),
+// `caffeineRow` is the raw 'caffeine' app_state row.
+function buildSleepRecap(nights, todayKey, entry, caffeineRow) {
+  const cafLogs = (caffeineRow && caffeineRow['caf:logs']) || [];
+  const caffeineTracked = cafLogs.length > 0;
+  const lateCaffeineDays = new Set();
+  cafLogs.forEach((l) => {
+    if (!l || !l.ts) return;
+    if (hourFor(l.ts) >= 14) lateCaffeineDays.add(dateKeyFor(l.ts));
+  });
+
+  const todayScore = computeNightScore(entry.sleepHours, entry.sleepQuality, lateCaffeineDays.has(todayKey), caffeineTracked);
+  if (todayScore == null) return null; // neither hours nor quality logged — nothing to score yet
+
+  const recentKeys = Object.keys(nights).sort().reverse().slice(0, NIGHT_SCORE_WINDOW_DAYS);
+  const recentScores = recentKeys
+    .map((k) => computeNightScore(nights[k].sleepHours, nights[k].sleepQuality, lateCaffeineDays.has(k), caffeineTracked))
+    .filter((s) => s != null);
+  const trendAvg = recentScores.length ? Math.round(recentScores.reduce((a, b) => a + b, 0) / recentScores.length) : null;
+
+  const recentHours = recentKeys.map((k) => nights[k].sleepHours).filter((h) => typeof h === 'number');
+  const sleepDebt = recentHours.length ? recentHours.reduce((a, h) => a + Math.max(0, TARGET_SLEEP_HOURS - h), 0) : null;
+
+  const headline = ['Score ' + todayScore + ' (' + tierForNightScore(todayScore) + ')'];
+  const durationText = formatSleepDuration(entry.sleepHours);
+  const stats = [];
+  if (durationText) stats.push(durationText);
+  if (entry.sleepQuality != null) stats.push('Quality ' + entry.sleepQuality + '/5');
+  stats.push(headline[0]);
+
+  const lines = ['🌙 Sleep Recap', stats.join(' · ')];
+  if (trendAvg != null && recentScores.length > 1) {
+    lines.push(
+      NIGHT_SCORE_WINDOW_DAYS + '-night avg: ' + trendAvg
+      + (sleepDebt != null ? ' · Sleep debt this week: ' + sleepDebt.toFixed(1) + 'h' : '')
+    );
+  }
+
+  if (todayScore < 85) {
+    const candidates = [];
+    if (entry.sleepHours != null) candidates.push({ key: 'hours', ratio: Math.min(1, entry.sleepHours / NIGHT_SCORE_TARGET_HOURS) });
+    if (entry.sleepQuality != null) candidates.push({ key: 'quality', ratio: entry.sleepQuality / 5 });
+    if (caffeineTracked) candidates.push({ key: 'caffeine', ratio: lateCaffeineDays.has(todayKey) ? 0 : 1 });
+    candidates.sort((a, b) => a.ratio - b.ratio);
+    const worst = candidates[0];
+    if (worst && worst.ratio < 1) {
+      const tip = worst.key === 'hours' ? 'Getting closer to 8h would help the most.'
+        : worst.key === 'quality' ? 'Sleep quality was the biggest drag tonight — worth a look at what disrupted it.'
+        : 'Caffeine after 2pm looks like it dented this one.';
+      lines.push('💡 ' + tip);
+    }
+  }
+  return lines.join('\n');
+}
+
 async function execLogMorningCheckin(args) {
+  const caffeineRow = await readRow('caffeine').catch(() => ({}));
   return patchRow('sleep', (sleep) => {
     const nights = sleep['sleep:nights'] || {};
     const key = plainDateKey();
@@ -1460,7 +1569,8 @@ async function execLogMorningCheckin(args) {
     // used above — a stale/rejected pending bedtime shouldn't linger and
     // confuse a LATER night's tracking.
     if (pending) delete sleep['sleep:pendingBedtime'];
-    return { ok: true, entry, trackedFromBedtime };
+    const recap = buildSleepRecap(nights, key, entry, caffeineRow);
+    return { ok: true, entry, trackedFromBedtime, recap };
   });
 }
 
@@ -1918,7 +2028,11 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'check-in (this one can happen several times a day — don\'t treat it as already-done just because one happened '
   + 'earlier), track real sleep with log_bedtime (call it the moment the user says "going to bed"/"heading to '
   + 'sleep") so the next log_morning_checkin — triggered by any wake-up signal, even a bare "good morning", no '
-  + 'other details needed — computes actual sleep hours/wake time from that instead of an estimate, '
+  + 'other details needed — computes actual sleep hours/wake time from that instead of an estimate (when its result '
+  + 'includes a `recap` field, include that text verbatim as/within your reply — it\'s a pre-computed Sleep Recap '
+  + 'whose score/duration/trend numbers must match the dashboard\'s own Night Score exactly, so don\'t recompute, '
+  + 'reword, or summarize them yourself, a short warm opener before it is fine; if `recap` is absent there wasn\'t '
+  + 'enough logged yet to score the night, just confirm what was logged normally), '
   + 'create a brand-new recurring item on the to-do list\'s Recurring Items section (set auto_source to '
   + 'peak_morning/gym/reading/stretch_am/stretch_pm/business/water/supplements/food/weight when the new item corresponds to one '
   + 'of those, so it self-completes instead of needing a manual checkbox), log a food/meal entry, log caffeine or '
@@ -2474,4 +2588,7 @@ export default async function handler(req, res) {
 }
 
 // Exported for direct testing without going through req/res.
-export { buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey, summarizeNotesForContext };
+export {
+  buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey, summarizeNotesForContext,
+  computeNightScore, tierForNightScore, formatSleepDuration, buildSleepRecap, dateKeyFor, hourFor,
+};
