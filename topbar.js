@@ -83,7 +83,7 @@
   background: linear-gradient(180deg, rgba(var(--hud-rgb, 34, 211, 245), 0.75), rgba(var(--hud-rgb, 34, 211, 245), 0.4));
   box-shadow: 0 0 18px var(--hud-glow, rgba(34, 211, 245, 0.35));
 }
-.topbar-finance-btn {
+.topbar-finance-btn, .topbar-command-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 42px;
   border: 1px solid var(--hud-line-soft, rgba(34, 211, 245, 0.10));
@@ -93,7 +93,8 @@
   -webkit-tap-highlight-color: transparent;
   transition: background 0.15s, border-color 0.15s;
 }
-.topbar-finance-btn:hover { background: rgba(var(--hud-rgb, 34, 211, 245), 0.10); border-color: var(--hud-line, rgba(34, 211, 245, 0.20)); }
+.topbar-finance-btn:hover, .topbar-command-btn:hover { background: rgba(var(--hud-rgb, 34, 211, 245), 0.10); border-color: var(--hud-line, rgba(34, 211, 245, 0.20)); }
+.topbar-command-btn { color: var(--text-secondary, #A9C4D6); cursor: pointer; font: 700 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .topbar-finance-icon {
   font-size: 20px; line-height: 1;
   filter: grayscale(100%) brightness(1.4);
@@ -158,7 +159,7 @@ body.has-bottombar {
   .topbar-water-pill { padding: 8px 11px; gap: 6px; }
   .topbar-pill-count { font-size: 12px; }
   .topbar-water-add { width: 40px; font-size: 18px; }
-  .topbar-finance-btn { width: 40px; height: 38px; }
+  .topbar-finance-btn, .topbar-command-btn { width: 40px; height: 38px; }
   .topbar-finance-icon { font-size: 18px; }
   .bottombar-tab-icon { font-size: 22px; }
   .bottombar-tab { font-size: 10px; }
@@ -211,6 +212,15 @@ body.topbar-modal-open {
 `;
 
   // -------- HTML --------
+  // Phase 1 deliberately limits the Command Bar to the homepage and five
+  // hub pages. Phase 2 can expand this allowlist without changing the bar.
+  function isCommandBarPage() {
+    const name = (window.location.pathname || '').toLowerCase().split('/').pop();
+    return ['', 'index.html', 'hub-today.html', 'hub-body.html', 'hub-money.html', 'hub-reflect.html', 'hub-insights.html'].indexOf(name) !== -1;
+  }
+  const commandButtonHtml = isCommandBarPage()
+    ? '<button class="topbar-command-btn" id="topbarCommand" data-command-open type="button" aria-label="Open command bar" title="Search · ⌘K">⌘K</button>'
+    : '';
   const topbarHtml = `
 <header class="topbar" id="topbar" role="navigation" aria-label="Quick actions">
   <div class="topbar-water-wrap">
@@ -223,6 +233,7 @@ body.topbar-modal-open {
   <a href="finance.html" class="topbar-finance-btn" id="topbarFinance" aria-label="Finance">
     <span class="topbar-finance-icon">📊</span>
   </a>
+  ${commandButtonHtml}
 </header>
 `;
 
@@ -290,6 +301,14 @@ body.topbar-modal-open {
     // Reserve room above the fixed bottom bar so page content can scroll
     // past it without being hidden.
     document.body.classList.add('has-bottombar');
+
+    if (isCommandBarPage() && !document.querySelector('script[data-command-bar-loader]')) {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.src = 'command-bar.js';
+      script.dataset.commandBarLoader = 'true';
+      document.head.appendChild(script);
+    }
   }
 
   // -------- Active-date helpers (match the goals page 6 AM rollover) --------

@@ -6,12 +6,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050506">
-<title>Dashboard</title>
+<title>Command Center · Dashboard</title>
 
 <link rel="stylesheet" href="design-system.css">
+<link rel="stylesheet" href="command-center.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
+<script type="module" src="command-center.js"></script>
 
 <style>
 /* Page-specific only — shared tokens/components now live in design-system.css. */
@@ -98,48 +100,71 @@
 </style>
 </head>
 <body>
-<div class="page">
-
-  <div class="hub-head">
-    <h1 class="dash-title">Fernandos Dashboard</h1>
-    <div style="display:flex;gap:8px;flex-shrink:0">
-      <a class="gear-btn" href="search.html" aria-label="Search everything" style="text-decoration:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="m21 21-4.35-4.35"/>
-        </svg>
-      </a>
+<main class="page cc-page">
+  <header class="cc-header">
+    <div>
+      <div class="cc-kicker">Command Center · Online</div>
+      <h1 class="cc-greeting" id="ccGreeting">Good day, Fernando</h1>
+      <div class="cc-status"><span class="hud-pulse-dot"></span><span id="ccSystemText" aria-live="polite">Reading your systems…</span></div>
+    </div>
+    <div class="cc-header-actions">
+      <button class="cc-icon-btn" id="ccCommandOpen" data-command-open type="button" aria-label="Open command bar" title="Search · ⌘K">⌘K</button>
+      <button class="cc-focus-btn" data-focus-open type="button" aria-label="Enter Focus Mode"><span>◎</span><span>Focus</span></button>
       <button class="gear-btn" id="settingsOpen" type="button" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
       </button>
     </div>
-  </div>
+  </header>
 
-  <div class="score-card" id="scoreCard">
-    <div class="hud-ring" id="scoreRing" style="--ring-pct: 0">
-      <div class="hud-ring-track"></div>
-      <div class="hud-ring-value"><span class="score-num" id="scoreNum">–</span><span class="score-max">/100</span></div>
+  <section class="cc-hero" aria-label="Today overview">
+    <div class="score-card cc-ai-core gm-card" id="scoreCard">
+      <div class="cc-core-label">AI Core · Today</div>
+      <div class="hud-ring" id="scoreRing" style="--ring-pct:0">
+        <div class="hud-ring-track"></div>
+        <div class="hud-ring-value"><span class="score-num" id="scoreNum">—</span><span class="score-max">/100</span></div>
+      </div>
+      <div class="score-body"><div class="score-tier" id="scoreTier">Systems ready</div><div class="score-breakdown" id="scoreBreakdown">Building today’s picture…</div></div>
     </div>
-    <div class="score-body">
-      <div class="score-tier" id="scoreTier"></div>
-      <div class="score-breakdown" id="scoreBreakdown"></div>
-    </div>
-  </div>
 
-  <a class="player-strip" href="player.html" id="playerStrip">
-    <span class="ps-ovr" id="psOvr">—</span>
-    <span class="ps-body">
-      <span class="ps-title">Player Card</span>
-      <span class="ps-sub" id="psSub">Tap to build your rating</span>
-    </span>
-    <span class="ps-lvl"><span class="ps-lvl-k">LVL</span><span class="ps-lvl-v" id="psLvl">1</span></span>
-    <span class="ps-arrow">→</span>
-  </a>
+    <article class="gm-card cc-action" id="ccAction" aria-live="polite">
+      <div class="cc-action-top"><span class="cc-action-eyebrow" id="ccActionEyebrow">Recommended next action</span><span class="cc-action-badge">One priority</span></div>
+      <h2 class="cc-action-title" id="ccActionTitle">Reading today’s plan…</h2>
+      <p class="cc-action-reason" id="ccActionReason">Finding the clearest next move from your existing goals.</p>
+      <div class="cc-action-buttons"><button class="cc-primary-btn" id="ccActionDone" type="button">Mark complete</button><a class="cc-secondary-btn" href="main.html">Open today</a></div>
+    </article>
+  </section>
 
-  <div class="bento">
+  <section class="cc-section" aria-labelledby="ccScheduleLabel">
+    <div class="cc-section-head" id="ccScheduleLabel">Schedule</div>
+    <div class="cc-strip" id="ccSchedule"></div>
+  </section>
+
+  <section class="cc-section" aria-labelledby="ccSignalsLabel">
+    <div class="cc-section-head" id="ccSignalsLabel">Signals</div>
+    <div class="cc-signals" id="ccSignals"></div>
+  </section>
+
+  <aside class="cc-insight"><span class="cc-insight-icon">⚡</span><span id="ccInsightText">Connecting the signals that already exist across your dashboard…</span></aside>
+
+  <section class="cc-dual">
+    <article class="gm-card cc-panel">
+      <div class="cc-section-head">Alerts <span class="cc-section-count" id="ccAlertCount">0</span></div>
+      <div class="cc-panel-list" id="ccAlerts"></div>
+    </article>
+    <article class="gm-card cc-panel">
+      <div class="cc-section-head">Recent activity</div>
+      <div class="cc-panel-list" id="ccActivity"></div>
+    </article>
+  </section>
+
+  <section class="cc-browse" aria-labelledby="ccBrowseLabel">
+    <div class="cc-section-head" id="ccBrowseLabel">Browse</div>
+    <a class="player-strip" href="player.html" id="playerStrip">
+      <span class="ps-ovr" id="psOvr">—</span><span class="ps-body"><span class="ps-title">Player Card</span><span class="ps-sub" id="psSub">Tap to build your rating</span></span><span class="ps-lvl"><span class="ps-lvl-k">LVL</span><span class="ps-lvl-v" id="psLvl">1</span></span><span class="ps-arrow">→</span>
+    </a>
+    <div class="bento">
     <!-- Big tile -->
     <a class="tile big" href="hub-today.html" style="--accent:#6BE3A4">
       <div class="tile-top">
@@ -209,6 +234,22 @@
         <span class="tile-arrow">→</span>
       </div>
     </a>
+    </div>
+  </section>
+
+  <footer class="cc-footer-actions">
+    <button class="cc-secondary-btn" data-focus-open type="button">◎ Focus Mode</button>
+    <button class="cc-secondary-btn cc-ambient-stub" type="button" disabled title="Planned for a later phase">◌ Ambient Mode · Soon</button>
+  </footer>
+</main>
+
+<div class="focus-mode" id="focusMode" role="dialog" aria-modal="true" aria-label="Focus Mode">
+  <div class="focus-shell">
+    <div class="focus-top"><div class="focus-status"><span class="hud-pulse-dot"></span><span>Focus Mode</span></div><button class="focus-close" id="focusClose" type="button" aria-label="Exit Focus Mode">×</button></div>
+    <div class="focus-label">Current objective</div>
+    <h2 class="focus-objective" id="focusObjective">Plan your next objective</h2>
+    <div class="focus-timer" id="focusTimer">00:00</div>
+    <div class="focus-controls"><button class="cc-primary-btn" id="focusTimerToggle" type="button">Start</button><button class="cc-secondary-btn" id="focusReset" type="button">Reset</button><a class="cc-secondary-btn" href="main.html">Open task</a></div>
   </div>
 </div>
 
@@ -640,7 +681,14 @@
   function renderTodayScore() {
     const card = document.getElementById('scoreCard');
     const result = computeTodayScore();
-    if (!result) { card.classList.remove('show'); return; }
+    if (!result) {
+      document.getElementById('scoreNum').textContent = '—';
+      document.getElementById('scoreTier').textContent = 'Systems ready';
+      document.getElementById('scoreBreakdown').textContent = 'Add a goal, habit, or health log to begin today\'s score.';
+      document.getElementById('scoreRing').style.setProperty('--ring-pct', 0);
+      card.classList.add('show');
+      return;
+    }
     document.getElementById('scoreNum').textContent = result.score;
     document.getElementById('scoreTier').textContent = tierForScore(result.score);
     document.getElementById('scoreBreakdown').textContent = result.breakdown;
@@ -661,7 +709,7 @@
   // first load without needing to visit anything else first.
   const SCORE_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SCORE_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading', 'player'];
+  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading', 'player', 'finance', 'peak', 'sleep', 'notes'];
   async function pullFreshScoreSources() {
     if (SCORE_SUPABASE_URL.indexOf('PASTE-') === 0 || SCORE_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
     try {
@@ -695,7 +743,11 @@
       : 'Log a few days to get rated';
   }
 
-  function renderAll() { renderTodayScore(); renderPlayerStrip(); }
+  function renderAll() {
+    renderTodayScore();
+    renderPlayerStrip();
+    document.dispatchEvent(new CustomEvent('command-center:refresh'));
+  }
 
   renderAll();
   pullFreshScoreSources().then(renderAll);
@@ -705,6 +757,23 @@
   });
   window.addEventListener('storage', renderAll);
 })();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initCloudSync === 'function') {
+    initCloudSync({
+      appKey: 'goals',
+      syncedPrefixes: ['goals:'],
+      syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1'],
+      onApplied: function () {
+        window.dispatchEvent(new CustomEvent('goals-changed'));
+        window.dispatchEvent(new CustomEvent('habits-changed'));
+        window.dispatchEvent(new Event('storage'));
+      }
+    });
+  }
+  if (window.location.hash === '#settings') document.getElementById('settingsOpen').click();
+});
 </script>
 </body>
 </html>
