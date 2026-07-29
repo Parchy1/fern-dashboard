@@ -8,11 +8,10 @@ function assertEq(actual, expected, label) {
 }
 function assertTrue(value, label) { if (value) { pass++; console.log('PASS:', label); } else { fail++; console.log('FAIL:', label); } }
 
-for (const path of ['/', '/index.html', '/hub-today.html', '/hub-body.html', '/hub-money.html', '/hub-reflect.html', '/hub-insights.html']) {
-  assertTrue(isCommandBarPath(path), path + ' is inside the Phase 1 allowlist');
+for (const path of ['/', '/index.html', '/hub-today.html', '/hub-body.html', '/hub-money.html', '/hub-reflect.html', '/hub-insights.html', '/gym.html', '/finance.html', '/nova-lite.html', '/search.html']) {
+  assertTrue(isCommandBarPath(path), path + ' is inside the global Command Bar rollout');
 }
-assertEq(isCommandBarPath('/gym.html'), false, 'gym remains outside the Phase 1 command-bar rollout');
-assertEq(isCommandBarPath('/finance.html'), false, 'finance remains outside the Phase 1 command-bar rollout');
+assertEq(isCommandBarPath('/api/config.js'), false, 'non-page API files remain outside the Command Bar rollout');
 
 const rows = buildRowsByKey({
   'notes:items': [{ title: 'Project Nova', body: 'Ideas', updatedAt: 3 }],

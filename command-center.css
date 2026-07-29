@@ -68,14 +68,18 @@
 .cc-dual { display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-top:var(--space-4); }
 .cc-panel { margin:0;padding:var(--space-4); }
 .cc-panel-list { display:flex;flex-direction:column;gap:6px; }
-.cc-alert,.cc-activity-item { display:flex;align-items:center;gap:11px;padding:10px;border:1px solid transparent;border-radius:var(--radius-sm);text-decoration:none;animation:ccRowIn .2s ease-out both; }
+.cc-alert,.cc-activity-item { display:flex;align-items:center;gap:8px;padding:10px;border:1px solid transparent;border-radius:var(--radius-sm);text-decoration:none;animation:ccRowIn .2s ease-out both; }
+.cc-alert-link { min-width:0;flex:1;display:flex;align-items:center;gap:11px;text-decoration:none; }
+.cc-alert-link>span:nth-child(2) { min-width:0;flex:1;display:flex;flex-direction:column; }
+.cc-alert-dismiss { width:28px;height:28px;flex-shrink:0;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--text-tertiary);font-size:18px;line-height:1;cursor:pointer; }
+.cc-alert-dismiss:hover { color:var(--danger);border-color:rgba(255,84,112,.25);background:rgba(255,84,112,.08); }
 @keyframes ccRowIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
 .cc-alert:hover,.cc-activity-item:hover { background:rgba(var(--hud-rgb),.05);border-color:var(--hud-line-soft); }
 .cc-alert-icon,.cc-activity-icon { width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%;font:700 12px var(--font-mono);flex-shrink:0; }
 .cc-alert.is-warning .cc-alert-icon { color:var(--warning);background:rgba(255,184,77,.1);border:1px solid rgba(255,184,77,.24); }
 .cc-alert.is-critical .cc-alert-icon { color:var(--danger);background:rgba(255,84,112,.1);border:1px solid rgba(255,84,112,.25); }
 .cc-activity-icon { color:var(--hud);background:rgba(var(--hud-rgb),.08);border:1px solid var(--hud-line); }
-.cc-alert>span:nth-child(2),.cc-activity-item>span:nth-child(2) { min-width:0;flex:1;display:flex;flex-direction:column; }
+.cc-activity-item>span:nth-child(2) { min-width:0;flex:1;display:flex;flex-direction:column; }
 .cc-alert b,.cc-activity-item b { color:var(--text-primary);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .cc-alert small,.cc-activity-item small { margin-top:2px;color:var(--text-tertiary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize; }
 .cc-row-arrow { color:var(--text-tertiary); }

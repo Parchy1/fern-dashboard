@@ -82,10 +82,8 @@ for (const id of ['ccGreeting', 'scoreCard', 'ccAction', 'ccSchedule', 'ccSignal
 assertTrue(html.includes('href="hub-today.html"') && html.includes('href="hub-insights.html"'), 'the existing Browse navigation remains present');
 assertTrue(css.includes('@media(max-width:480px)'), 'the Command Center defines a 480px mobile tier');
 assertTrue(css.includes('body.focus-mode-open .topbar') && css.includes('body.focus-mode-open .bottombar'), 'Focus Mode hides both shared navigation bars');
-assertTrue(topbar.includes('command-bar.js') && topbar.includes('topbarCommand'), 'topbar loads and exposes the scoped Command Bar');
-for (const page of ['index.html', 'hub-today.html', 'hub-body.html', 'hub-money.html', 'hub-reflect.html', 'hub-insights.html']) {
-  assertTrue(topbar.includes("'" + page + "'"), page + ' stays in the topbar Command Bar allowlist');
-}
+assertTrue(topbar.includes('command-bar.js') && topbar.includes('topbarCommand'), 'topbar loads and exposes the Command Bar');
+assertTrue(!topbar.includes('isCommandBarPage'), 'Phase 2 removes the Phase 1 Command Bar allowlist');
 assertTrue(html.includes("appKey: 'goals'") && html.includes("syncedPrefixes: ['goals:']"), 'the homepage uses the shared goals cloud-sync path');
 assertTrue(html.includes("syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1']"), 'the homepage declares the exact same goals sync scope as main.html');
 assertTrue(!commandCenter.includes('pushGoalList') && !commandCenter.includes('/rest/v1/app_state?key=eq.goals'), 'task completion does not use a competing full-row write path');

@@ -1,4 +1,5 @@
 import { completeRecommendedAction, formatClock, selectRecommendedAction, timeToMinutes } from './next-action.js';
+import { ALERT_STATE_KEY, dismissAlert, normalizeAlertState, reconcileAlertState, visibleAlerts } from './alert-state.js';
 
 const DAY_MS = 86400000;
 
@@ -149,20 +150,20 @@ export function buildAlerts(data, now) {
     .sort((a, b) => a.minutes - b.minutes);
   if (overdue.length) {
     const first = overdue[0].goal;
-    alerts.push({ level: 'critical', icon: '!', title: first.text, detail: 'Overdue since ' + formatClock(first.time), href: 'main.html' });
+    alerts.push({ id: 'overdue:' + (data.todayKey || dateKey(current)) + ':' + encodeURIComponent(first.id || first.text) + ':' + first.time, level: 'critical', icon: '!', title: first.text, detail: 'Overdue since ' + formatClock(first.time), href: 'main.html' });
   }
   if (overdue.length > 1) {
-    alerts.push({ level: 'warning', icon: '+', title: (overdue.length - 1) + ' more scheduled item' + (overdue.length === 2 ? '' : 's') + ' overdue', detail: 'Review today\'s remaining plan', href: 'main.html' });
+    alerts.push({ id: 'overdue-summary:' + (data.todayKey || dateKey(current)), level: 'warning', icon: '+', title: (overdue.length - 1) + ' more scheduled item' + (overdue.length === 2 ? '' : 's') + ' overdue', detail: 'Review today\'s remaining plan', href: 'main.html' });
   }
   const water = computeWaterProgress(data.water, current.getTime());
-  if (water && current.getHours() >= 18 && water.ratio < 0.5) alerts.push({ level: 'warning', icon: '◒', title: 'Hydration is behind', detail: water.done + ' of ' + water.total + ' drinks logged', href: 'health.html#water' });
+  if (water && current.getHours() >= 18 && water.ratio < 0.5) alerts.push({ id: 'water:' + dateKey(current), level: 'warning', icon: '◒', title: 'Hydration is behind', detail: water.done + ' of ' + water.total + ' drinks logged', href: 'health.html#water' });
   (data.subscriptions || []).forEach(subscription => {
     const renewal = nextRenewal(subscription, current.getTime());
-    if (renewal && renewal.days <= 5) alerts.push({ level: renewal.days === 0 ? 'critical' : 'warning', icon: '↻', title: (subscription.name || 'Subscription') + ' renews ' + (renewal.days === 0 ? 'today' : 'in ' + renewal.days + 'd'), detail: 'Review the upcoming charge', href: 'finance.html' });
+    if (renewal && renewal.days <= 5) alerts.push({ id: 'subscription:' + encodeURIComponent(subscription.name || 'Subscription') + ':' + dateKey(renewal.date), level: renewal.days === 0 ? 'critical' : 'warning', icon: '↻', title: (subscription.name || 'Subscription') + ' renews ' + (renewal.days === 0 ? 'today' : 'in ' + renewal.days + 'd'), detail: 'Review the upcoming charge', href: 'finance.html' });
   });
-  if (data.burnout && data.burnout.level === 'Elevated') alerts.push({ level: 'warning', icon: '△', title: 'Burnout risk is elevated', detail: data.burnout.signals.join(' · '), href: 'insights-recovery.html' });
+  if (data.burnout && data.burnout.level === 'Elevated') alerts.push({ id: 'burnout:' + dateKey(current), level: 'warning', icon: '△', title: 'Burnout risk is elevated', detail: data.burnout.signals.join(' · '), href: 'insights-recovery.html' });
   const rank = { critical: 0, warning: 1 };
-  return alerts.sort((a, b) => rank[a.level] - rank[b.level]).slice(0, 5);
+  return alerts.sort((a, b) => rank[a.level] - rank[b.level]);
 }
 
 export function buildRecentActivity(data) {
@@ -240,7 +241,13 @@ function readModel() {
     reading: storeGet('reading:items') || [],
     financeActivity: storeGet('nw:activity') || [],
   };
-  model.alerts = buildAlerts(model, now.getTime());
+  const rawAlerts = buildAlerts(model, now.getTime());
+  const reconciled = reconcileAlertState(storeGet(ALERT_STATE_KEY), rawAlerts.map(alert => alert.id));
+  if (reconciled.changed) localStorage.setItem(ALERT_STATE_KEY, JSON.stringify(reconciled.state));
+  const activeAlerts = visibleAlerts(rawAlerts, reconciled.state);
+  model.alertState = reconciled.state;
+  model.alertCount = activeAlerts.length;
+  model.alerts = activeAlerts.slice(0, 5);
   model.activity = buildRecentActivity(model);
   model.insight = buildProactiveInsight(model);
   return model;
@@ -251,8 +258,8 @@ function render() {
   const hour = model.now.getHours();
   const greeting = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   document.getElementById('ccGreeting').textContent = greeting + ', Fernando';
-  document.getElementById('ccSystemText').textContent = model.alerts.length ? model.alerts.length + ' signal' + (model.alerts.length === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
-  document.getElementById('scoreCard').classList.toggle('has-alerts', model.alerts.length > 0);
+  document.getElementById('ccSystemText').textContent = model.alertCount ? model.alertCount + ' signal' + (model.alertCount === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
+  document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
 
   const actionEl = document.getElementById('ccAction');
   if (model.action) {
@@ -287,9 +294,9 @@ function render() {
   ].map(signal => '<a class="cc-signal" href="' + signal[3] + '"><span class="cc-signal-icon">' + signal[0] + '</span><span><b>' + escapeText(signal[1]) + '</b><small>' + escapeText(signal[2]) + '</small></span></a>').join('');
 
   document.getElementById('ccInsightText').textContent = model.insight;
-  document.getElementById('ccAlertCount').textContent = String(model.alerts.length);
+  document.getElementById('ccAlertCount').textContent = String(model.alertCount);
   document.getElementById('ccAlerts').innerHTML = model.alerts.length ? model.alerts.map(alert =>
-    '<a class="cc-alert is-' + alert.level + '" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a>'
+    '<div class="cc-alert is-' + alert.level + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
   ).join('') : '<div class="cc-panel-empty"><span>✓</span><b>No active alerts</b><small>Threshold checks are clear.</small></div>';
 
   document.getElementById('ccActivity').innerHTML = model.activity.length ? model.activity.map(item =>
@@ -303,6 +310,16 @@ function render() {
 function boot() {
   if (!document.getElementById('ccAction')) return;
   const doneButton = document.getElementById('ccActionDone');
+  document.getElementById('ccAlerts').addEventListener('click', event => {
+    const button = event.target.closest('[data-alert-dismiss]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = normalizeAlertState(storeGet(ALERT_STATE_KEY));
+    localStorage.setItem(ALERT_STATE_KEY, JSON.stringify(dismissAlert(current, button.dataset.alertDismiss, Date.now())));
+    window.dispatchEvent(new CustomEvent('alert-state-changed'));
+    render();
+  });
   doneButton.addEventListener('click', () => {
     const model = window.__commandCenterModel || readModel();
     if (!model.action) return;
@@ -358,6 +375,7 @@ function boot() {
   });
   window.addEventListener('storage', render);
   window.addEventListener('goals-changed', render);
+  window.addEventListener('alert-state-changed', render);
   document.addEventListener('command-center:refresh', render);
   setInterval(render, 60000);
   render();
