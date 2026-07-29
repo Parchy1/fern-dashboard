@@ -709,7 +709,7 @@
   // first load without needing to visit anything else first.
   const SCORE_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
   const SCORE_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading', 'player', 'finance', 'peak', 'sleep', 'notes', 'caffeine'];
+  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading', 'player', 'finance', 'peak', 'sleep', 'notes'];
   async function pullFreshScoreSources() {
     if (SCORE_SUPABASE_URL.indexOf('PASTE-') === 0 || SCORE_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
     try {
@@ -760,6 +760,18 @@
 </script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initCloudSync === 'function') {
+    initCloudSync({
+      appKey: 'goals',
+      syncedPrefixes: ['goals:'],
+      syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1'],
+      onApplied: function () {
+        window.dispatchEvent(new CustomEvent('goals-changed'));
+        window.dispatchEvent(new CustomEvent('habits-changed'));
+        window.dispatchEvent(new Event('storage'));
+      }
+    });
+  }
   if (window.location.hash === '#settings') document.getElementById('settingsOpen').click();
 });
 </script>

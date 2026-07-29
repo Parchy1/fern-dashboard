@@ -194,32 +194,6 @@ function storeGet(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
 }
 
-async function pushGoalList(dayKey, goals) {
-  const url = window.DASH_SUPABASE_URL || 'https://srajryooffirbroltjmg.supabase.co';
-  const key = window.DASH_SUPABASE_KEY || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  if (!url || !key || url.indexOf('PASTE-') === 0) return false;
-  try {
-    const read = await fetch(url + '/rest/v1/app_state?key=eq.goals&select=data', {
-      headers: { apikey: key, Authorization: 'Bearer ' + key },
-    });
-    if (!read.ok) return false;
-    const rows = await read.json();
-    const merged = { ...((rows && rows[0] && rows[0].data) || {}) };
-    merged['goals:' + dayKey] = goals;
-    const write = await fetch(url + '/rest/v1/app_state?on_conflict=key', {
-      method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: 'Bearer ' + key,
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates',
-      },
-      body: JSON.stringify({ key: 'goals', data: merged, updated_at: new Date().toISOString() }),
-    });
-    return write.ok;
-  } catch (e) { return false; }
-}
-
 function collectGoalsByDate() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -334,7 +308,6 @@ function boot() {
     if (!model.action) return;
     const updated = completeRecommendedAction(model.goals, model.action.index, Date.now());
     localStorage.setItem('goals:' + model.todayKey, JSON.stringify(updated));
-    pushGoalList(model.todayKey, updated);
     window.dispatchEvent(new CustomEvent('goals-changed'));
     render();
   });

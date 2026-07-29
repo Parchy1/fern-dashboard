@@ -10,6 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(path.join(root, 'index.html'), 'utf8');
 const css = readFileSync(path.join(root, 'command-center.css'), 'utf8');
 const topbar = readFileSync(path.join(root, 'topbar.js'), 'utf8');
+const commandCenter = readFileSync(path.join(root, 'command-center.js'), 'utf8');
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -82,7 +83,13 @@ assertTrue(html.includes('href="hub-today.html"') && html.includes('href="hub-in
 assertTrue(css.includes('@media(max-width:480px)'), 'the Command Center defines a 480px mobile tier');
 assertTrue(css.includes('body.focus-mode-open .topbar') && css.includes('body.focus-mode-open .bottombar'), 'Focus Mode hides both shared navigation bars');
 assertTrue(topbar.includes('command-bar.js') && topbar.includes('topbarCommand'), 'topbar loads and exposes the scoped Command Bar');
-assertTrue(topbar.includes("'hub-insights.html'"), 'all five hubs are in the Command Bar allowlist');
+for (const page of ['index.html', 'hub-today.html', 'hub-body.html', 'hub-money.html', 'hub-reflect.html', 'hub-insights.html']) {
+  assertTrue(topbar.includes("'" + page + "'"), page + ' stays in the topbar Command Bar allowlist');
+}
+assertTrue(html.includes("appKey: 'goals'") && html.includes("syncedPrefixes: ['goals:']"), 'the homepage uses the shared goals cloud-sync path');
+assertTrue(html.includes("syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1']"), 'the homepage declares the exact same goals sync scope as main.html');
+assertTrue(!commandCenter.includes('pushGoalList') && !commandCenter.includes('/rest/v1/app_state?key=eq.goals'), 'task completion does not use a competing full-row write path');
+assertTrue(!/SCORE_SOURCE_APP_KEYS[^;]*['"]caffeine['"]/.test(html), 'the homepage does not fetch an unused caffeine app row');
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');
 process.exit(fail > 0 ? 1 : 0);
