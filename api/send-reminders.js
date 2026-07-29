@@ -1,3 +1,5 @@
+import { resolveScheduleForDate, currentAndNextForDate, normalizeScheduleModel, formatTime12, SCHEDULE_TIMEZONE } from '../schedule-model.js';
+
 // ============================================================
 // GET/POST /api/send-reminders
 //
@@ -629,6 +631,71 @@ export function composeSingleMessage(name, dateKey, nagCount) {
   return pool[seed % pool.length](name);
 }
 
+// ---------- Weekly Schedule hourly reminders ----------
+// Always anchored to schedule-model.js's own SCHEDULE_TIMEZONE (a fixed
+// constant, not the REMINDER_TIMEZONE env var other reminders use) so this
+// never disagrees with schedule.html's own clock regardless of how
+// REMINDER_TIMEZONE happens to be configured for goals/habits reminders.
+export function scheduleNowParts(nowMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SCHEDULE_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(nowMs == null ? Date.now() : nowMs));
+  const get = t => Number(parts.find(p => p.type === t).value);
+  return {
+    dateKey: get('year') + '-' + String(get('month')).padStart(2, '0') + '-' + String(get('day')).padStart(2, '0'),
+    minutes: (get('hour') % 24) * 60 + get('minute'),
+    hour: get('hour') % 24,
+  };
+}
+
+// The active window for a resolved day is simply the earliest start and
+// latest end across everything on it — naturally spans 7am-11pm on a
+// Mon-Wed, 9am-midnight on Saturday, etc., no separate "wake time"/"bedtime"
+// config needed since the schedule itself already encodes both per day.
+// Returns null for a day with nothing scheduled (Sunday, or outside any
+// active profile's date range) — callers should send nothing at all then.
+export function scheduleDayWindow(resolved) {
+  if (!Array.isArray(resolved) || !resolved.length) return null;
+  return {
+    start: Math.min(...resolved.map(item => item.startMinutes)),
+    end: Math.max(...resolved.map(item => item.endMinutes)),
+  };
+}
+
+export function shouldSendScheduleReminder(resolved, nowMinutes) {
+  const window = scheduleDayWindow(resolved);
+  if (!window) return false;
+  return nowMinutes >= window.start && nowMinutes < window.end;
+}
+
+// Stable per-hour claim key — schedule-reminder:<dateKey>:<HH> — inserted
+// via an atomic ignore-duplicates insert (see insertUniqueRow below) so two
+// overlapping cron invocations can't both win the right to send the same
+// hour's reminder, the same claim-as-atomic-insert pattern
+// api/telegram-webhook.js's claimTelegramUpdate already uses.
+export function scheduleReminderClaimKey(dateKey, hour) {
+  return 'schedule-reminder:' + dateKey + ':' + String(hour).padStart(2, '0');
+}
+
+export function buildScheduleReminderMessage(nowMinutes, current, next) {
+  const currentLabel = current ? current.title : 'Free time';
+  let msg = formatTime12(nowMinutes) + ' — ' + currentLabel + '.';
+  if (next) msg += ' Next: ' + next.title + ' at ' + formatTime12(next.startMinutes) + '.';
+  return msg;
+}
+
+// A temporary "pause for N minutes" auto-clears itself the first tick after
+// it expires (returned as changed:true so the caller persists the clear) —
+// an indefinite pause (no pausedUntil) stays paused until resume_schedule_
+// reminders is called explicitly.
+export function resolveScheduleReminderPause(state, nowMs) {
+  const s = state && typeof state === 'object' ? state : {};
+  if (s.pausedUntil && nowMs >= Number(s.pausedUntil)) {
+    return { paused: false, changed: true, next: { paused: false, pausedUntil: null } };
+  }
+  return { paused: !!s.paused, changed: false, next: s };
+}
+
 // Mirrors the dashboard's own day-key conventions (6 AM boundary for
 // goals/business, plain calendar date for gym/water/supplements/stretch),
 // computed in the recipient's timezone rather than the server's.
@@ -655,6 +722,31 @@ async function upsertRow(supabaseUrl, supabaseKey, key, data) {
     body: JSON.stringify({ key, data, updated_at: new Date().toISOString() }),
   });
   if (!r.ok) throw new Error('state write failed: ' + r.status + ' ' + (await r.text()));
+}
+
+// Atomic ignore-duplicates insert — the primary key on `key` makes this a
+// real claim across concurrent invocations, unlike fetchRow/upsertRow's
+// naive read-then-write. Returns true only for the invocation that actually
+// won the claim (empty response array means the row already existed).
+async function insertUniqueRow(supabaseUrl, supabaseKey, key, data) {
+  const url = supabaseUrl + '/rest/v1/app_state?on_conflict=key';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=representation' },
+    body: JSON.stringify({ key, data, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error('claim insert failed: ' + r.status);
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows.length > 0 : true;
+}
+
+// A "Skip today" button whose callback_data api/telegram-webhook.js's
+// callback_query handler routes into a one-day override (disabling just
+// this occurrence) — Telegram caps callback_data at 64 bytes; block ids in
+// this dashboard never exceed ~40 chars and dateKey is a fixed 10, so no
+// truncation risk in practice.
+function scheduleReminderKeyboard(blockId, dateKey) {
+  return [[{ text: 'Skip today', callback_data: 'sched-skip:' + blockId + ':' + dateKey }, { text: 'Got it', callback_data: 'sched-ok' }]];
 }
 
 async function fetchAllRowMeta(supabaseUrl, supabaseKey) {
@@ -907,6 +999,39 @@ export function computeHabitsUndone(goalsData, todayKey6am) {
     .map(h => ({ name: h.name, time: null }));
 }
 
+// Sends at most one hourly Weekly Schedule reminder per real clock hour,
+// stating the current block/appointment and what's next — see
+// scheduleDayWindow/shouldSendScheduleReminder/buildScheduleReminderMessage
+// above for the actual decision logic, kept pure and unit-tested
+// separately from this orchestration. Returns null when there's nothing to
+// report (paused, no active schedule today, outside the day's own active
+// window, or this hour was already sent/claimed) — the caller only pushes
+// a result entry when this returns something concrete.
+export async function runScheduleReminder(supabaseUrl, supabaseKey) {
+  const [scheduleRow, pauseState] = await Promise.all([
+    fetchRow(supabaseUrl, supabaseKey, 'schedule'),
+    fetchRow(supabaseUrl, supabaseKey, 'schedule_reminder_pause'),
+  ]);
+  const { paused, changed, next: nextPauseState } = resolveScheduleReminderPause(pauseState, Date.now());
+  if (changed) await upsertRow(supabaseUrl, supabaseKey, 'schedule_reminder_pause', nextPauseState);
+  if (paused) return null;
+
+  const model = normalizeScheduleModel(scheduleRow && scheduleRow['schedule:model_v1']);
+  const { dateKey, minutes, hour } = scheduleNowParts();
+  const resolved = resolveScheduleForDate(model, dateKey);
+  if (!shouldSendScheduleReminder(resolved, minutes)) return null;
+
+  const claimKey = scheduleReminderClaimKey(dateKey, hour);
+  const claimed = await insertUniqueRow(supabaseUrl, supabaseKey, claimKey, { sentAt: Date.now() });
+  if (!claimed) return null; // this hour was already sent — by this tick or a concurrent one
+
+  const { current, next } = currentAndNextForDate(resolved, minutes);
+  const message = buildScheduleReminderMessage(minutes, current, next);
+  const keyboard = current && current.kind === 'block' ? scheduleReminderKeyboard(current.id, dateKey) : undefined;
+  await sendReminder(message, keyboard ? { inlineKeyboard: keyboard } : undefined);
+  return { name: '__schedule_reminder__', message };
+}
+
 export default async function handler(req, res) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -1106,6 +1231,17 @@ export default async function handler(req, res) {
       // Only today's bucket is kept — older dateKeys are dropped rather
       // than accumulating forever, since nothing ever reads them again.
       await upsertRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'reminder_state', { [todayKey6am]: todayState });
+    }
+
+    // Weekly Schedule hourly reminder — isolated in its own try/catch so a
+    // problem here (or Supabase not yet having a 'schedule' row for anyone
+    // who hasn't visited schedule.html) can never break the rest of this
+    // handler's already-working reminders.
+    try {
+      const scheduleReminderResult = await runScheduleReminder(SUPABASE_URL, SUPABASE_ANON_KEY);
+      if (scheduleReminderResult) results.push(scheduleReminderResult);
+    } catch (e) {
+      results.push({ name: '__schedule_reminder__', error: e && e.message ? e.message : String(e) });
     }
 
     return res.status(200).json({ sent: results.some(r => !r.error), results, nowMin, bedtimeMin });

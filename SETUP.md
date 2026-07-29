@@ -1271,6 +1271,27 @@ occurrence) becomes a Google **instance exception** on that one date only.
   create/update never gets marked as synced — safe, but it means "Sync now" is currently the only
   way to retry rather than a per-item retry button.
 
+**Telegram assistant + hourly reminders (update):** if you've set up the Telegram Assistant (step
+8), it now understands the Weekly Schedule too — ask it "what am I doing at 10?", "what's next?",
+"add a dentist appointment Thursday at noon", "skip the park tomorrow", "pause reminders for two
+hours", and it reads/changes the same schedule the dashboard shows. Reading is instant; any real
+change (adding/editing/disabling a recurring block, a one-day override, or an appointment) always
+comes back as a confirmation button first — nothing changes until you tap Confirm. A new
+appointment added this way is pushed straight to Google Calendar too when connected (recurring
+block changes made through the assistant sync to Google the next time you open the Weekly Schedule
+page and hit "Sync now" — they don't push immediately from Telegram).
+
+You'll also get one concise message at the top of every hour while your schedule is active (nothing
+overnight or outside your own wake-to-sleep window, and nothing at all on Sunday) — "8:00 —
+Breakfast and gym prep. Next: walk to the gym at 8:15." A routine-block reminder has a **Skip
+today** button (a one-day-only override, same as doing it from the dashboard) and a **Got it**
+button to dismiss. Say "pause reminders" any time to stop them (for a stated duration, or
+indefinitely until you say "resume reminders" or ask on the dashboard).
+
+- Known limitation: "switch me to my university schedule" is intentionally refused — that profile
+  ships disabled with zero blocks until you give it real class times, and the assistant will never
+  activate or invent one on its own.
+
 ---
 
 ## TL;DR
