@@ -1105,6 +1105,13 @@ the same way it already treats WHOOP as an optional override).
 - The Telegram assistant's `log_bedtime`/`log_morning_checkin` tools write to this same data, so
   texting "going to bed" / "good morning" (see step 8 above) and using this page are two front ends
   onto one night's log, not two separate places sleep can live.
+- **Wake-up Sleep Recap** — any wake-up signal to the bot ("good morning", "just woke up", a bare
+  "I'm up") replies with a recap: duration, quality, and a Night Score using the exact same formula
+  as Recovery's own gauge (so the number you get texted always matches what the dashboard would
+  show for that night), a 7-night trend average and running sleep debt once there's enough history,
+  and — if the score isn't already maxed — a one-line pointer at whichever factor (short on hours,
+  low quality, or caffeine after 2pm) dragged it down the most. If neither hours nor quality end up
+  logged for the night, there's nothing to score yet, so the bot just confirms normally instead.
 
 No setup beyond Supabase sync (step 2) — this data syncs like everything else on the dashboard.
 
