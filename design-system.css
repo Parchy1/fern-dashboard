@@ -41,6 +41,13 @@
   --hud-line-soft: rgba(var(--hud-rgb), 0.10);
   --hud-glow: rgba(var(--hud-rgb), 0.35);
 
+  /* ---- shared surfaces (used by the Gym/Water migration) ---- */
+  --surface-page: #03060a;
+  --surface-card: rgba(10, 22, 30, 0.55);
+  --surface-ambient: #0d1620;
+  --text-quaternary: rgba(242, 251, 255, 0.28);
+  --hud-line-strong: rgba(var(--hud-rgb), 0.32);
+
   --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
@@ -69,10 +76,25 @@
   --z-lock: 2147483647;
 }
 
+/* Day mode stays dark and readable, but lifts the ambient cyan and surface
+   luminance. Night mode is the original deep HUD palette. time-theme.js sets
+   these attributes from the browser's resolved timezone on every page. */
+html[data-time-theme="day"] {
+  --surface-page: #07131d;
+  --surface-card: rgba(13, 31, 43, 0.68);
+  --surface-ambient: #102534;
+  --hud-line: rgba(var(--hud-rgb), 0.25);
+  --hud-line-soft: rgba(var(--hud-rgb), 0.13);
+  --hud-glow: rgba(var(--hud-rgb), 0.42);
+}
+html[data-time-theme="night"] { color-scheme: dark; }
+html[data-time-theme="day"],
+html[data-time-theme="day"] body { background-color: var(--surface-page); }
+
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0;
-  background: #03060a;
+  background: var(--surface-page);
   color: var(--text-secondary);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -84,6 +106,14 @@ body {
   position: relative;
   overflow-x: hidden;
   padding: max(28px, env(safe-area-inset-top)) 20px 60px;
+}
+html[data-time-theme="day"] body::before {
+  background:
+    radial-gradient(circle at 78% 8%, rgba(var(--hud-rgb), 0.16), transparent 44%),
+    radial-gradient(circle at 12% 92%, rgba(var(--hud-rgb), 0.08), transparent 50%),
+    linear-gradient(rgba(var(--hud-rgb), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--hud-rgb), 0.045) 1px, transparent 1px);
+  background-size: auto, auto, 46px 46px, 46px 46px;
 }
 
 /* Page-level styles historically remove browser outlines to customize input

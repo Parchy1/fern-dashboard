@@ -1,10 +1,5 @@
 import { buildSearchIndex, searchIndex } from './search-index.js';
 
-export const COMMAND_BAR_PAGES = new Set([
-  '', '/', 'index.html', 'hub-today.html', 'hub-body.html',
-  'hub-money.html', 'hub-reflect.html', 'hub-insights.html',
-]);
-
 const NAV_ITEMS = [
   { type: 'Navigate', icon: '🏠', title: 'Today', snippet: 'Goals, schedule, and fitness', href: 'hub-today.html', searchText: 'today goals schedule fitness main' },
   { type: 'Navigate', icon: '⚡', title: 'Body', snippet: 'Health, recovery, water, and sleep', href: 'hub-body.html', searchText: 'body health recovery water sleep caffeine gym' },
@@ -16,7 +11,7 @@ const NAV_ITEMS = [
 
 export function isCommandBarPath(pathname) {
   const clean = String(pathname || '').toLowerCase().split('/').pop();
-  return COMMAND_BAR_PAGES.has(clean) || COMMAND_BAR_PAGES.has(pathname);
+  return !clean || !clean.includes('.') || clean.endsWith('.html');
 }
 
 export function buildRowsByKey(snapshot) {
@@ -61,8 +56,20 @@ function boot() {
 .command-bar-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--hud-line-soft)}
 .command-bar-icon{color:var(--hud);font-size:18px}.command-bar-input{min-width:0;flex:1;border:0!important;outline:0!important;background:transparent!important;color:var(--text-primary);font:600 16px var(--font);box-shadow:none!important}.command-bar-key{padding:3px 7px;border:1px solid var(--hud-line);border-radius:6px;color:var(--text-tertiary);font:10px var(--font-mono)}
 .command-bar-results{max-height:min(56vh,440px);overflow-y:auto;padding:8px}.command-bar-result{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:1px solid transparent;border-radius:var(--radius-sm,10px);color:inherit;text-align:left;text-decoration:none;background:transparent}.command-bar-result.is-active{background:rgba(var(--hud-rgb),.09);border-color:var(--hud-line)}.command-bar-result-icon{width:24px;text-align:center;font-size:18px}.command-bar-result-body{min-width:0;flex:1}.command-bar-result-title{color:var(--text-primary);font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-bar-result-sub{margin-top:2px;color:var(--text-tertiary);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.command-bar-result-type{color:var(--hud);font:9px var(--font-mono);letter-spacing:.08em;text-transform:uppercase}.command-bar-empty{padding:28px 18px;text-align:center;color:var(--text-tertiary);font-size:13px}
+.command-bar-fab{position:fixed;z-index:var(--z-topbar,40);top:max(12px,env(safe-area-inset-top));right:14px;width:42px;height:42px;border:1px solid var(--hud-line,rgba(34,211,245,.2));border-radius:12px;background:rgba(3,9,14,.86);color:var(--hud,#22D3F5);font:700 13px var(--font-mono,monospace);box-shadow:var(--shadow-sm,0 4px 12px rgba(0,0,0,.25));cursor:pointer;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 @media(max-width:480px){.command-bar-bg{padding:0;align-items:stretch}.command-bar{width:100%;height:100%;border:0;border-radius:0;padding-top:max(8px,env(safe-area-inset-top))}.command-bar-results{max-height:none;height:calc(100vh - 68px);padding-bottom:env(safe-area-inset-bottom)}}`;
   document.head.appendChild(style);
+
+  if (!document.querySelector('[data-command-open]')) {
+    const fallback = document.createElement('button');
+    fallback.className = 'command-bar-fab';
+    fallback.type = 'button';
+    fallback.dataset.commandOpen = 'true';
+    fallback.setAttribute('aria-label', 'Open command bar');
+    fallback.title = 'Search · ⌘K';
+    fallback.textContent = '⌘K';
+    document.body.appendChild(fallback);
+  }
 
   const bg = document.createElement('div');
   bg.className = 'command-bar-bg modal-bg';

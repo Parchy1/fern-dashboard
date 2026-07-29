@@ -771,6 +771,13 @@ document.addEventListener('DOMContentLoaded', function () {
         window.dispatchEvent(new Event('storage'));
       }
     });
+    initCloudSync({
+      appKey: 'alerts',
+      syncedKeys: ['command_center_alerts_v1'],
+      onApplied: function () {
+        window.dispatchEvent(new CustomEvent('alert-state-changed'));
+      }
+    });
   }
   if (window.location.hash === '#settings') document.getElementById('settingsOpen').click();
 });

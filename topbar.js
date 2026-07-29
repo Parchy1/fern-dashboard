@@ -212,15 +212,7 @@ body.topbar-modal-open {
 `;
 
   // -------- HTML --------
-  // Phase 1 deliberately limits the Command Bar to the homepage and five
-  // hub pages. Phase 2 can expand this allowlist without changing the bar.
-  function isCommandBarPage() {
-    const name = (window.location.pathname || '').toLowerCase().split('/').pop();
-    return ['', 'index.html', 'hub-today.html', 'hub-body.html', 'hub-money.html', 'hub-reflect.html', 'hub-insights.html'].indexOf(name) !== -1;
-  }
-  const commandButtonHtml = isCommandBarPage()
-    ? '<button class="topbar-command-btn" id="topbarCommand" data-command-open type="button" aria-label="Open command bar" title="Search · ⌘K">⌘K</button>'
-    : '';
+  const commandButtonHtml = '<button class="topbar-command-btn" id="topbarCommand" data-command-open type="button" aria-label="Open command bar" title="Search · ⌘K">⌘K</button>';
   const topbarHtml = `
 <header class="topbar" id="topbar" role="navigation" aria-label="Quick actions">
   <div class="topbar-water-wrap">
@@ -260,13 +252,30 @@ body.topbar-modal-open {
     const p = (window.location.pathname || '').toLowerCase();
     return p.endsWith('/finance.html') || p.endsWith('finance.html');
   }
+  function isStandalonePage() {
+    const name = (window.location.pathname || '').toLowerCase().split('/').pop();
+    return ['avatar-lab.html', 'nova-lite.html'].indexOf(name) !== -1;
+  }
   // When the water tracker is iframed inside health.html, the embedded
   // page shouldn't render its own chrome again.
   function isEmbedded() {
     try { return window.self !== window.top; } catch (e) { return true; }
   }
   function shouldShowChrome() {
-    return !isFinancePage() && !isEmbedded();
+    return !isFinancePage() && !isStandalonePage() && !isEmbedded();
+  }
+  function loadSharedModule(src, marker) {
+    if (document.querySelector('script[' + marker + ']')) return;
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = src;
+    script.setAttribute(marker, 'true');
+    document.head.appendChild(script);
+  }
+  function loadSharedModules() {
+    if (isEmbedded()) return;
+    loadSharedModule('time-theme.js', 'data-time-theme-loader');
+    loadSharedModule('command-bar.js', 'data-command-bar-loader');
   }
   function currentPageKey() {
     const p = (window.location.pathname || '').toLowerCase();
@@ -302,13 +311,6 @@ body.topbar-modal-open {
     // past it without being hidden.
     document.body.classList.add('has-bottombar');
 
-    if (isCommandBarPage() && !document.querySelector('script[data-command-bar-loader]')) {
-      const script = document.createElement('script');
-      script.type = 'module';
-      script.src = 'command-bar.js';
-      script.dataset.commandBarLoader = 'true';
-      document.head.appendChild(script);
-    }
   }
 
   // -------- Active-date helpers (match the goals page 6 AM rollover) --------
@@ -516,6 +518,7 @@ body.topbar-modal-open {
     setInterval(render, 30 * 1000);
   }
 
+  loadSharedModules();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot, { once: true });
   } else {
