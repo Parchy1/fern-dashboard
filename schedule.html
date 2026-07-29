@@ -37,6 +37,27 @@
 .sched-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
 .sched-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
+.sched-google-panel {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: 12px; border: 1px solid var(--hud-line-soft); background: rgba(66,133,244,0.05); margin-bottom: 14px;
+}
+.sched-google-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-secondary); }
+.sched-google-status b { color: var(--text-primary); }
+.sched-google-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-quaternary); flex-shrink: 0; }
+.sched-google-dot.connected { background: #4285F4; }
+.sched-google-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sched-block.is-external-google { border-left-color: #4285F4; border-style: dotted; opacity: 0.85; background: rgba(66,133,244,0.08); }
+
+.sched-preview-list { max-height: 44vh; overflow-y: auto; border: 1px solid var(--hud-line-soft); border-radius: 10px; margin: 12px 0; }
+.sched-preview-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--hud-line-soft); }
+.sched-preview-item:last-child { border-bottom: none; }
+.sched-preview-kind { flex-shrink: 0; font: 700 9px var(--font-mono); text-transform: uppercase; padding: 2px 6px; border-radius: 6px; }
+.sched-preview-kind.create { background: rgba(63,224,168,0.14); color: var(--success); }
+.sched-preview-kind.update { background: rgba(255,184,77,0.14); color: var(--warning); }
+.sched-preview-kind.delete { background: rgba(255,84,112,0.14); color: var(--danger); }
+.sched-preview-kind.cancel-instance, .sched-preview-kind.move-instance { background: rgba(34,211,245,0.14); color: var(--hud); }
+.sched-preview-title { flex: 1; min-width: 0; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .sched-banner {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; margin-bottom: 14px;
   font-size: 12.5px; font-weight: 600; border: 1px solid;
@@ -160,6 +181,17 @@
     </div>
   </div>
 
+  <div class="sched-google-panel">
+    <div class="sched-google-status" id="schedGoogleStatus" role="status">
+      <span class="sched-google-dot" id="schedGoogleDot"></span>
+      <span id="schedGoogleStatusText">Checking Google Calendar connection…</span>
+    </div>
+    <div class="sched-google-actions">
+      <a class="sched-btn" href="google.html" id="schedGoogleConnectLink" hidden>Connect Google</a>
+      <button type="button" class="sched-btn" id="schedGoogleSyncBtn" hidden>Preview &amp; push</button>
+    </div>
+  </div>
+
   <div class="sched-legend" id="schedLegend" aria-label="Category color legend"></div>
 
   <div class="sched-daytabs" id="schedDayTabs" role="group" aria-label="Choose a day"></div>
@@ -240,6 +272,19 @@
   </section>
 </div>
 
+<!-- Google Calendar preview/confirm modal -->
+<div class="sched-modal-bg" id="schedGoogleModalBg">
+  <section class="sched-modal" role="dialog" aria-modal="true" aria-labelledby="schedGoogleModalTitle">
+    <h2 id="schedGoogleModalTitle">Push to Google Calendar</h2>
+    <div class="sched-modal-sub" id="schedGoogleModalSub">Nothing will be sent until you confirm.</div>
+    <div class="sched-preview-list" id="schedGooglePreviewList"></div>
+    <div class="sched-modal-actions">
+      <button type="button" class="sched-btn" id="schedGoogleCancel">Cancel</button>
+      <button type="button" class="sched-btn primary" id="schedGoogleConfirm">Push changes</button>
+    </div>
+  </section>
+</div>
+
 <!-- Appointment modal -->
 <div class="sched-modal-bg" id="schedApptModalBg">
   <section class="sched-modal" role="dialog" aria-modal="true" aria-labelledby="schedApptModalTitle">
@@ -269,6 +314,7 @@
     </div>
     <div class="sched-modal-actions">
       <button type="button" class="sched-btn" id="schedApptCancel">Cancel</button>
+      <button type="button" class="sched-btn sched-modal-danger" id="schedApptDelete" hidden>Delete</button>
       <button type="button" class="sched-btn primary" id="schedApptSave">Save</button>
     </div>
   </section>
@@ -281,6 +327,7 @@ import {
   currentAndNextForDate, dayOfWeekFor, addDaysToKey, parseTimeToMinutes,
   SCHEDULE_TIMEZONE,
 } from './schedule-model.js';
+import { planSyncActions, planAllOverrideActions, applySyncResults } from './schedule-google.js';
 
 const STORAGE_KEY = 'schedule:model_v1';
 const AXIS_START_MIN = 6 * 60 + 30; // 06:30
@@ -288,6 +335,18 @@ const AXIS_END_MIN = 24 * 60;       // 24:00 (midnight)
 const AXIS_SPAN = AXIS_END_MIN - AXIS_START_MIN;
 const DOW_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const $ = id => document.getElementById(id);
+
+// Declared up front (even though only used by the Google Calendar section
+// below) so the very first synchronous render() call at script load can
+// safely reference them regardless of definition order in this file —
+// function declarations hoist their bodies AND bindings, but const/let
+// only hoist the binding, not its initializer; referencing one before its
+// own line has executed throws (caught silently by a try/catch around it,
+// which is exactly the bug this ordering fixes).
+let externalGoogleByDate = {};
+let pendingSyncPlan = [];
+const GOOGLE_KEY = 'google_tokens_v1';
+const CALENDAR_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 
 function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
 function storeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
@@ -301,10 +360,16 @@ function loadModel() {
   }
   return normalizeScheduleModel(raw);
 }
-function saveModel(model) {
+function saveModel(newModel) {
+  // Normalize BEFORE persisting/rendering, and reassign the shared outer
+  // `model` (not a shadowed local) — every caller does `model = next;
+  // saveModel(model)`, so without this reassignment the in-memory model
+  // powering render() could silently drift from its own normalized/
+  // persisted form for the rest of the session (e.g. a hand-constructed
+  // override object missing a field normalizeScheduleModel would default).
+  model = normalizeScheduleModel(newModel);
   const ok = storeSet(STORAGE_KEY, model);
   if (!ok) showError('Could not save locally — your device storage may be full.');
-  model = normalizeScheduleModel(model);
   render();
   return ok;
 }
@@ -460,6 +525,7 @@ function renderColumns() {
 
     columnsEl.appendChild(col);
   });
+  applyExternalGoogleOverlay();
 }
 
 function escapeHtml(s) {
@@ -473,12 +539,13 @@ function render() {
   renderDayTabs();
   renderAxis();
   renderColumns();
+  renderGoogleStatus();
 }
 
 // ==================== week/day navigation ====================
-$('schedPrevWeek').addEventListener('click', () => { weekStart = addDaysToKey(weekStart, -7); selectedDate = weekStart; render(); });
-$('schedNextWeek').addEventListener('click', () => { weekStart = addDaysToKey(weekStart, 7); selectedDate = weekStart; render(); });
-$('schedTodayBtn').addEventListener('click', () => { weekStart = mondayOnOrBefore(todayKey()); selectedDate = ((dow) => dow >= 1 && dow <= 6 ? todayKey() : weekStart)(dayOfWeekFor(todayKey())); render(); });
+$('schedPrevWeek').addEventListener('click', () => { weekStart = addDaysToKey(weekStart, -7); selectedDate = weekStart; render(); refreshExternalGoogleEvents(); });
+$('schedNextWeek').addEventListener('click', () => { weekStart = addDaysToKey(weekStart, 7); selectedDate = weekStart; render(); refreshExternalGoogleEvents(); });
+$('schedTodayBtn').addEventListener('click', () => { weekStart = mondayOnOrBefore(todayKey()); selectedDate = ((dow) => dow >= 1 && dow <= 6 ? todayKey() : weekStart)(dayOfWeekFor(todayKey())); render(); refreshExternalGoogleEvents(); });
 window.addEventListener('resize', () => renderColumns());
 
 // ==================== block add/edit ====================
@@ -635,12 +702,14 @@ function openApptEditor(item) {
     $('schedApptStart').value = appt.start;
     $('schedApptEnd').value = appt.end;
     $('schedApptLocation').value = appt.location || '';
+    $('schedApptDelete').hidden = false;
   } else {
     $('schedApptTitle').value = '';
     $('schedApptDate').value = selectedDate;
     $('schedApptStart').value = '12:00';
     $('schedApptEnd').value = '12:30';
     $('schedApptLocation').value = '';
+    $('schedApptDelete').hidden = true;
   }
   showModal('schedApptModalBg');
 }
@@ -651,15 +720,20 @@ $('schedApptSave').addEventListener('click', () => {
   const date = $('schedApptDate').value;
   const start = $('schedApptStart').value;
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date) || parseTimeToMinutes(start) == null) return;
+  const existing = editingApptId ? model.appointments.find(a => a.id === editingApptId) : null;
   const draft = {
     id: editingApptId || ('appt:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
     title, date, start,
     end: $('schedApptEnd').value || start,
     location: $('schedApptLocation').value.trim(),
-    notes: '',
-    googleEventId: null,
-    syncStatus: 'local',
-    syncError: null,
+    notes: existing ? existing.notes : '',
+    // Preserve any existing Google linkage — editing an appointment should
+    // PATCH its linked event on the next sync (signature will no longer
+    // match), never orphan it by silently resetting these to null.
+    googleEventId: existing ? existing.googleEventId : null,
+    syncStatus: existing ? existing.syncStatus : 'local',
+    syncError: existing ? existing.syncError : null,
+    googleContentSignature: existing ? existing.googleContentSignature : null,
   };
   const next = JSON.parse(JSON.stringify(model));
   const idx = next.appointments.findIndex(a => a.id === draft.id);
@@ -667,6 +741,22 @@ $('schedApptSave').addEventListener('click', () => {
   model = next;
   saveModel(model);
   hideModal('schedApptModalBg');
+});
+$('schedApptDelete').addEventListener('click', async () => {
+  if (!editingApptId) return;
+  const appt = model.appointments.find(a => a.id === editingApptId);
+  hideModal('schedApptModalBg');
+  if (appt && appt.googleEventId) {
+    // Best-effort — if this fails (offline, expired token), the
+    // appointment is still removed locally; a stray Google event left
+    // behind is a much smaller problem than blocking the user's delete on
+    // a network call, and nothing here re-links to it afterward.
+    try { await googleDeleteEvent(appt.googleEventId); } catch (e) {}
+  }
+  const next = JSON.parse(JSON.stringify(model));
+  next.appointments = next.appointments.filter(a => a.id !== editingApptId);
+  model = next;
+  saveModel(model);
 });
 
 // ==================== modal plumbing (shared focus-trap/escape handling) ====================
@@ -735,8 +825,242 @@ window.initCloudSync && window.initCloudSync({
   },
 });
 
+// ==================== Google Calendar — reuses the browser's own already-
+// connected token (same google_tokens_v1 calendar.html reads), never a
+// server-side credential. calendar.events scope (not just readonly) was
+// granted the moment google.html's Connect flow ran. GOOGLE_KEY and
+// CALENDAR_EVENTS_URL are declared near the top of this script (see
+// above) for the same early-reference-safety reason. ====================
+function loadGoogleTokens() { try { return JSON.parse(localStorage.getItem(GOOGLE_KEY)); } catch (e) { return null; } }
+function saveGoogleTokens(t) {
+  try { localStorage.setItem(GOOGLE_KEY, JSON.stringify(t)); } catch (e) {}
+  try {
+    const secret = window.DASH_GOOGLE_SYNC_SECRET;
+    if (secret) fetch('/api/google-token-sync', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + secret }, body: JSON.stringify({ access: t.access, refresh: t.refresh, expires: t.expires }) }).catch(() => {});
+  } catch (e) {}
+}
+async function refreshGoogleTok(t) {
+  if (!t.refresh) return null;
+  try {
+    const r = await fetch('/api/google-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: t.refresh }) });
+    const j = await r.json();
+    if (j.access_token) {
+      const next = { access: j.access_token, refresh: t.refresh, expires: Date.now() + (j.expires_in || 3500) * 1000 };
+      saveGoogleTokens(next);
+      return next;
+    }
+  } catch (e) {}
+  return null;
+}
+async function withValidGoogleToken() {
+  let t = loadGoogleTokens();
+  if (!t || !t.access) return null;
+  if (t.expires && Date.now() > t.expires - 60000) {
+    const refreshed = await refreshGoogleTok(t);
+    if (!refreshed) return null;
+    t = refreshed;
+  }
+  return t;
+}
+async function gFetch(url, t) {
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t.access, Accept: 'application/json' } });
+  if (r.status === 401) { const n = await refreshGoogleTok(t); if (n) return gFetch(url, n); throw new Error('unauthorized — reconnect Google'); }
+  if (!r.ok) throw new Error('Google ' + r.status + ': ' + (await r.text()));
+  return r.json();
+}
+async function gWrite(url, t, method, body) {
+  const r = await fetch(url, {
+    method,
+    headers: Object.assign({ Authorization: 'Bearer ' + t.access, Accept: 'application/json' }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) { const n = await refreshGoogleTok(t); if (n) return gWrite(url, n, method, body); throw new Error('unauthorized — reconnect Google'); }
+  if (!r.ok) throw new Error('Google ' + r.status + ': ' + (await r.text()));
+  if (r.status === 204) return null;
+  return r.json();
+}
+async function googleDeleteEvent(eventId) {
+  const t = await withValidGoogleToken();
+  if (!t) throw new Error('Google not connected');
+  await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(eventId), t, 'DELETE');
+}
+
+// Executes one planned action (from schedule-google.js's planSyncActions /
+// planAllOverrideActions) against the real Calendar API, returning a
+// result shaped for applySyncResults. Never throws — a failure becomes an
+// { ok:false, error } result so one bad action can't abort the whole batch.
+async function executeSyncAction(t, action) {
+  try {
+    if (action.kind === 'create') {
+      const ev = await gWrite(CALENDAR_EVENTS_URL, t, 'POST', action.payload);
+      return { target: action.target, blockId: action.blockId, appointmentId: action.appointmentId, ok: true, kind: 'create', googleEventId: ev.id, signature: action.signature };
+    }
+    if (action.kind === 'update') {
+      await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(action.googleEventId), t, 'PATCH', action.payload);
+      return { target: action.target, blockId: action.blockId, appointmentId: action.appointmentId, ok: true, kind: 'update', googleEventId: action.googleEventId, signature: action.signature };
+    }
+    if (action.kind === 'delete') {
+      await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(action.googleEventId), t, 'DELETE');
+      return { target: action.target, blockId: action.blockId, appointmentId: action.appointmentId, ok: true, kind: 'delete' };
+    }
+    if (action.kind === 'cancel-instance' || action.kind === 'move-instance') {
+      // Resolve the real per-date instance id via events.instances rather
+      // than hand-constructing one — the only approach guaranteed correct
+      // regardless of how Google internally formats instance ids.
+      const dayStart = new Date(action.dateKey + 'T00:00:00Z');
+      const dayEnd = new Date(dayStart.getTime() + 86400000);
+      const instancesUrl = CALENDAR_EVENTS_URL + '/' + encodeURIComponent(action.googleEventId) + '/instances'
+        + '?timeMin=' + encodeURIComponent(dayStart.toISOString()) + '&timeMax=' + encodeURIComponent(dayEnd.toISOString());
+      const data = await gFetch(instancesUrl, t);
+      const instance = (data && data.items && data.items[0]) || null;
+      if (!instance) return { target: 'block', blockId: action.blockId, ok: false, error: 'No Google occurrence found for ' + action.dateKey };
+      if (action.kind === 'cancel-instance') {
+        await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(instance.id), t, 'PATCH', { status: 'cancelled' });
+      } else {
+        await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(instance.id), t, 'PATCH', {
+          start: { dateTime: action.dateKey + 'T' + action.start + ':00', timeZone: action.timezone },
+          end: { dateTime: action.dateKey + 'T' + action.end + ':00', timeZone: action.timezone },
+        });
+      }
+      // Overrides don't change the recurring block's own googleEventId/
+      // signature — only record that this date+block's exception has
+      // landed, so it stops being re-planned as "pending" forever.
+      return { target: 'override', ok: true, dateKey: action.dateKey, blockId: action.blockId };
+    }
+    return { target: action.target, blockId: action.blockId, ok: false, error: 'Unknown action kind: ' + action.kind };
+  } catch (e) {
+    return { target: action.target, blockId: action.blockId, appointmentId: action.appointmentId, ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+function hasEverSyncedToGoogle() { return model.profiles.some(p => p.blocks.some(b => b.googleEventId)) || model.appointments.some(a => a.googleEventId); }
+
+function renderGoogleStatus() {
+  const tokens = loadGoogleTokens();
+  const dot = $('schedGoogleDot');
+  const text = $('schedGoogleStatusText');
+  const connectLink = $('schedGoogleConnectLink');
+  const syncBtn = $('schedGoogleSyncBtn');
+  if (!tokens || !tokens.access) {
+    dot.classList.remove('connected');
+    text.textContent = 'Google Calendar is not connected.';
+    connectLink.hidden = false;
+    syncBtn.hidden = true;
+    return;
+  }
+  dot.classList.add('connected');
+  connectLink.hidden = true;
+  syncBtn.hidden = false;
+  const pending = planSyncActions(model).length + planAllOverrideActions(model).length;
+  const errorCount = model.profiles.reduce((n, p) => n + p.blocks.filter(b => b.googleSyncStatus === 'error').length, 0)
+    + model.appointments.filter(a => a.syncStatus === 'error').length;
+  syncBtn.textContent = hasEverSyncedToGoogle() ? 'Sync now' : 'Preview & push';
+  text.innerHTML = 'Connected to Google Calendar. <b>' + pending + '</b> change' + (pending === 1 ? '' : 's') + ' pending'
+    + (errorCount ? ', <b style="color:var(--danger)">' + errorCount + '</b> need retry' : '.');
+}
+
+$('schedGoogleSyncBtn').addEventListener('click', () => {
+  pendingSyncPlan = planSyncActions(model).concat(planAllOverrideActions(model));
+  if (!pendingSyncPlan.length) { renderGoogleStatus(); return; }
+  const list = $('schedGooglePreviewList');
+  list.innerHTML = pendingSyncPlan.map(a => {
+    const label = a.kind === 'cancel-instance' ? 'Skip ' + a.dateKey
+      : a.kind === 'move-instance' ? 'Move ' + a.dateKey + ' to ' + a.start
+      : a.label;
+    return '<div class="sched-preview-item"><span class="sched-preview-kind ' + a.kind + '">' + a.kind.replace('-instance', '') + '</span>'
+      + '<span class="sched-preview-title">' + escapeHtml(label) + '</span></div>';
+  }).join('');
+  $('schedGoogleModalSub').textContent = hasEverSyncedToGoogle()
+    ? 'Reviewing ' + pendingSyncPlan.length + ' change' + (pendingSyncPlan.length === 1 ? '' : 's') + ' before they go to Google Calendar.'
+    : 'This is the FIRST push — nothing exists on Google Calendar for this schedule yet. Review every event below before confirming.';
+  showModal('schedGoogleModalBg');
+});
+$('schedGoogleCancel').addEventListener('click', () => hideModal('schedGoogleModalBg'));
+$('schedGoogleConfirm').addEventListener('click', async () => {
+  hideModal('schedGoogleModalBg');
+  const t = await withValidGoogleToken();
+  if (!t) { showError('Google Calendar isn\'t connected (or the connection expired) — reconnect from the Google tab.'); return; }
+  const results = [];
+  // Sequential, not Promise.all — a burst of concurrent writes against the
+  // same calendar risks Google's per-user rate limit; one at a time is
+  // slower but never fails a whole batch over a transient 429.
+  for (const action of pendingSyncPlan) results.push(await executeSyncAction(t, action));
+  model = applySyncResults(model, results);
+  saveModel(model);
+  const failed = results.filter(r => !r.ok).length;
+  if (failed) showError(failed + ' of ' + results.length + ' Google Calendar changes failed — safe to retry with "Sync now".');
+  else hideError();
+  renderGoogleStatus();
+});
+
+// ---------- Read-only overlay of events already on Google Calendar
+// (manually created ones included) — never touched or deleted by this
+// page; only events whose id we ourselves recorded are ever written to. ----------
+async function loadExternalGoogleEvents(startDate, endDateExclusive) {
+  const t = await withValidGoogleToken();
+  if (!t) return {};
+  const ownIds = new Set(
+    model.profiles.flatMap(p => p.blocks.map(b => b.googleEventId)).concat(model.appointments.map(a => a.googleEventId)).filter(Boolean)
+  );
+  try {
+    const url = CALENDAR_EVENTS_URL + '?timeMin=' + encodeURIComponent(startDate.toISOString()) + '&timeMax=' + encodeURIComponent(endDateExclusive.toISOString())
+      + '&singleEvents=true&orderBy=startTime&maxResults=250';
+    const data = await gFetch(url, t);
+    const byDate = {};
+    ((data && data.items) || []).forEach(ev => {
+      if (ownIds.has(ev.id) || (ev.recurringEventId && ownIds.has(ev.recurringEventId))) return;
+      const startVal = ev.start && (ev.start.dateTime || ev.start.date);
+      if (!startVal) return;
+      const dateKey = startVal.slice(0, 10);
+      if (!byDate[dateKey]) byDate[dateKey] = [];
+      byDate[dateKey].push({
+        title: ev.summary || '(no title)',
+        start: ev.start && ev.start.dateTime ? startVal.slice(11, 16) : null,
+        link: ev.htmlLink || null,
+      });
+    });
+    return byDate;
+  } catch (e) { return {}; }
+}
+
+// externalGoogleByDate is declared near the top of the script (with
+// pendingSyncPlan) so the once-a-minute current-time tick — which only
+// calls renderColumns(), rebuilding every column's DOM — can cheaply
+// re-apply the last-fetched events with zero extra network calls; only
+// refreshExternalGoogleEvents() actually re-fetches, on real navigation.
+function applyExternalGoogleOverlay() {
+  Object.keys(externalGoogleByDate).forEach(dateKey => {
+    const col = document.querySelector('.sched-col[data-date="' + dateKey + '"]');
+    if (!col) return;
+    externalGoogleByDate[dateKey].forEach(ev => {
+      if (!ev.start) return;
+      const [h, m] = ev.start.split(':').map(Number);
+      const minutes = h * 60 + m;
+      const top = (Math.max(AXIS_START_MIN, minutes) - AXIS_START_MIN) / AXIS_SPAN * 100;
+      const el = document.createElement(ev.link ? 'a' : 'div');
+      el.className = 'sched-block is-external-google';
+      el.style.top = top + '%';
+      el.style.height = 'max(20px, 4%)';
+      el.innerHTML = '<span class="sched-block-title">' + escapeHtml(ev.title) + '</span><span class="sched-block-time">' + escapeHtml(ev.start) + '</span>';
+      if (ev.link) { el.href = ev.link; el.target = '_blank'; el.rel = 'noopener'; }
+      col.appendChild(el);
+    });
+  });
+}
+async function refreshExternalGoogleEvents() {
+  const dates = weekDates();
+  externalGoogleByDate = await loadExternalGoogleEvents(new Date(dates[0] + 'T00:00:00Z'), new Date(addDaysToKey(dates[5], 1) + 'T00:00:00Z'));
+  applyExternalGoogleOverlay();
+}
+
+// Initial external-events fetch (render() already ran once above and
+// called renderGoogleStatus(), so only the network-fetching overlay needs
+// its own explicit kick here).
+refreshExternalGoogleEvents();
+
 // Exported for tests / debugging only.
 window.__schedule = { loadModel, saveModel, weekDates, mondayOnOrBefore, formatDayLabel };
+window.__scheduleGoogle = { renderGoogleStatus, executeSyncAction, loadExternalGoogleEvents };
 </script>
 </body>
 </html>

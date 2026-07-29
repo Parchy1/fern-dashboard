@@ -1253,6 +1253,24 @@ invented blocks.
   reconcile a genuine multi-device edit conflict beyond showing a "reload" prompt if this schedule
   changed elsewhere while you had an edit open.
 
+**Google Calendar projection (update):** the Weekly Schedule page now has its own **Google
+Calendar** panel. It reuses the same Google connection `google.html` already sets up (nothing new
+to configure) — one recurring dashboard block maps to one recurring Google event (a native weekly
+RRULE), so editing or disabling a block updates or removes that single event, and Google itself
+reflects the change across every future occurrence. A one-day override (move or skip a single
+occurrence) becomes a Google **instance exception** on that one date only.
+
+- **Nothing is ever sent to Google until you explicitly confirm.** The first push shows every event
+  it's about to create, one row per block; every push after that shows only what actually changed.
+- Manually-created Google events (or anything not created by this schedule) still show up on the
+  page, read-only, clearly marked — the sync never touches or deletes an event it didn't create.
+- If some events fail to push (offline, an expired connection, a Google error), the ones that
+  succeeded are kept, the dashboard schedule itself is never rolled back, and a banner tells you
+  how many are safe to retry with "Sync now."
+- Known limitation: retrying automatically re-includes anything that failed, since a failed
+  create/update never gets marked as synced — safe, but it means "Sync now" is currently the only
+  way to retry rather than a per-item retry button.
+
 ---
 
 ## TL;DR

@@ -119,6 +119,12 @@ function normalizeBlock(raw) {
     googleEventId: asString(raw.googleEventId, null),
     googleSyncStatus: asString(raw.googleSyncStatus, 'idle'),
     googleSyncError: asString(raw.googleSyncError, null),
+    // A stable signature of the fields that matter to Google (title/time/
+    // days/location/notes) as of the last successful push — lets
+    // schedule-google.js's planSyncActions() tell "never synced" apart
+    // from "synced, but this field changed since" apart from "already in
+    // sync, nothing to do" without re-reading Google on every check.
+    googleContentSignature: asString(raw.googleContentSignature, null),
   };
 }
 
@@ -156,6 +162,7 @@ function normalizeAppointment(raw) {
     googleEventId: asString(raw.googleEventId, null),
     syncStatus: asString(raw.syncStatus, 'local'),
     syncError: asString(raw.syncError, null),
+    googleContentSignature: asString(raw.googleContentSignature, null),
   };
 }
 
@@ -180,8 +187,14 @@ function normalizeOverrides(raw) {
         modifiedBlocks[blockId] = { start: mod.start.trim(), end: mod.end.trim() };
       });
     }
+    // Which block ids' Google-side instance exception has already been
+    // applied for this date — lets schedule-google.js's planOverrideActions
+    // stop re-planning an override as "pending" forever once it has
+    // actually landed on Google (re-applying it would be harmless/
+    // idempotent, but would never let the pending count reach zero).
+    const appliedBlockIds = Array.isArray(entry.appliedBlockIds) ? entry.appliedBlockIds.filter(id => typeof id === 'string' && id) : [];
     if (disabledBlockIds.length || Object.keys(modifiedBlocks).length) {
-      out[dateKey] = { disabledBlockIds, modifiedBlocks };
+      out[dateKey] = { disabledBlockIds, modifiedBlocks, appliedBlockIds };
     }
   });
   return out;
