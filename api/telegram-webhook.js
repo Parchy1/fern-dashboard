@@ -48,6 +48,12 @@
 // this step would silently wipe every OTHER key sharing that row.
 // ============================================================
 
+import {
+  normalizeScheduleModel, resolveScheduleForDate, currentAndNextForDate,
+  selectActiveProfile, dayOfWeekFor, addDaysToKey, parseTimeToMinutes, SCHEDULE_TIMEZONE,
+} from '../schedule-model.js';
+import { appointmentToGoogleEvent, appointmentContentSignature } from '../schedule-google.js';
+
 // Read fresh from process.env on every call rather than caching at module
 // load time — matches send-reminders.js's convention, and means a test (or
 // a future env-var rotation) doesn't need a fresh process/cold start to see
@@ -65,7 +71,11 @@ const PENDING_ACTION_KEY = 'telegram-pending-action';
 const MAX_ACTION_HISTORY = 20;
 const UPDATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
-const CONFIRMATION_REQUIRED_TOOLS = new Set(['cancel_subscription', 'delete_calendar_event']);
+const CONFIRMATION_REQUIRED_TOOLS = new Set([
+  'cancel_subscription', 'delete_calendar_event',
+  'add_recurring_schedule_block', 'edit_recurring_schedule_block', 'disable_recurring_schedule_block',
+  'add_schedule_override', 'add_schedule_appointment', 'move_schedule_appointment', 'cancel_schedule_appointment',
+]);
 // Mirrors insights-recovery.html's Night Score constants exactly — keep in
 // sync if that page's formula ever changes, since the wake-up recap and the
 // dashboard's own Night Score gauge should always agree on the same number.
@@ -121,6 +131,36 @@ function computeStreak(anchorDate, isDoneOnDate) {
 // (new Date().toISOString().slice(0,10)), a third, distinct convention from
 // the two above. Deliberately NOT timezone-adjusted, to match exactly.
 function utcDateSlice() { return new Date().toISOString().slice(0, 10); }
+
+// ---------- Weekly Schedule (fourth, independent date convention) ----------
+// Always anchored to schedule-model.js's own fixed SCHEDULE_TIMEZONE
+// constant, not the REMINDER_TIMEZONE env var the three conventions above
+// use — schedule.html itself is not env-configurable, so this must always
+// agree with it regardless of how REMINDER_TIMEZONE happens to be set.
+function scheduleNow() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SCHEDULE_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const get = t => Number(parts.find(p => p.type === t).value);
+  return { dateKey: get('year') + '-' + String(get('month')).padStart(2, '0') + '-' + String(get('day')).padStart(2, '0'), minutes: (get('hour') % 24) * 60 + get('minute') };
+}
+async function readScheduleModel() {
+  const data = await readRow('schedule');
+  return normalizeScheduleModel(data['schedule:model_v1']);
+}
+// Finds a recurring block by fuzzy title match across every profile (not
+// just the currently-active one) — an edit/disable request might name a
+// block on a profile that isn't active today.
+function findScheduleBlockByTitle(model, title) {
+  for (const profile of model.profiles) {
+    const hit = fuzzyFind(profile.blocks, title, b => b.title);
+    if (hit) return { block: hit, profile };
+  }
+  return null;
+}
+function findScheduleAppointmentByTitle(model, title) {
+  return fuzzyFind(model.appointments, title, a => a.title);
+}
 
 function fuzzyFind(list, needle, keyFn) {
   const target = String(needle).toLowerCase();
@@ -288,6 +328,66 @@ async function resolvePendingAction(toolName, rawArgs) {
     const title = event.summary || '(no title)';
     return { args, label: 'Delete calendar event “' + title + '” — ' + formatCalendarMoment(event.start) };
   }
+  if (toolName === 'add_recurring_schedule_block') {
+    const days = Array.isArray(args.days) ? args.days.map(Number) : [];
+    if (!days.length || days.some(d => d < 1 || d > 6)) throw new Error('days must be 1-6 (Mon-Sat) — Sunday is intentionally outside the routine schedule');
+    if (parseTimeToMinutes(args.start) == null || parseTimeToMinutes(args.end) == null) throw new Error('start/end must be 24h HH:MM');
+    const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return { args, label: 'Add recurring block “' + args.title + '” ' + days.map(d => DOW[d]).join('/') + ' ' + args.start + '–' + args.end };
+  }
+  if (toolName === 'edit_recurring_schedule_block') {
+    const model = await readScheduleModel();
+    const found = findScheduleBlockByTitle(model, args.title);
+    if (!found) throw new Error('no recurring block found matching “' + (args.title || '') + '”');
+    args.block_id = found.block.id;
+    const changes = [];
+    if (args.new_title) changes.push('title → “' + args.new_title + '”');
+    if (args.start) changes.push('start → ' + args.start);
+    if (args.end) changes.push('end → ' + args.end);
+    if (!changes.length) throw new Error('nothing to change — provide at least one of new_title/start/end/location/notes');
+    return { args, label: 'Change “' + found.block.title + '”: ' + changes.join(', ') };
+  }
+  if (toolName === 'disable_recurring_schedule_block') {
+    const model = await readScheduleModel();
+    const found = findScheduleBlockByTitle(model, args.title);
+    if (!found) throw new Error('no recurring block found matching “' + (args.title || '') + '”');
+    if (!found.block.enabled) throw new Error('“' + found.block.title + '” is already disabled');
+    args.block_id = found.block.id;
+    return { args, label: 'Disable recurring block “' + found.block.title + '” (every ' + found.block.days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join('/') + ')' };
+  }
+  if (toolName === 'add_schedule_override') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date || '')) throw new Error('date must be YYYY-MM-DD');
+    if (args.action === 'move' && (parseTimeToMinutes(args.start) == null || parseTimeToMinutes(args.end) == null)) throw new Error('start/end (24h HH:MM) are required to move a block');
+    const model = await readScheduleModel();
+    const found = findScheduleBlockByTitle(model, args.title);
+    if (!found) throw new Error('no recurring block found matching “' + (args.title || '') + '”');
+    args.block_id = found.block.id;
+    const label = args.action === 'skip'
+      ? 'Skip “' + found.block.title + '” on ' + args.date + ' only'
+      : 'Move “' + found.block.title + '” to ' + args.start + '–' + args.end + ' on ' + args.date + ' only';
+    return { args, label };
+  }
+  if (toolName === 'add_schedule_appointment') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date || '')) throw new Error('date must be YYYY-MM-DD');
+    if (parseTimeToMinutes(args.start) == null) throw new Error('start must be 24h HH:MM');
+    return { args, label: 'Add appointment “' + args.title + '” on ' + args.date + ' at ' + args.start };
+  }
+  if (toolName === 'move_schedule_appointment') {
+    if (parseTimeToMinutes(args.start) == null) throw new Error('start must be 24h HH:MM');
+    const model = await readScheduleModel();
+    const found = findScheduleAppointmentByTitle(model, args.title);
+    if (!found) throw new Error('no appointment found matching “' + (args.title || '') + '”');
+    args.appointment_id = found.id;
+    if (!args.date) args.date = found.date;
+    return { args, label: 'Move “' + found.title + '” to ' + args.date + ' at ' + args.start };
+  }
+  if (toolName === 'cancel_schedule_appointment') {
+    const model = await readScheduleModel();
+    const found = findScheduleAppointmentByTitle(model, args.title);
+    if (!found) throw new Error('no appointment found matching “' + (args.title || '') + '”');
+    args.appointment_id = found.id;
+    return { args, label: 'Cancel appointment “' + found.title + '” (' + found.date + ')' };
+  }
   return { args, label: 'Run ' + toolName };
 }
 async function createPendingAction(toolName, args) {
@@ -322,7 +422,7 @@ async function consumePendingAction(id) {
 const ROW_LABELS = {
   goals: 'to-dos/habits/recurring items', health: 'health/supplements/food log', 'po-coach': 'gym/fitness data',
   finance: 'finance', business: 'business', reading: 'reading', peak: 'Peak', caffeine: 'caffeine/nicotine', notes: 'notes',
-  assistant_memory: 'assistant memory',
+  assistant_memory: 'assistant memory', schedule: 'weekly schedule',
 };
 // Read-modify-write in one step: `mutate` receives the row's current data
 // object (safe to mutate directly) and its return value (if any) is passed
@@ -906,6 +1006,130 @@ const TOOLS = [
       },
       required: ['start_date', 'end_date'],
     },
+  },
+  // ---------- Weekly Schedule ----------
+  // Read-only — always execute immediately, never confirmation-gated.
+  {
+    name: 'read_todays_schedule',
+    description: 'Reads the Weekly Schedule (routine blocks + appointments) for today, or for a specific moment today if at_time is given (e.g. "what am I doing at 10?"). Sundays and dates outside the active schedule profile correctly return an empty schedule — that is not an error, just say so.',
+    input_schema: {
+      type: 'object',
+      properties: { at_time: { type: 'string', description: '24h HH:MM — only pass this if the user asked about a specific time ("what am I doing at 10", "what\'s happening at 3pm"). Omit for a general "what\'s my day look like" question.' } },
+      required: [],
+    },
+  },
+  {
+    name: 'read_weekly_schedule',
+    description: 'Reads the whole Monday-Saturday Weekly Schedule for the current week (Sunday is intentionally outside the routine schedule, so it is never included).',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_next_schedule_block',
+    description: 'What\'s currently happening and what\'s next on the Weekly Schedule right now — use this for "what\'s next?" with no specific time mentioned.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  // Mutating — every one of these requires the user\'s explicit confirmation
+  // (see CONFIRMATION_REQUIRED_TOOLS) before anything is actually changed.
+  {
+    name: 'add_recurring_schedule_block',
+    description: 'Adds a NEW permanent recurring block to the Weekly Schedule (e.g. "add a 30-minute meditation block every morning at 6:30"). This is NOT for a one-time appointment (use add_schedule_appointment) and NOT for moving/skipping a single occurrence (use add_schedule_override) — this creates something that repeats every week from now on.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        category: { type: 'string', enum: ['health', 'travel', 'work', 'study', 'business', 'creative', 'meals', 'recovery', 'free'] },
+        start: { type: 'string', description: '24h HH:MM' },
+        end: { type: 'string', description: '24h HH:MM. For an instantaneous marker (no real duration), pass the same value as start.' },
+        days: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 6 }, description: 'Weekdays this repeats on, 1=Monday..6=Saturday. Sunday (0) is never valid — the routine schedule intentionally excludes it.' },
+        location: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['title', 'category', 'start', 'end', 'days'],
+    },
+  },
+  {
+    name: 'edit_recurring_schedule_block',
+    description: 'Permanently changes an existing recurring block (e.g. "move my gym block to 6am every day", "rename the evening focus block"). Affects EVERY future occurrence — if the user only means a single day ("move Tuesday\'s business block to 8pm just this week"), use add_schedule_override instead. Only the fields provided are changed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The block\'s current title (or close to it) — used to find it.' },
+        new_title: { type: 'string' },
+        start: { type: 'string', description: '24h HH:MM. Omit if not changing.' },
+        end: { type: 'string' },
+        location: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'disable_recurring_schedule_block',
+    description: 'Permanently disables a recurring block going forward (e.g. "I don\'t want the Central Park walk anymore"). Does not delete history, just stops it recurring. For skipping a single day only, use add_schedule_override instead.',
+    input_schema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
+  },
+  {
+    name: 'add_schedule_override',
+    description: 'Changes a recurring block for ONE specific date only, without touching any other occurrence (e.g. "skip the park tomorrow", "move Tuesday\'s business block to 8pm just this once"). This is the right tool whenever the user names a specific day rather than saying "every"/"always"/"from now on".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The recurring block\'s title.' },
+        date: { type: 'string', description: 'YYYY-MM-DD — resolve relative dates ("tomorrow", "Tuesday") yourself.' },
+        action: { type: 'string', enum: ['skip', 'move'] },
+        start: { type: 'string', description: '24h HH:MM — required when action is "move".' },
+        end: { type: 'string', description: '24h HH:MM — required when action is "move".' },
+      },
+      required: ['title', 'date', 'action'],
+    },
+  },
+  {
+    name: 'add_schedule_appointment',
+    description: 'Adds a one-time appointment to the Weekly Schedule (e.g. "add a dentist appointment Thursday at noon"). Unlike a recurring block, this never repeats. Also creates the matching event on Google Calendar automatically when Google is connected — if that push fails, the appointment is still saved and can sync later.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        date: { type: 'string', description: 'YYYY-MM-DD' },
+        start: { type: 'string', description: '24h HH:MM' },
+        end: { type: 'string', description: '24h HH:MM. Default to 30 minutes after start if the user did not say.' },
+        location: { type: 'string' },
+      },
+      required: ['title', 'date', 'start'],
+    },
+  },
+  {
+    name: 'move_schedule_appointment',
+    description: 'Reschedules an existing one-time appointment to a new date/time (e.g. "move the dentist thing to 2pm").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The appointment\'s current title — used to find it.' },
+        date: { type: 'string', description: 'New YYYY-MM-DD. Omit to keep the same date.' },
+        start: { type: 'string', description: 'New 24h HH:MM.' },
+        end: { type: 'string' },
+      },
+      required: ['title', 'start'],
+    },
+  },
+  {
+    name: 'cancel_schedule_appointment',
+    description: 'Cancels/removes a one-time appointment entirely (e.g. "cancel the dentist thing"). Also removes it from Google Calendar if it was linked there.',
+    input_schema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
+  },
+  {
+    name: 'pause_schedule_reminders',
+    description: 'Pauses the hourly Weekly Schedule reminders (e.g. "pause reminders for two hours", "stop bugging me about my schedule today"). Executes immediately, no confirmation needed — it is easily reversible with resume_schedule_reminders.',
+    input_schema: {
+      type: 'object',
+      properties: { duration_minutes: { type: 'number', description: 'Omit for an indefinite pause (until explicitly resumed). Otherwise convert whatever the user said ("two hours" -> 120) into minutes.' } },
+      required: [],
+    },
+  },
+  {
+    name: 'resume_schedule_reminders',
+    description: 'Resumes hourly Weekly Schedule reminders after a pause. Executes immediately, no confirmation needed.',
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
 ];
 // The tool schema is identical on every single call — mark it as a cache
@@ -1732,6 +1956,187 @@ async function execListCalendarEvents(args) {
   return { ok: true, events };
 }
 
+// ---------- Weekly Schedule ----------
+// Read tools return structured data, not a pre-written reply — the SYS
+// prompt instructs the model to phrase the actual response itself; this
+// mirrors "the server computes exact changes, Claude only explains them".
+function summarizeScheduleItem(item) {
+  const out = { title: item.title, category: item.category, start: item.start, end: item.end, kind: item.kind };
+  if (item.location) out.location = item.location;
+  return out;
+}
+async function execReadTodaysSchedule(args) {
+  const model = await readScheduleModel();
+  const { dateKey, minutes } = scheduleNow();
+  const resolved = resolveScheduleForDate(model, dateKey);
+  if (!resolved.length) return { ok: true, date: dateKey, items: [], note: 'Nothing is scheduled today — either it is Sunday (intentionally outside the routine) or no active profile covers this date.' };
+  if (args && args.at_time) {
+    const atMin = parseTimeToMinutes(args.at_time);
+    if (atMin == null) return { ok: false, reason: 'at_time must be 24h HH:MM' };
+    const { current } = currentAndNextForDate(resolved, atMin);
+    return { ok: true, date: dateKey, at_time: args.at_time, current: current ? summarizeScheduleItem(current) : null };
+  }
+  const { current, next } = currentAndNextForDate(resolved, minutes);
+  return { ok: true, date: dateKey, current: current ? summarizeScheduleItem(current) : null, next: next ? summarizeScheduleItem(next) : null, items: resolved.map(summarizeScheduleItem) };
+}
+async function execReadWeeklySchedule() {
+  const model = await readScheduleModel();
+  const { dateKey } = scheduleNow();
+  const dow = dayOfWeekFor(dateKey);
+  const monday = dow === 0 ? addDaysToKey(dateKey, 1) : addDaysToKey(dateKey, -(dow - 1));
+  const days = {};
+  for (let i = 0; i < 6; i++) {
+    const d = addDaysToKey(monday, i);
+    days[d] = resolveScheduleForDate(model, d).map(summarizeScheduleItem);
+  }
+  return { ok: true, week_starting: monday, days };
+}
+async function execGetNextScheduleBlock() {
+  const model = await readScheduleModel();
+  const { dateKey, minutes } = scheduleNow();
+  const resolved = resolveScheduleForDate(model, dateKey);
+  const { current, next } = currentAndNextForDate(resolved, minutes);
+  return { ok: true, current: current ? summarizeScheduleItem(current) : null, next: next ? summarizeScheduleItem(next) : null };
+}
+async function execAddRecurringScheduleBlock(args) {
+  return patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    const { dateKey } = scheduleNow();
+    const profile = selectActiveProfile(model, dateKey);
+    if (!profile) return { ok: false, reason: 'no active schedule profile right now to add this to' };
+    profile.blocks.push({
+      id: 'custom:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: args.title, category: args.category, start: args.start, end: args.end,
+      days: [...new Set(args.days.map(Number))].sort(), location: args.location || '', notes: args.notes || '',
+      enabled: true, googleEventId: null, googleSyncStatus: 'idle', googleSyncError: null, googleContentSignature: null,
+    });
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: args.title };
+  });
+}
+async function execEditRecurringScheduleBlock(args) {
+  return patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    let target = null;
+    for (const p of model.profiles) { const b = p.blocks.find(b => b.id === args.block_id); if (b) { target = b; break; } }
+    if (!target) return { ok: false, reason: 'that recurring block no longer exists' };
+    if (args.new_title) target.title = args.new_title;
+    if (args.start) target.start = args.start;
+    if (args.end) target.end = args.end;
+    if (args.location != null) target.location = args.location;
+    if (args.notes != null) target.notes = args.notes;
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: target.title };
+  });
+}
+async function execDisableRecurringScheduleBlock(args) {
+  return patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    let target = null;
+    for (const p of model.profiles) { const b = p.blocks.find(b => b.id === args.block_id); if (b) { target = b; break; } }
+    if (!target) return { ok: false, reason: 'that recurring block no longer exists' };
+    target.enabled = false;
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: target.title };
+  });
+}
+async function execAddScheduleOverride(args) {
+  return patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    model.overrides[args.date] = model.overrides[args.date] || { disabledBlockIds: [], modifiedBlocks: {}, appliedBlockIds: [] };
+    if (args.action === 'skip') {
+      if (!model.overrides[args.date].disabledBlockIds.includes(args.block_id)) model.overrides[args.date].disabledBlockIds.push(args.block_id);
+    } else {
+      model.overrides[args.date].modifiedBlocks[args.block_id] = { start: args.start, end: args.end };
+    }
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, date: args.date, action: args.action };
+  });
+}
+// Unlike the recurring-block tools above (which only touch the dashboard —
+// schedule.html's own explicit-confirm push reconciles them with Google
+// later), a new appointment is pushed to Google immediately here, reusing
+// the exact same getValidGoogleTokens/gWrite path create_calendar_event
+// already uses — "appointments created through the assistant must appear
+// on both Google Calendar and the dashboard" is the one requirement that
+// specifically demands the two stay in lockstep right away. A failed push
+// still saves the appointment locally (syncStatus stays 'local'); the
+// browser's own "Sync now" will pick it up and retry on its own schedule,
+// since it plans purely from googleEventId/googleContentSignature.
+async function execAddScheduleAppointment(args) {
+  const draft = {
+    id: 'appt:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title: args.title, date: args.date, start: args.start, end: args.end || args.start,
+    location: args.location || '', notes: '',
+    googleEventId: null, syncStatus: 'local', syncError: null, googleContentSignature: null,
+  };
+  try {
+    const tokens = await getValidGoogleTokens();
+    if (tokens) {
+      const ev = await gWrite(CALENDAR_EVENTS_URL, tokens.access, 'POST', appointmentToGoogleEvent(draft));
+      draft.googleEventId = ev.id;
+      draft.syncStatus = 'synced';
+      draft.googleContentSignature = appointmentContentSignature(draft);
+    }
+  } catch (e) { /* best-effort — appointment still saves locally below */ }
+  return patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    model.appointments.push(draft);
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: draft.title, google_synced: draft.syncStatus === 'synced' };
+  });
+}
+async function execMoveScheduleAppointment(args) {
+  let updated = null;
+  const result = await patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    const appt = model.appointments.find(a => a.id === args.appointment_id);
+    if (!appt) return { ok: false, reason: 'that appointment no longer exists' };
+    if (args.date) appt.date = args.date;
+    appt.start = args.start;
+    if (args.end) appt.end = args.end;
+    updated = Object.assign({}, appt);
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: appt.title };
+  });
+  if (result.ok && updated && updated.googleEventId) {
+    try {
+      const tokens = await getValidGoogleTokens();
+      if (tokens) await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(updated.googleEventId), tokens.access, 'PATCH', appointmentToGoogleEvent(updated));
+    } catch (e) { /* best-effort — the local move already applied regardless */ }
+  }
+  return result;
+}
+async function execCancelScheduleAppointment(args) {
+  let removed = null;
+  const result = await patchRow('schedule', (data) => {
+    const model = normalizeScheduleModel(data['schedule:model_v1']);
+    const idx = model.appointments.findIndex(a => a.id === args.appointment_id);
+    if (idx < 0) return { ok: false, reason: 'that appointment no longer exists' };
+    removed = model.appointments[idx];
+    model.appointments.splice(idx, 1);
+    data['schedule:model_v1'] = normalizeScheduleModel(model);
+    return { ok: true, title: removed.title };
+  });
+  if (result.ok && removed && removed.googleEventId) {
+    try {
+      const tokens = await getValidGoogleTokens();
+      if (tokens) await gWrite(CALENDAR_EVENTS_URL + '/' + encodeURIComponent(removed.googleEventId), tokens.access, 'DELETE');
+    } catch (e) { /* best-effort — the appointment is already removed locally regardless */ }
+  }
+  return result;
+}
+async function execPauseScheduleReminders(args) {
+  const duration = Number(args && args.duration_minutes);
+  const pausedUntil = duration > 0 ? Date.now() + duration * 60000 : null;
+  await writeRow('schedule_reminder_pause', { paused: true, pausedUntil });
+  return { ok: true, pausedUntil };
+}
+async function execResumeScheduleReminders() {
+  await writeRow('schedule_reminder_pause', { paused: false, pausedUntil: null });
+  return { ok: true };
+}
+
 // ---------- Notes tab ----------
 async function execAddNote(args) {
   return patchRow('notes', (n) => {
@@ -1828,6 +2233,18 @@ const TOOL_EXECUTORS = {
   update_calendar_event: execUpdateCalendarEvent,
   delete_calendar_event: execDeleteCalendarEvent,
   list_calendar_events: execListCalendarEvents,
+  read_todays_schedule: execReadTodaysSchedule,
+  read_weekly_schedule: execReadWeeklySchedule,
+  get_next_schedule_block: execGetNextScheduleBlock,
+  add_recurring_schedule_block: execAddRecurringScheduleBlock,
+  edit_recurring_schedule_block: execEditRecurringScheduleBlock,
+  disable_recurring_schedule_block: execDisableRecurringScheduleBlock,
+  add_schedule_override: execAddScheduleOverride,
+  add_schedule_appointment: execAddScheduleAppointment,
+  move_schedule_appointment: execMoveScheduleAppointment,
+  cancel_schedule_appointment: execCancelScheduleAppointment,
+  pause_schedule_reminders: execPauseScheduleReminders,
+  resume_schedule_reminders: execResumeScheduleReminders,
 };
 
 // ---------- Google Calendar/Gmail/Drive (read-only context, separate locked-down table) ----------
@@ -2005,6 +2422,16 @@ async function buildContext() {
   if (google) context.google = google;
   const usage = summarizeApiUsage(await readRow(USAGE_KEY).catch(() => null));
   if (usage) context.apiUsage = usage;
+  // Cheap enough to always include (one extra row read) so "what's next?"
+  // rarely even needs its own tool call — the model already has current/
+  // next in context, same spirit as today's goals/health being included.
+  try {
+    const scheduleModel = await readScheduleModel();
+    const { dateKey, minutes } = scheduleNow();
+    const resolved = resolveScheduleForDate(scheduleModel, dateKey);
+    const { current, next } = currentAndNextForDate(resolved, minutes);
+    context.schedule = { date: dateKey, current: current ? summarizeScheduleItem(current) : null, next: next ? summarizeScheduleItem(next) : null };
+  } catch (e) { /* schedule row may not exist yet if schedule.html was never opened — omit context, not an error */ }
   return context;
 }
 
@@ -2086,6 +2513,20 @@ const SYS = 'You are the user\'s personal assistant, reachable over Telegram, wi
   + 'into future conversations — a stated preference, an ongoing situation, a plan — that ISN\'T already covered by '
   + 'logging into another tracker and isn\'t just restating Life Context; don\'t call it for routine chat. Call '
   + 'forget_memory() when something remembered is corrected or no longer true.'
+  + '\n\nWeekly Schedule: a "schedule" key, when present, has today\'s current/next routine block or appointment — '
+  + 'enough for a quick "what\'s next?" without a tool call. For anything more (a specific time, the whole week, or '
+  + 'any change) use the read_/add_/edit_/disable_/move_/cancel_/pause_/resume_ schedule tools. You never invent or '
+  + 'directly overwrite the stored schedule yourself — these tools compute the exact change server-side; you only '
+  + 'pick the right one and explain the result in plain language. Read tools (read_todays_schedule, '
+  + 'read_weekly_schedule, get_next_schedule_block, pause_schedule_reminders, resume_schedule_reminders) execute '
+  + 'immediately. Every other schedule tool requires the user\'s explicit confirmation before anything changes, same '
+  + 'as cancel_subscription/delete_calendar_event — you\'ll get a confirmation prompt back; relay it, don\'t re-ask '
+  + 'yourself. Default to add_schedule_override (a one-day-only change) whenever the user names a specific date '
+  + '("skip the park tomorrow", "move Tuesday\'s business block to 8pm") — only use edit_recurring_schedule_block/'
+  + 'disable_recurring_schedule_block when they clearly mean every occurrence going forward ("every Tuesday", '
+  + '"permanently", "from now on"). If asked to "switch to my university schedule": that profile exists on the '
+  + 'dashboard but is deliberately disabled and empty until real class times are supplied — do not call any tool '
+  + 'that would activate or invent one; explain it isn\'t set up yet and offer to help once real times are given.'
   + '\n\nCurrent dashboard data:\n';
 
 // userContent is either a plain string (a normal text message) or an array
@@ -2424,6 +2865,35 @@ async function handleCallbackQuery(botToken, callback, res) {
     return res.status(200).json({ ok: true, callback: true, result });
   }
 
+  // Direct actions on an hourly schedule reminder (see send-reminders.js's
+  // scheduleReminderKeyboard) — the tap itself IS the confirmation, so
+  // these call the executor directly rather than going through the
+  // pending-confirmation gate the chat-driven schedule tools use.
+  if (data.startsWith('sched-skip:')) {
+    // Block ids themselves contain colons (e.g. 'summer-2026:mon-wed:0700-
+    // wake'), so a naive split(':') would mangle them — dateKey is always
+    // a fixed 10-char YYYY-MM-DD suffix, so peel it off from the end
+    // instead of splitting from the front.
+    const rest = data.slice('sched-skip:'.length);
+    const dateKey = rest.slice(-10);
+    const blockId = rest.slice(0, -11); // -10 for the date, -1 for its separating ':'
+    let result;
+    try { result = await execAddScheduleOverride({ block_id: blockId, date: dateKey, action: 'skip' }); }
+    catch (e) { result = { ok: false, reason: e && e.message ? e.message : String(e) }; }
+    try { await tgAnswerCallback(botToken, callback.id, result.ok ? 'Skipped for today' : (result.reason || 'Could not skip it')); } catch (e) {}
+    if (chatId && messageId) {
+      try { await tgClearKeyboard(botToken, chatId, messageId); } catch (e) {}
+      const origText = callback.message && typeof callback.message.text === 'string' ? callback.message.text : '';
+      try { await tgEditText(botToken, chatId, messageId, (origText ? origText + '\n\n' : '') + (result.ok ? '⏭️ Skipped for today' : 'Could not skip it')); } catch (e) {}
+    }
+    return res.status(200).json({ ok: true, callback: true, result });
+  }
+  if (data === 'sched-ok') {
+    try { await tgAnswerCallback(botToken, callback.id, 'Got it'); } catch (e) {}
+    if (chatId && messageId) try { await tgClearKeyboard(botToken, chatId, messageId); } catch (e) {}
+    return res.status(200).json({ ok: true, callback: true });
+  }
+
   if (!data.startsWith('done:')) {
     try { await tgAnswerCallback(botToken, callback.id); } catch (e) {}
     return res.status(200).json({ ok: true, callback: true, ignored: 'unknown callback data' });
@@ -2591,4 +3061,5 @@ export default async function handler(req, res) {
 export {
   buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey, summarizeNotesForContext,
   computeNightScore, tierForNightScore, formatSleepDuration, buildSleepRecap, dateKeyFor, hourFor,
+  resolvePendingAction, handleCallbackQuery, scheduleNow, readScheduleModel,
 };
