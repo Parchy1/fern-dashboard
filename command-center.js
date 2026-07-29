@@ -1,5 +1,6 @@
 import { completeRecommendedAction, formatClock, selectRecommendedAction, timeToMinutes } from './next-action.js';
 import { ALERT_STATE_KEY, dismissAlert, normalizeAlertState, reconcileAlertState, visibleAlerts } from './alert-state.js';
+import { buildDailyBrief } from './daily-brief.js';
 
 const DAY_MS = 86400000;
 
@@ -250,6 +251,7 @@ function readModel() {
   model.alerts = activeAlerts.slice(0, 5);
   model.activity = buildRecentActivity(model);
   model.insight = buildProactiveInsight(model);
+  model.dailyBrief = buildDailyBrief(model, now.getTime());
   return model;
 }
 
@@ -260,6 +262,16 @@ function render() {
   document.getElementById('ccGreeting').textContent = greeting + ', Fernando';
   document.getElementById('ccSystemText').textContent = model.alertCount ? model.alertCount + ' signal' + (model.alertCount === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
+
+  const brief = model.dailyBrief;
+  document.getElementById('ccBriefPeriod').textContent = brief.eyebrow;
+  document.getElementById('ccBriefConfidence').textContent = brief.coverage.confidence + ' · ' + brief.coverage.connected + '/' + brief.coverage.total + ' signals';
+  document.getElementById('ccBriefTitle').textContent = brief.title;
+  document.getElementById('ccBriefSummary').textContent = brief.summary;
+  document.getElementById('ccBriefItems').innerHTML = brief.items.map(item => {
+    const tone = ['active', 'good', 'warn', 'critical'].includes(item.tone) ? ' is-' + item.tone : '';
+    return '<a class="cc-brief-item' + tone + '" href="' + escapeText(item.href) + '"><span class="cc-brief-icon">' + escapeText(item.icon) + '</span><span class="cc-brief-item-body"><small>' + escapeText(item.label) + '</small><b>' + escapeText(item.title) + '</b><span>' + escapeText(item.detail) + '</span></span><span class="cc-row-arrow">→</span></a>';
+  }).join('');
 
   const actionEl = document.getElementById('ccAction');
   if (model.action) {
