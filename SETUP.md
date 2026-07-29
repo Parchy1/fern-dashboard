@@ -1220,6 +1220,41 @@ first time it can't do anything yet.
 
 ---
 
+## 25. Weekly Schedule
+
+Front page → **Today** → **Weekly Schedule**, or **⌘K** → "Weekly Schedule". A real hourly
+timetable (Mon–Sat by design — Sunday is intentionally outside the routine) built from one
+versioned schedule model (`schedule-model.js`), seeded with the approved **Summer 2026** routine
+(effective July 29 – August 31, 2026, `America/New_York`). Desktop shows all six days as columns
+against one shared vertical time axis with a live current-time line; mobile shows one day at a
+time behind accessible day tabs. Category colors (health, travel, work, study, business, creative,
+meals, recovery, free) mark every block; appointments overlay the routine without ever hiding a
+recurring block.
+
+You can add, edit, and disable recurring blocks, and add a one-day-only override (move or skip a
+single occurrence) without touching the recurring definition — the following week's occurrence is
+untouched either way. Data lives in one `schedule:model_v1` localStorage key, synced like everything
+else via `sync.js`'s existing race-safe merge-on-push (a new `schedule` appKey) — no naive
+full-row overwrites.
+
+A disabled `university-2026` profile placeholder ships alongside the summer one so a real class
+schedule has somewhere to go once you have actual times — it never auto-activates and carries zero
+invented blocks.
+
+**Known limitations of this first pass (tracked as follow-up work):**
+- No Google Calendar projection yet — the summer schedule doesn't push to Google Calendar, and
+  Google events aren't overlaid on this page yet (calendar.html's existing read-only Google view is
+  unaffected). That's a separate, explicitly-scoped follow-up.
+- No Telegram assistant integration yet ("what am I doing at 10?", pause/resume reminders, etc.) —
+  also a separate follow-up.
+- No hourly Telegram reminders tied to this schedule yet.
+- The "sync error" banner reflects `sync.js`'s own push-retry outcome (a new `dashboard:sync-error`
+  / `dashboard:sync-ok` event it now dispatches alongside its existing toast); it does not yet
+  reconcile a genuine multi-device edit conflict beyond showing a "reload" prompt if this schedule
+  changed elsewhere while you had an edit open.
+
+---
+
 ## TL;DR
 1. Fork → import to Vercel → deploy.
 2. New Supabase → run the **SQL** above → paste your **URL + anon key** into `sync.js`,
