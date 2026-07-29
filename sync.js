@@ -188,13 +188,22 @@
           { key: appKey, data: merged, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         );
-        if (!error) { lastSyncedJson = json; pushInFlight = false; return; }
+        if (!error) {
+          lastSyncedJson = json; pushInFlight = false;
+          // Additive, backward-compatible signal alongside the existing
+          // behavior — any page can opt in to a dedicated inline sync
+          // state (e.g. clearing a retry banner) without sync.js needing
+          // to know that page exists.
+          try { document.dispatchEvent(new CustomEvent('dashboard:sync-ok', { detail: { appKey } })); } catch (e3) {}
+          return;
+        }
         throw error;
       } catch (e) {
         if (attempt < 3) { setTimeout(() => pushNow(attempt + 1), 2000 * (attempt + 1)); return; }
         pushInFlight = false;
         console.warn('[sync:' + appKey + '] push failed after 3 attempts:', e && e.message ? e.message : e);
         toast('⚠️ Couldn\'t sync your last change (' + appKey + ') — check your connection.');
+        try { document.dispatchEvent(new CustomEvent('dashboard:sync-error', { detail: { appKey, message: e && e.message ? e.message : String(e) } })); } catch (e2) {}
       }
     }
     function schedulePush() {
