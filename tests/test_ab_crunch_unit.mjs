@@ -38,6 +38,7 @@ const gymSrc = fs.readFileSync(path.join(__dirname, '..', 'gym.html'), 'utf8');
 
 const configSrc = extractBlock(gymSrc, 'const CONFIG = ') + ';';
 const buildDefaultExercisesSrc = extractBlock(gymSrc, 'function buildDefaultExercises() ');
+const exerciseLogKeySrc = extractBlock(gymSrc, 'function exerciseLogKey(ex) ');
 const normalizeSrc = extractBlock(gymSrc, 'function normalize(s) ');
 const configVersionMatch = /const CONFIG_VERSION = (\d+);/.exec(gymSrc);
 if (!configVersionMatch) throw new Error('CONFIG_VERSION not found in gym.html');
@@ -48,11 +49,12 @@ vm.runInContext(
   configSrc + '\n' +
   'const CONFIG_VERSION = ' + configVersionMatch[1] + ';\n' +
   buildDefaultExercisesSrc + '\n' +
+  exerciseLogKeySrc + '\n' +
   normalizeSrc + '\n' +
-  'this.__normalize = normalize; this.__CONFIG = CONFIG; this.__CONFIG_VERSION = CONFIG_VERSION; this.__buildDefaultExercises = buildDefaultExercises;',
+  'this.__normalize = normalize; this.__CONFIG = CONFIG; this.__CONFIG_VERSION = CONFIG_VERSION; this.__buildDefaultExercises = buildDefaultExercises; this.__exerciseLogKey = exerciseLogKey;',
   sandbox
 );
-const { __normalize: normalize, __CONFIG: CONFIG, __CONFIG_VERSION: CONFIG_VERSION, __buildDefaultExercises: buildDefaultExercises } = sandbox;
+const { __normalize: normalize, __CONFIG: CONFIG, __CONFIG_VERSION: CONFIG_VERSION, __buildDefaultExercises: buildDefaultExercises, __exerciseLogKey: exerciseLogKey } = sandbox;
 
 // ---- Scenario 1: brand-new user (empty state) ----
 {
@@ -82,7 +84,10 @@ const { __normalize: normalize, __CONFIG: CONFIG, __CONFIG_VERSION: CONFIG_VERSI
 
   const bench = s.exercises.find(e => e.name === 'Barbell bench press');
   assertTrue(!!bench, 'existing exercises (Barbell bench press) untouched by the patch');
-  assertEq(s.logs[bench.id], [{ weight: 82.5, reps: 6, ts: 1752600000000 }], 'previously logged weight/rep history survives — not orphaned by an id change');
+  // Logs are migrated from the old id key to the new name key (see the
+  // name_keyed_logs_2026_08 patch in normalize()), so the history now
+  // lives under exerciseLogKey(bench), not the raw exercise id.
+  assertEq(s.logs[exerciseLogKey(bench)], [{ weight: 82.5, reps: 6, ts: 1752600000000 }], 'previously logged weight/rep history survives the name-key migration — not orphaned by an id change');
 
   // ---- Scenario 2b: normalize again on the already-patched state -> idempotent ----
   const s2 = normalize(JSON.parse(JSON.stringify(s)));

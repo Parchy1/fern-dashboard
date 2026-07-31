@@ -51,7 +51,10 @@ function makeFakeSupabase(seed) {
 
     const setResult = await TOOL_EXECUTORS.log_workout_set({ exercise: 'bench', weight: 135, reps: 8 });
     assertEq(setResult.matched, 'Bench Press', 'log_workout_set fuzzy-matches "bench" to "Bench Press"');
-    const loggedSet = fake.rows['po-coach'].po_coach_v1.logs.ex1[0];
+    // Logs are keyed by normalized exercise name (exerciseLogKey), not the
+    // day-template entry's own id, so a set logged for the same exercise
+    // on another day shares this same bucket instead of fragmenting.
+    const loggedSet = fake.rows['po-coach'].po_coach_v1.logs['name:bench press'][0];
     assertEq(loggedSet.weight, 135, 'logged set has correct weight');
     assertEq(loggedSet.reps, 8, 'logged set has correct reps');
     assertTrue(typeof loggedSet.date === 'string' && loggedSet.date.includes('T'), 'logged set date is an ISO instant, matching gym.html\'s own format');
@@ -69,7 +72,7 @@ function makeFakeSupabase(seed) {
     const back1 = await TOOL_EXECUTORS.log_workout_set({ exercise: 'bench', weight: 130, reps: 10, date: '2026-07-10' });
     assertEq(back1.ok, true, 'log_workout_set accepts a backdated date');
     assertEq(back1.date, '2026-07-10', 'reports back the date it was logged under');
-    let benchLogs = fake.rows['po-coach'].po_coach_v1.logs.ex1;
+    let benchLogs = fake.rows['po-coach'].po_coach_v1.logs['name:bench press'];
     assertEq(benchLogs.length, 2, 'backdated set is added, not merged/skipped');
     assertEq(benchLogs[0].weight, 130, 'backdated set (July 10) is inserted BEFORE the existing today-dated set');
     assertTrue(benchLogs[0].date.startsWith('2026-07-10'), 'backdated set carries the requested date, not today');
@@ -79,7 +82,7 @@ function makeFakeSupabase(seed) {
     // one chronologically, must land between the two (still in order).
     const back2 = await TOOL_EXECUTORS.log_workout_set({ exercise: 'bench', weight: 145, reps: 8, date: '2026-07-10' });
     assertEq(back2.ok, true, 'a second same-day backdated set is also accepted');
-    benchLogs = fake.rows['po-coach'].po_coach_v1.logs.ex1;
+    benchLogs = fake.rows['po-coach'].po_coach_v1.logs['name:bench press'];
     assertEq(benchLogs.length, 3, 'both backdated sets now present alongside the original');
     assertEq(benchLogs[0].weight, 130, 'first July 10 set (130x10) stays first');
     assertEq(benchLogs[1].weight, 145, 'second July 10 set (145x8) inserted right after it');

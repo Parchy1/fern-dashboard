@@ -1926,6 +1926,32 @@ img, video, canvas, svg { max-width: 100%; }
       s.patchesApplied.push('ab_crunch_machine_2026_07');
     }
     s.logs = (s.logs && typeof s.logs === 'object') ? s.logs : {};
+    // One-time migration: log history used to be keyed by the specific
+    // day-template entry's id, so the same physical exercise repeated
+    // across multiple days (e.g. the seeded "Ab crunch machine" on Push/
+    // Legs/Lower) silently had three independent, fragmented histories —
+    // "last weight", the coach's prescribed weight, best set, 1RM estimate,
+    // and the progress chart would only ever reflect whichever day you
+    // happened to log it under. Logs are now keyed by exerciseLogKey(ex)
+    // (a normalized exercise name) instead, shared across every
+    // day-template entry with that name. Runs once, guarded by the flag,
+    // merging + chronologically re-sorting each name's logs from wherever
+    // they were previously scattered — no log entries are dropped.
+    if (s.patchesApplied.indexOf('name_keyed_logs_2026_08') === -1) {
+      const merged = {};
+      s.exercises.forEach(ex => {
+        const oldLogs = s.logs[ex.id];
+        if (!oldLogs || !oldLogs.length) return;
+        const key = exerciseLogKey(ex);
+        merged[key] = (merged[key] || []).concat(oldLogs);
+        delete s.logs[ex.id];
+      });
+      Object.keys(merged).forEach(key => {
+        const existing = s.logs[key] || [];
+        s.logs[key] = existing.concat(merged[key]).sort((a, b) => new Date(a.date) - new Date(b.date));
+      });
+      s.patchesApplied.push('name_keyed_logs_2026_08');
+    }
     s.filterGym = s.filterGym || s.gyms[0].id;
     s.filterDay = s.filterDay || s.days[0].id;
     // Split rotation lives in state so the user can edit it via the pill modal.
@@ -1966,6 +1992,29 @@ img, video, canvas, svg { max-width: 100%; }
   const $ = (id) => document.getElementById(id);
   function unit() { return state.units; }
   function uid() { return 'ex_' + Date.now() + '_' + Math.floor(Math.random() * 9999); }
+  // The canonical log-storage key for an exercise — normalized name, not
+  // the day-template entry's own id, so the same physical exercise
+  // repeated across multiple days shares one real progression history
+  // instead of a separate, fragmented one per day. See the migration in
+  // normalize() for how existing per-id history gets folded into this.
+  function exerciseLogKey(ex) { return 'name:' + String((ex && ex.name) || '').trim().toLowerCase(); }
+  // For loops that aggregate log data across ALL exercises (today's
+  // workout summary, the composition estimator's strength trend) — since
+  // several day-template entries can now share one log bucket by name,
+  // iterating state.exercises directly would process (and over-count) the
+  // same shared logs once per duplicate entry. Picks one representative
+  // entry per unique name instead.
+  function uniqueExercisesByLogKey(exercises) {
+    const seen = new Set();
+    const out = [];
+    (exercises || []).forEach(ex => {
+      const key = exerciseLogKey(ex);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(ex);
+    });
+    return out;
+  }
   function gymName(id) { const g = state.gyms.find(x => x.id === id); return g ? g.name : id; }
   function dayName(id) { const d = state.days.find(x => x.id === id); return d ? d.name : id; }
   function estimate1RM(w, r) { if (r < 2) return w; return w * (1 + r / 30); }
@@ -2178,7 +2227,7 @@ img, video, canvas, svg { max-width: 100%; }
     if (!ex) { ex = f[0]; state.currentEx = ex.id; saveState(); }
     return ex;
   }
-  function getLogs() { return (state.logs[state.currentEx] || []).slice(); }
+  function getLogs() { return (state.logs[exerciseLogKey(getCurrentEx())] || []).slice(); }
 
   // Prescription engine — "what should I do next session?"
   // Upgrade trigger: hits CONFIG.upgradeAtReps (default 8) OR the
@@ -2390,10 +2439,11 @@ img, video, canvas, svg { max-width: 100%; }
       b.addEventListener('click', () => {
         if (!confirm('Delete this log?')) return;
         const origIdx = parseInt(b.dataset.idx, 10);
-        const arr = state.logs[state.currentEx] || [];
+        const key = exerciseLogKey(getCurrentEx());
+        const arr = state.logs[key] || [];
         arr.splice(origIdx, 1);
-        if (!arr.length) delete state.logs[state.currentEx];
-        else state.logs[state.currentEx] = arr;
+        if (!arr.length) delete state.logs[key];
+        else state.logs[key] = arr;
         saveState(); renderAll();
       });
     });
@@ -2522,8 +2572,8 @@ img, video, canvas, svg { max-width: 100%; }
 
   function logsByDay() {
     const byDay = {};
-    state.exercises.forEach(ex => {
-      (state.logs[ex.id] || []).forEach(l => {
+    uniqueExercisesByLogKey(state.exercises).forEach(ex => {
+      (state.logs[exerciseLogKey(ex)] || []).forEach(l => {
         // l.date is a full UTC ISO instant (new Date().toISOString()) --
         // slicing its first 10 characters takes the UTC calendar date, not
         // the local one. Anyone west of UTC logging in the evening (already
@@ -2796,10 +2846,11 @@ img, video, canvas, svg { max-width: 100%; }
     if (reps <= 0) { alert('Pick a rep count.'); return; }
     const w = ex.bw ? 0 : (parseFloat($('weightInput').value) || 0);
     if (!ex.bw && w <= 0) { alert('Enter a weight.'); return; }
-    const arr = state.logs[ex.id] || [];
+    const logKey = exerciseLogKey(ex);
+    const arr = state.logs[logKey] || [];
     const priorLogs = arr.slice(); // history BEFORE this set, for the rest-timer's intensity comparison
     arr.push({ weight: w, reps: reps, date: new Date().toISOString() });
-    state.logs[ex.id] = arr;
+    state.logs[logKey] = arr;
     saveState(); renderAll();
     // Strength changed → composition estimate may shift
     if (typeof wtRender === 'function') wtRender();
@@ -2911,9 +2962,18 @@ img, video, canvas, svg { max-width: 100%; }
   });
   $('exDelete').addEventListener('click', () => {
     if (!editingExId) return;
-    if (!confirm('Delete this exercise and all its logs?')) return;
+    const removedEx = state.exercises.find(e => e.id === editingExId);
+    const removedKey = removedEx ? exerciseLogKey(removedEx) : null;
+    const hasOtherSameNameEntry = removedEx && state.exercises.some(e => e.id !== editingExId && exerciseLogKey(e) === removedKey);
+    if (!confirm(hasOtherSameNameEntry
+      ? 'Delete this exercise? Its logged history is shared with another "' + removedEx.name + '" entry and will be kept.'
+      : 'Delete this exercise and all its logs?')) return;
     state.exercises = state.exercises.filter(e => e.id !== editingExId);
-    delete state.logs[editingExId];
+    // Only clear the shared log bucket if no OTHER day-template entry still
+    // uses this same exercise name — otherwise that entry's real history
+    // would vanish too, even though the user only meant to remove one
+    // day's copy of the movement.
+    if (removedKey && !hasOtherSameNameEntry) delete state.logs[removedKey];
     if (state.currentEx === editingExId) state.currentEx = null;
     editingExId = null;
     saveState();
@@ -3345,8 +3405,8 @@ img, video, canvas, svg { max-width: 100%; }
     let strengthRatios = [];
     let workoutDays = new Set();
     let totalVolumeInWindow = 0;
-    state.exercises.forEach(ex => {
-      const logs = (state.logs[ex.id] || []).slice();
+    uniqueExercisesByLogKey(state.exercises).forEach(ex => {
+      const logs = (state.logs[exerciseLogKey(ex)] || []).slice();
       if (logs.length < 2 || ex.bw) {
         // Still count volume / sessions even for bodyweight + sparse exercises
         logs.forEach(l => {
