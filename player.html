@@ -569,7 +569,10 @@
     if (currentNw != null && peerMedian) {
       const peerRatio = clamp01(currentNw / (peerMedian * WLT_PEER_MULTIPLE_FOR_MAX));
       const pctOfMedian = Math.round((currentNw / peerMedian) * 100);
-      peerPart = { key: 'peer', label: pctOfMedian + '% of typical net worth for your age', ratio: peerRatio, weight: 60 };
+      // Benchmark source/year is named directly in the label (not just a
+      // code comment) so it's visible on the card itself, per the
+      // requirement to clearly attribute the reference data in the UI.
+      peerPart = { key: 'peer', label: pctOfMedian + '% of typical net worth for your age (Fed SCF 2022 median)', ratio: peerRatio, weight: 60 };
     }
 
     // A least-squares trend over every sample in the window (same math
