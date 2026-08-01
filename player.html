@@ -194,6 +194,22 @@
   const WLT_MIN_POINTS = 3;    // fewer than this is just a line between two dots, not a real trend
   const WLT_MONTHLY_TARGET = 0.03; // sustained +3%/mo net worth growth (smoothed across the window) maxes Wealth — aggressive but real, and averaged across every logged point rather than one lucky snapshot
 
+  // Federal Reserve Survey of Consumer Finances (SCF), 2022 wave — the
+  // latest published as of writing. Approximate published median net
+  // worth by age bracket, hardcoded since this app has no live data feed
+  // for it; this is static reference data that will read slightly stale
+  // once a newer SCF wave is published (by design — no server-side fetch
+  // in this app's architecture).
+  const NW_AGE_MEDIANS = [
+    { maxAge: 34, median: 39000 },
+    { maxAge: 44, median: 135600 },
+    { maxAge: 54, median: 247200 },
+    { maxAge: 64, median: 364500 },
+    { maxAge: 74, median: 409900 },
+    { maxAge: Infinity, median: 334700 },
+  ];
+  const WLT_PEER_MULTIPLE_FOR_MAX = 2; // 2x your age bracket's median net worth maxes this part of Wealth — same "demanding but reachable" philosophy as the T targets below
+
   // Targets that define "a 99" for each input. Deliberately demanding but
   // reachable, so a genuinely strong month reads in the 80s-90s rather
   // than pinning at 99 constantly.
@@ -342,6 +358,23 @@
     const base = ys[ys.length - 1];
     if (Math.abs(base) < 0.01) return null; // can't express a meaningful percentage off ~zero net worth
     return (slopePerDay * 30.44) / Math.abs(base);
+  }
+
+  // Looks up the SCF age-bracket median for a given age. Returns null for
+  // an unset/invalid age rather than guessing a bracket.
+  function netWorthPeerMedian(age) {
+    if (typeof age !== 'number' || !(age > 0)) return null;
+    const bracket = NW_AGE_MEDIANS.find(b => age <= b.maxAge);
+    return bracket ? bracket.median : null;
+  }
+
+  // Most recent net worth snapshot by timestamp (not just array order —
+  // nw:history isn't guaranteed to be append-only sorted).
+  function latestNetWorth(history) {
+    if (!Array.isArray(history) || !history.length) return null;
+    const pts = history.filter(h => h && typeof h.t === 'number' && typeof h.v === 'number');
+    if (!pts.length) return null;
+    return pts.reduce((latest, p) => (p.t > latest.t ? p : latest)).v;
   }
 
   /* ---------- Lifetime XP ---------- */
@@ -522,7 +555,26 @@
         ? { key: 'revenue', label: revCount + ' day' + (revCount === 1 ? '' : 's') + ' with income', ratio: revCount / T.revenueDays, weight: 30 } : null,
     ]);
 
-    // ---- WLT: is net worth actually climbing ----
+    // ---- WLT: net worth vs. peers your age, blended with your trend ----
+    // Two independent signals, weighted 60/40 so neither dominates: are
+    // you actually ahead of or behind typical net worth for your age (a
+    // level, benchmarked against SCF 2022 age-bracket medians), and is it
+    // climbing (a trend). blend() renormalizes over whichever part(s)
+    // actually have data, so having only one of the two still rates
+    // fairly on that one alone.
+    let peerPart = null;
+    const age = (d.water && d.water.profile && d.water.profile.age) || null;
+    const currentNw = latestNetWorth(d.nwHistory);
+    const peerMedian = netWorthPeerMedian(age);
+    if (currentNw != null && peerMedian) {
+      const peerRatio = clamp01(currentNw / (peerMedian * WLT_PEER_MULTIPLE_FOR_MAX));
+      const pctOfMedian = Math.round((currentNw / peerMedian) * 100);
+      // Benchmark source/year is named directly in the label (not just a
+      // code comment) so it's visible on the card itself, per the
+      // requirement to clearly attribute the reference data in the UI.
+      peerPart = { key: 'peer', label: pctOfMedian + '% of typical net worth for your age (Fed SCF 2022 median)', ratio: peerRatio, weight: 60 };
+    }
+
     // A least-squares trend over every sample in the window (same math
     // finance.html's own Net Worth Forecast already uses), not a raw
     // first-vs-last delta — two points is just a line between two dots, so
@@ -530,14 +582,15 @@
     // swing the whole rating on its own. Regressing across every logged
     // point averages that noise out, and requires at least 3 points before
     // calling it a trend at all.
+    let trendPart = null;
     const rate = computeMonthlyGrowthRate(d.nwHistory, NW_WINDOW_DAYS, now);
     if (rate != null) {
-      const ratio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
+      const trendRatio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
       const pct = Math.round(rate * 1000) / 10;
-      out.WLT = { ratio, parts: [{ key: 'networth', label: (pct > 0 ? '+' : '') + pct + '%/mo net worth trend', ratio, weight: 100 }] };
-    } else {
-      out.WLT = null;
+      trendPart = { key: 'networth', label: (pct > 0 ? '+' : '') + pct + '%/mo net worth trend', ratio: trendRatio, weight: 40 };
     }
+
+    out.WLT = blend([peerPart, trendPart]);
 
     // ---- MND: reading, deliberate practice, writing things down ----
     const readDays = {};

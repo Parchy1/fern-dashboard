@@ -23,6 +23,15 @@ const WINDOW_DAYS = 30;
 const NW_WINDOW_DAYS = 90;
 const WLT_MIN_POINTS = 3;
 const WLT_MONTHLY_TARGET = 0.03;
+const NW_AGE_MEDIANS = [
+  { maxAge: 34, median: 39000 },
+  { maxAge: 44, median: 135600 },
+  { maxAge: 54, median: 247200 },
+  { maxAge: 64, median: 364500 },
+  { maxAge: 74, median: 409900 },
+  { maxAge: Infinity, median: 334700 },
+];
+const WLT_PEER_MULTIPLE_FOR_MAX = 2;
 const T = {
   gymSessions: 16, nutritionDays: 24, sleepHours: 8, revenueDays: 8,
   readingDays: 12, skillSessions: 12, noteEntries: 8, mistakeEntries: 3,
@@ -104,6 +113,17 @@ function computeMonthlyGrowthRate(history, windowDays, now) {
   const base = ys[ys.length - 1];
   if (Math.abs(base) < 0.01) return null;
   return (slopePerDay * 30.44) / Math.abs(base);
+}
+function netWorthPeerMedian(age) {
+  if (typeof age !== 'number' || !(age > 0)) return null;
+  const bracket = NW_AGE_MEDIANS.find(b => age <= b.maxAge);
+  return bracket ? bracket.median : null;
+}
+function latestNetWorth(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  const pts = history.filter(h => h && typeof h.t === 'number' && typeof h.v === 'number');
+  if (!pts.length) return null;
+  return pts.reduce((latest, p) => (p.t > latest.t ? p : latest)).v;
 }
 function computeXpCounts(d) {
   const c = {};
@@ -243,13 +263,24 @@ function computeAttributes(d, now) {
     ((d.bizRevenue || []).length || (d.bizPayments || []).length) ? { key: 'revenue', ratio: revCount / T.revenueDays, weight: 30 } : null,
   ]);
 
+  let peerPart = null;
+  const age = (d.water && d.water.profile && d.water.profile.age) || null;
+  const currentNw = latestNetWorth(d.nwHistory);
+  const peerMedian = netWorthPeerMedian(age);
+  if (currentNw != null && peerMedian) {
+    const peerRatio = clamp01(currentNw / (peerMedian * WLT_PEER_MULTIPLE_FOR_MAX));
+    const pctOfMedian = Math.round((currentNw / peerMedian) * 100);
+    peerPart = { key: 'peer', label: pctOfMedian + '% of typical net worth for your age (Fed SCF 2022 median)', ratio: peerRatio, weight: 60 };
+  }
+
+  let trendPart = null;
   const rate = computeMonthlyGrowthRate(d.nwHistory, NW_WINDOW_DAYS, now);
   if (rate != null) {
-    const ratio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
-    out.WLT = { ratio, parts: [{ key: 'networth', ratio, weight: 100 }] };
-  } else {
-    out.WLT = null;
+    const trendRatio = clamp01((rate / WLT_MONTHLY_TARGET + 1) / 2);
+    trendPart = { key: 'networth', ratio: trendRatio, weight: 40 };
   }
+
+  out.WLT = blend([peerPart, trendPart]);
 
   const readDays = {};
   (d.readingItems || []).forEach(it => {
@@ -492,6 +523,132 @@ function keysBack(n) { return dayKeysBack(n, NOW); }
     'even two points showing a big swing is not enough on its own anymore — at least 3 points are required before calling it a real trend');
   assertEq(computeAttributes({ nwHistory: linearNwHistory(0.05, 1, [200, 190, 180]) }, NOW).WLT, null,
     'history entirely outside the 90-day window leaves Wealth unrated rather than reporting ancient growth');
+}
+
+{
+  // WLT — net worth vs. age peers, blended 60/40 with the trend above.
+  const day = 86400000;
+  const waterAge = (age) => ({ profile: { age } });
+  function linearNwHistory(monthlyRate, base, daysAgoList) {
+    const slopePerDay = monthlyRate * base / 30.44;
+    return daysAgoList.map(daysAgo => ({ t: NOW - daysAgo * day, v: base - slopePerDay * daysAgo }));
+  }
+
+  // Peer signal alone (no trend data — a single snapshot isn't enough to
+  // fit a trend, but is enough to compare against the age-bracket median).
+  const atMedian = computeAttributes({ water: waterAge(30), nwHistory: [{ t: NOW - day, v: 39000 }] }, NOW);
+  assertEq(ratingFromRatio(atMedian.WLT.ratio), 50, 'sitting at exactly the age-bracket median (2x-for-max scale) rates squarely mid-table');
+
+  const doubleMedian = computeAttributes({ water: waterAge(30), nwHistory: [{ t: NOW - day, v: 78000 }] }, NOW);
+  assertEq(ratingFromRatio(doubleMedian.WLT.ratio), 99, '2x the age-bracket median (under-35 bracket) maxes the peer signal');
+
+  const wayBelow = computeAttributes({ water: waterAge(30), nwHistory: [{ t: NOW - day, v: 0 }] }, NOW);
+  assertEq(ratingFromRatio(wayBelow.WLT.ratio), 1, '$0 net worth bottoms out the peer signal rather than crashing on it');
+
+  // Different age brackets pick a different median for the same net worth.
+  const midCareer = computeAttributes({ water: waterAge(50), nwHistory: [{ t: NOW - day, v: 247200 }] }, NOW);
+  assertEq(ratingFromRatio(midCareer.WLT.ratio), 50, 'the 45-54 bracket\'s own median is used for a 50-year-old, not the under-35 figure');
+
+  const veryOld = computeAttributes({ water: waterAge(90), nwHistory: [{ t: NOW - day, v: 334700 }] }, NOW);
+  assertEq(ratingFromRatio(veryOld.WLT.ratio), 50, 'ages above the oldest named bracket (74) fall into the 75+ bucket rather than going unmatched');
+
+  // No age on file at all (or age not yet set in po_water_v1) — peer part
+  // is excluded, not treated as a zero, mirroring this file's fairness
+  // rule everywhere else.
+  const noAgeButTrending = computeAttributes({ nwHistory: linearNwHistory(WLT_MONTHLY_TARGET, 10000, [89, 60, 30, 1]) }, NOW);
+  assertEq(ratingFromRatio(noAgeButTrending.WLT.ratio), 99, 'with no age on file, Wealth falls back to the trend signal alone rather than going unrated');
+  assertEq(noAgeButTrending.WLT.parts.length, 1, 'only the trend part is present when age is missing');
+
+  // Blend: a strong peer standing plus a weak trend should land between the
+  // two pure-signal ratings, not collapse to either extreme.
+  const blended = computeAttributes({
+    water: waterAge(30),
+    nwHistory: [
+      { t: NOW - 90 * day, v: 78000 },
+      { t: NOW - 60 * day, v: 78000 },
+      { t: NOW - 30 * day, v: 78000 },
+      { t: NOW - 1 * day, v: 78000 }, // flat trend (ratio 50) + 2x-median peer standing (ratio 99)
+    ],
+  }, NOW);
+  assertEq(blended.WLT.parts.length, 2, 'both peer and trend parts are present when age and enough history are both available');
+  // peerRatio 1.0 (60wt) + trendRatio 0.5 (40wt) -> blended ratio 0.8 -> round(0.8*99) = 79.
+  assertEq(ratingFromRatio(blended.WLT.ratio), 79, 'a maxed peer standing blended with a flat trend lands between the two, weighted 60/40 toward the peer comparison');
+
+  assertEq(computeAttributes({ water: waterAge(0), nwHistory: [{ t: NOW - day, v: 10000 }] }, NOW).WLT, null,
+    'an invalid/zero age is treated the same as no age at all — no peer part, and with too little history for a trend either, Wealth stays unrated');
+
+  // Age present but NO net-worth history logged at all (not even one
+  // point) — the peer part has nothing to compare, and there's obviously
+  // no trend either, so Wealth stays unrated rather than defaulting to 0.
+  assertEq(computeAttributes({ water: waterAge(30) }, NOW).WLT, null,
+    'an age on file with zero net-worth history logged leaves Wealth unrated, not scored as a failure');
+}
+
+// ---- Tests: age-bracket boundaries (each bracket's own median applies
+// exactly at its edges, with no gap or overlap between brackets) ----
+
+{
+  const waterAge = (age) => ({ profile: { age } });
+  const day = 86400000;
+  const at2xMedian = (median) => [{ t: NOW - day, v: median * 2 }];
+
+  // Bracket edges: 34 is the top of the <35 bracket, 35 the bottom of 35-44.
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(34), nwHistory: at2xMedian(39000) }, NOW).WLT.ratio), 99,
+    'age 34 (top of the under-35 bracket) uses the under-35 median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(35), nwHistory: at2xMedian(135600) }, NOW).WLT.ratio), 99,
+    'age 35 (bottom of the 35-44 bracket) already uses the 35-44 median, not the under-35 one');
+
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(44), nwHistory: at2xMedian(135600) }, NOW).WLT.ratio), 99,
+    'age 44 (top of the 35-44 bracket) uses the 35-44 median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(45), nwHistory: at2xMedian(247200) }, NOW).WLT.ratio), 99,
+    'age 45 (bottom of the 45-54 bracket) already uses the 45-54 median');
+
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(54), nwHistory: at2xMedian(247200) }, NOW).WLT.ratio), 99,
+    'age 54 (top of the 45-54 bracket) uses the 45-54 median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(55), nwHistory: at2xMedian(364500) }, NOW).WLT.ratio), 99,
+    'age 55 (bottom of the 55-64 bracket) already uses the 55-64 median');
+
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(64), nwHistory: at2xMedian(364500) }, NOW).WLT.ratio), 99,
+    'age 64 (top of the 55-64 bracket) uses the 55-64 median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(65), nwHistory: at2xMedian(409900) }, NOW).WLT.ratio), 99,
+    'age 65 (bottom of the 65-74 bracket) already uses the 65-74 median');
+
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(74), nwHistory: at2xMedian(409900) }, NOW).WLT.ratio), 99,
+    'age 74 (top of the 65-74 bracket, the last NAMED bracket) uses the 65-74 median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(75), nwHistory: at2xMedian(334700) }, NOW).WLT.ratio), 99,
+    'age 75 is the first age to fall into the 75+ bucket, using its own (lower) median');
+  assertEq(ratingFromRatio(computeAttributes({ water: waterAge(140), nwHistory: at2xMedian(334700) }, NOW).WLT.ratio), 99,
+    'an implausibly old age still resolves into the 75+ bucket rather than falling through unmatched');
+}
+
+// ---- Tests: negative and extreme net worth don't break the rating ----
+
+{
+  const waterAge = (age) => ({ profile: { age } });
+  const day = 86400000;
+
+  const deepDebt = computeAttributes({ water: waterAge(30), nwHistory: [{ t: NOW - day, v: -50000 }] }, NOW);
+  assertEq(ratingFromRatio(deepDebt.WLT.ratio), 1, 'negative net worth (net debt) bottoms out the peer signal at 1 rather than going negative or crashing');
+  assertTrue(Number.isFinite(deepDebt.WLT.ratio), 'the ratio itself stays a finite number even with negative net worth');
+
+  const billionaire = computeAttributes({ water: waterAge(30), nwHistory: [{ t: NOW - day, v: 50000000000 }] }, NOW);
+  assertEq(ratingFromRatio(billionaire.WLT.ratio), 99, 'an extreme net worth clamps at 99 rather than overflowing or breaking the scale');
+  assertTrue(Number.isFinite(billionaire.WLT.ratio), 'the ratio stays finite for an extreme value');
+
+  // A trend computed off a near-zero base is rejected by
+  // computeMonthlyGrowthRate itself (division-by-near-zero guard), so only
+  // the peer part should be live here — confirms the two signals don't
+  // interact badly at extreme/edge values.
+  const nearZero = computeAttributes({
+    water: waterAge(30),
+    nwHistory: [
+      { t: NOW - 90 * day, v: 0.001 },
+      { t: NOW - 60 * day, v: 0.001 },
+      { t: NOW - 30 * day, v: 0.001 },
+      { t: NOW - 1 * day, v: 0.001 },
+    ],
+  }, NOW);
+  assertEq(nearZero.WLT.parts.length, 1, 'a near-zero net worth base excludes the unreliable trend calculation, leaving only the peer comparison');
 }
 
 // ==================== computeMonthlyGrowthRate directly ====================
