@@ -8,6 +8,7 @@
 import {
   TOOL_EXECUTORS, computeNightScore, tierForNightScore, formatSleepDuration,
   buildSleepRecap, dateKeyFor, hourFor, plainDateKey,
+  dayKeysBackFrom, nextDateKey, lateCaffeineSleepSessionDays,
 } from '../api/telegram-webhook.js';
 
 let pass = 0, fail = 0;
@@ -114,14 +115,18 @@ function makeFakeSupabase(seed) {
     assertTrue(!fullNight.includes('💡'), 'a maxed-out score does not get a nagging tip');
     assertTrue(!fullNight.includes('night avg'), 'a single-night history does not claim a multi-night trend');
 
-    // A 7-night history plus tonight, to exercise the trend/debt lines.
+    // A full, CONSECUTIVE 7-night history ending on a fixed date (not
+    // plainDateKey(), which moves with the real clock) so the trailing-
+    // window math is exercised against a known, controllable "today".
+    const fixedToday = '2026-01-07';
     const nights = {};
-    ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05', '2026-01-06'].forEach((k, i) => {
+    ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05', '2026-01-06'].forEach((k) => {
       nights[k] = { sleepHours: 6, sleepQuality: 3 }; // consistent below-target nights
     });
-    nights[today] = { sleepHours: 5, sleepQuality: 2 }; // tonight is the worst of the bunch
-    const trended = buildSleepRecap(nights, today, nights[today], {});
-    assertTrue(/7-night avg: \d+/.test(trended), 'a multi-night history reports the trend average');
+    nights[fixedToday] = { sleepHours: 5, sleepQuality: 2 }; // tonight is the worst of the bunch
+    const trended = buildSleepRecap(nights, fixedToday, nights[fixedToday], {});
+    assertTrue(/7-night avg: \d+/.test(trended), 'a full 7-night history reports the trend average');
+    assertTrue(!trended.includes('of 7 nights logged'), 'a FULL 7-night window omits the partial-coverage caveat entirely');
     assertTrue(trended.includes('Sleep debt this week:'), 'a multi-night history reports running sleep debt against the 8h target');
     assertTrue(trended.includes('💡'), 'a below-target night gets an actionable tip');
 
@@ -132,23 +137,143 @@ function makeFakeSupabase(seed) {
     const qualityWeak = buildSleepRecap({}, today, { sleepHours: 8, sleepQuality: 2 }, {});
     assertTrue(qualityWeak.includes('quality was the biggest drag'), 'when quality is the weak point, the tip is about quality');
 
-    const lateCaffeineTs = Date.UTC(2026, 0, 20, 20, 0); // 20:00 UTC, well after 14:00
+    // The night that ends in a wake-up (and check-in) ON 2026-01-20 is the
+    // one that started the EVENING BEFORE — so late caffeine that actually
+    // dented it is timestamped 2026-01-19, not 2026-01-20 itself.
+    const lateCaffeineTs = Date.UTC(2026, 0, 19, 20, 0); // 20:00 UTC Jan 19 — the evening leading into the Jan 20 sleep session
     const caffeineWeak = buildSleepRecap(
       {}, '2026-01-20', { sleepHours: 8, sleepQuality: 5 },
       { 'caf:logs': [{ ts: lateCaffeineTs }] },
     );
-    assertTrue(caffeineWeak.includes('Caffeine after 2pm'), 'when late caffeine is the weak point (and caffeine is actually tracked), the tip calls it out');
+    assertTrue(caffeineWeak.includes('Caffeine after 2pm'), 'when late caffeine (evening before) is the weak point, the tip calls it out');
 
     // Caffeine logged, but not late -> the caffeine part scores full and
     // isn't blamed even though it's the only other tracked factor. Hours
     // low enough (4h) that the score still lands under 85 even with a
     // perfect caffeine factor included, so the tip logic actually fires.
-    const earlyCaffeineTs = Date.UTC(2026, 0, 20, 12, 0); // 12:00 UTC, before 14:00
+    const earlyCaffeineTs = Date.UTC(2026, 0, 20, 12, 0); // 12:00 UTC on the wake-up day itself, before 14:00 — plain daytime caffeine, not late for anything
     const caffeineOk = buildSleepRecap(
       {}, '2026-01-20', { sleepHours: 4, sleepQuality: 5 },
       { 'caf:logs': [{ ts: earlyCaffeineTs }] },
     );
     assertTrue(caffeineOk.includes('closer to 8h') && !caffeineOk.includes('Caffeine'), 'early caffeine does not get blamed for a low score — hours still is');
+  }
+
+  // ==================== Bug fix: late caffeine evaluated against the RIGHT night ====================
+  {
+    process.env.REMINDER_TIMEZONE = 'UTC';
+    // The exact bug: caffeine logged at 11pm the night before a wake-up
+    // used to be invisible, because the old code checked whether caffeine
+    // was logged ON the wake-up date itself, not the evening leading into
+    // it. This must now be caught.
+    const beforeMidnightTs = Date.UTC(2026, 2, 9, 23, 0); // 2026-03-09 23:00 UTC
+    const beforeMidnight = buildSleepRecap(
+      {}, '2026-03-10', { sleepHours: 8, sleepQuality: 5 },
+      { 'caf:logs': [{ ts: beforeMidnightTs }] },
+    );
+    assertTrue(beforeMidnight.includes('Caffeine after 2pm'), 'caffeine logged before midnight (the prior evening) is correctly caught as late for the sleep session that follows — no false clean-caffeine boost');
+
+    // Caffeine logged just AFTER midnight, still before a typical wake-up,
+    // must ALSO count against that same session — it's still "overnight
+    // before you woke up."
+    const afterMidnightTs = Date.UTC(2026, 2, 10, 2, 0); // 2026-03-10 02:00 UTC — 2am, same calendar day as the wake-up
+    const afterMidnight = buildSleepRecap(
+      {}, '2026-03-10', { sleepHours: 8, sleepQuality: 5 },
+      { 'caf:logs': [{ ts: afterMidnightTs }] },
+    );
+    assertTrue(afterMidnight.includes('Caffeine'), 'caffeine logged after midnight but before a typical wake-up still counts as late for that session');
+
+    // Daytime caffeine on the wake-up day itself (well after any
+    // reasonable wake-up, well before that evening) is genuinely unrelated
+    // to the sleep session that already happened — must NOT be flagged.
+    const middayTs = Date.UTC(2026, 2, 10, 10, 0); // 10am
+    const midday = buildSleepRecap(
+      {}, '2026-03-10', { sleepHours: 4, sleepQuality: 5 },
+      { 'caf:logs': [{ ts: middayTs }] },
+    );
+    assertTrue(!midday.includes('Caffeine'), 'ordinary daytime caffeine on the wake-up day itself is not blamed for the sleep that already happened');
+  }
+
+  // ==================== Bug fix: 7-night average is the actual trailing 7 calendar days ====================
+  {
+    process.env.REMINDER_TIMEZONE = 'UTC';
+    const today = '2026-02-10';
+
+    // The exact bug: nights scattered across an unbounded date range used
+    // to get pulled into a "7-night average" just because they were the 7
+    // most recently EXISTING keys — even if they were months apart. Two
+    // ancient nights plus today must NOT produce a misleading "7-night avg".
+    const scattered = {
+      '2025-06-01': { sleepHours: 3, sleepQuality: 1 }, // ancient, terrible night — must not drag down "this week"
+      '2025-09-15': { sleepHours: 3, sleepQuality: 1 },
+      [today]: { sleepHours: 8, sleepQuality: 5 },
+    };
+    const scatteredRecap = buildSleepRecap(scattered, today, scattered[today], {});
+    assertTrue(!/7-night avg/.test(scatteredRecap), 'two nights from months ago plus tonight is only 1 REAL night in the trailing window — not enough for any kind of average, so the line is omitted entirely rather than misleadingly built from scattered history');
+
+    // Missing nights within the real window are represented honestly: a
+    // partial window reports exactly how many of the 7 nights had data.
+    const partial = {
+      [today]: { sleepHours: 8, sleepQuality: 5 },
+      '2026-02-09': { sleepHours: 7, sleepQuality: 4 },
+      '2026-02-08': { sleepHours: 6, sleepQuality: 3 },
+      // 2026-02-07, 02-06, 02-05, 02-04 are all missing entirely.
+    };
+    const partialRecap = buildSleepRecap(partial, today, partial[today], {});
+    assertTrue(partialRecap.includes('7-night avg:') && partialRecap.includes('(3 of 7 nights logged)'), 'a partial window honestly states how many of the 7 nights actually had data, not a silent full-week claim');
+
+    // A full, gapless 7-night window omits the coverage caveat — it IS a
+    // true 7-night average, and says so cleanly.
+    const full = {};
+    dayKeysBackFrom(today, 7).forEach((k) => { full[k] = { sleepHours: 7, sleepQuality: 4 }; });
+    const fullRecap = buildSleepRecap(full, today, full[today], {});
+    assertTrue(fullRecap.includes('7-night avg:') && !fullRecap.includes('of 7 nights logged'), 'a genuinely complete 7-night window reports a clean average with no partial-coverage caveat');
+
+    // Exactly one logged night (today) is NOT enough to call anything an
+    // "average" — the trend line is omitted, distinguishing "not enough
+    // data" from a real (even partial) average.
+    const onlyToday = { [today]: { sleepHours: 8, sleepQuality: 5 } };
+    const onlyTodayRecap = buildSleepRecap(onlyToday, today, onlyToday[today], {});
+    assertTrue(!/night avg/.test(onlyTodayRecap), 'a single logged night is "not enough data" for a trend, not a 1-night "average"');
+
+    // Consecutive-nights sanity check: a run of exactly 4 real, adjacent
+    // nights inside the window reports "4 of 7", matching the real count.
+    const consecutive = {};
+    ['2026-02-10', '2026-02-09', '2026-02-08', '2026-02-07'].forEach((k) => { consecutive[k] = { sleepHours: 7, sleepQuality: 4 }; });
+    const consecutiveRecap = buildSleepRecap(consecutive, today, consecutive[today], {});
+    assertTrue(consecutiveRecap.includes('(4 of 7 nights logged)'), 'a run of exactly 4 consecutive real nights inside the window is reported as 4 of 7, not silently rounded or miscounted');
+  }
+
+  // ==================== dayKeysBackFrom / nextDateKey (pure helpers) ====================
+  {
+    assertEq(dayKeysBackFrom('2026-01-07', 7), ['2026-01-07', '2026-01-06', '2026-01-05', '2026-01-04', '2026-01-03', '2026-01-02', '2026-01-01'], 'dayKeysBackFrom returns the anchor date first, then walks backward one real calendar day at a time');
+    assertEq(dayKeysBackFrom('2026-03-02', 5), ['2026-03-02', '2026-03-01', '2026-02-28', '2026-02-27', '2026-02-26'], 'dayKeysBackFrom correctly rolls back across a month boundary (non-leap Feb)');
+    assertEq(dayKeysBackFrom('2028-03-01', 2), ['2028-03-01', '2028-02-29'], 'dayKeysBackFrom correctly lands on Feb 29 in a leap year');
+    assertEq(nextDateKey('2026-01-31'), '2026-02-01', 'nextDateKey rolls over a month boundary');
+    assertEq(nextDateKey('2026-12-31'), '2027-01-01', 'nextDateKey rolls over a year boundary');
+    assertEq(nextDateKey('2028-02-28'), '2028-02-29', 'nextDateKey lands on the leap day in a leap year');
+  }
+
+  // ==================== lateCaffeineSleepSessionDays / DST boundaries ====================
+  {
+    process.env.REMINDER_TIMEZONE = 'America/New_York';
+    // US spring-forward 2026: 2026-03-08 02:00 EST -> 03:00 EDT. A caffeine
+    // log logged well before that transition, in the evening, must still
+    // resolve to the correct NEXT calendar day's sleep session — the DST
+    // jump itself must not shift which civil date it lands on.
+    const springEveningTs = Date.UTC(2026, 2, 7, 23, 0); // 2026-03-07 18:00 EST (UTC-5, before the transition)
+    const springDays = lateCaffeineSleepSessionDays([{ ts: springEveningTs }]);
+    assertTrue(springDays.has('2026-03-08'), 'an evening caffeine log the day before spring-forward still resolves to the correct next-day sleep session');
+
+    // US fall-back 2026: 2026-11-01 02:00 EDT -> 01:00 EST (the 1-2am hour
+    // repeats). An early-morning caffeine log around that repeated hour
+    // must still land on a sane, single calendar date rather than
+    // duplicating or skipping a day.
+    const fallMorningTs = Date.UTC(2026, 10, 1, 6, 30); // 2026-11-01 01:30 EST (UTC-5, after "falling back")
+    const fallDays = lateCaffeineSleepSessionDays([{ ts: fallMorningTs }]);
+    assertEq([...fallDays], ['2026-11-01'], 'an early-morning caffeine log during a fall-back-affected hour resolves to exactly one sane calendar date');
+
+    process.env.REMINDER_TIMEZONE = 'UTC';
   }
 
   // ==================== execLogMorningCheckin wires a real recap into its tool result ====================
