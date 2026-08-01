@@ -2948,7 +2948,21 @@ img, video, canvas, svg { max-width: 100%; }
     };
     if (editingExId) {
       const ex = state.exercises.find(e => e.id === editingExId);
-      if (ex) Object.assign(ex, data);
+      if (ex) {
+        const oldKey = exerciseLogKey(ex);
+        // Was this the ONLY entry under the old name (before the rename)?
+        // If another day-template copy still uses it, its shared history
+        // must stay put — renaming just this one entry effectively forks
+        // it into a new identity rather than carrying the group's history.
+        const hadOtherSameNameEntry = state.exercises.some(e => e.id !== editingExId && exerciseLogKey(e) === oldKey);
+        Object.assign(ex, data);
+        const newKey = exerciseLogKey(ex);
+        if (newKey !== oldKey && !hadOtherSameNameEntry && state.logs[oldKey] && state.logs[oldKey].length) {
+          const existing = state.logs[newKey] || [];
+          state.logs[newKey] = existing.concat(state.logs[oldKey]).sort((a, b) => new Date(a.date) - new Date(b.date));
+          delete state.logs[oldKey];
+        }
+      }
     } else {
       const ex = Object.assign({ id: uid() }, data);
       state.exercises.push(ex);

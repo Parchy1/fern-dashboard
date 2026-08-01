@@ -188,5 +188,117 @@ function insertLoggedSet(state, ex, weight, reps, when) {
   assertEq(state.logs[key][1].weight, 225, 'the later set stays after the backdated one');
 }
 
+// ---- Tests: renaming an exercise migrates its history (duplicated from
+// the exModalSave handler's rename-migration logic) ----
+
+function renameExercise(state, id, newName) {
+  const ex = state.exercises.find(e => e.id === id);
+  const oldKey = exerciseLogKey(ex);
+  const hadOtherSameNameEntry = state.exercises.some(e => e.id !== id && exerciseLogKey(e) === oldKey);
+  ex.name = newName;
+  const newKey = exerciseLogKey(ex);
+  if (newKey !== oldKey && !hadOtherSameNameEntry && state.logs[oldKey] && state.logs[oldKey].length) {
+    const existing = state.logs[newKey] || [];
+    state.logs[newKey] = existing.concat(state.logs[oldKey]).sort((a, b) => new Date(a.date) - new Date(b.date));
+    delete state.logs[oldKey];
+  }
+  return { hadOtherSameNameEntry };
+}
+
+{
+  // The common case: renaming the ONLY exercise with this name carries its
+  // full history over to the new name, rather than silently orphaning it.
+  const oldKey = exerciseLogKey({ name: 'Leg Press' });
+  const state = {
+    exercises: [{ id: 'ex_1', name: 'Leg Press', day: 'legs' }],
+    logs: { [oldKey]: [{ weight: 300, reps: 10, date: '2026-07-01T12:00:00.000Z' }] },
+  };
+  renameExercise(state, 'ex_1', 'Leg Press Machine');
+  const newKey = exerciseLogKey({ name: 'Leg Press Machine' });
+  assertTrue(!state.logs[oldKey], 'the old name\'s log bucket no longer exists after a rename');
+  assertEq(state.logs[newKey], [{ weight: 300, reps: 10, date: '2026-07-01T12:00:00.000Z' }], 'the full history moved intact to the new name\'s bucket');
+}
+
+{
+  // Renaming into a name that ALREADY has its own history (e.g. renaming
+  // "Bench Press" into "Barbell bench press", an existing exercise) merges
+  // rather than overwrites.
+  const oldKey = exerciseLogKey({ name: 'Bench Press' });
+  const newKey = exerciseLogKey({ name: 'Barbell bench press' });
+  const state = {
+    exercises: [{ id: 'ex_1', name: 'Bench Press', day: 'push' }],
+    logs: {
+      [oldKey]: [{ weight: 135, reps: 8, date: '2026-07-05T12:00:00.000Z' }],
+      [newKey]: [{ weight: 130, reps: 8, date: '2026-07-01T12:00:00.000Z' }],
+    },
+  };
+  renameExercise(state, 'ex_1', 'Barbell bench press');
+  assertEq(state.logs[newKey].length, 2, 'renaming into an existing name merges histories rather than overwriting the destination');
+  assertEq(state.logs[newKey][0].weight, 130, 'the merged history stays chronologically sorted');
+  assertEq(state.logs[newKey][1].weight, 135, 'the more recent set stays after the older one post-merge');
+}
+
+{
+  // Renaming ONE of several duplicate-named entries: the shared history
+  // stays with the other day-template copies still using the old name —
+  // it must not be duplicated into the renamed entry, since that would
+  // fork one person's real history into two places.
+  const key = exerciseLogKey({ name: 'Ab crunch machine' });
+  const state = {
+    exercises: [
+      { id: 'ex_1', name: 'Ab crunch machine', day: 'push' },
+      { id: 'ex_2', name: 'Ab crunch machine', day: 'legs' },
+    ],
+    logs: { [key]: [{ weight: 40, reps: 12, date: '2026-07-01T12:00:00.000Z' }] },
+  };
+  const { hadOtherSameNameEntry } = renameExercise(state, 'ex_1', 'Ab crunch machine v2');
+  assertTrue(hadOtherSameNameEntry, 'detects that another day-template entry still used the old name');
+  assertTrue(!!state.logs[key], 'the shared history under the old name survives for the still-named entry');
+  const newKey = exerciseLogKey({ name: 'Ab crunch machine v2' });
+  assertTrue(!state.logs[newKey], 'the renamed entry does NOT inherit a copy of history it never logged itself');
+}
+
+{
+  // A rename that only changes casing/whitespace maps to the SAME
+  // exerciseLogKey, so there is nothing to migrate — must be a no-op, not
+  // an unnecessary merge-with-itself.
+  const key = exerciseLogKey({ name: 'Squat' });
+  const state = {
+    exercises: [{ id: 'ex_1', name: 'Squat', day: 'legs' }],
+    logs: { [key]: [{ weight: 225, reps: 5, date: '2026-07-01T12:00:00.000Z' }] },
+  };
+  renameExercise(state, 'ex_1', '  SQUAT  ');
+  assertEq(Object.keys(state.logs), [key], 'a casing/whitespace-only rename keeps using the same normalized key');
+  assertEq(state.logs[key].length, 1, 'no duplication occurs from a same-key rename');
+}
+
+// ---- Tests: capitalization variants share history end-to-end ----
+
+{
+  const state = { logs: {} };
+  const variantA = { id: 'ex_1', name: 'BENCH PRESS', day: 'push' };
+  const variantB = { id: 'ex_2', name: 'bench press', day: 'upper' };
+  const variantC = { id: 'ex_3', name: 'Bench Press', day: 'pull' };
+  insertLoggedSet(state, variantA, 100, 10, new Date('2026-07-01T12:00:00.000Z'));
+  insertLoggedSet(state, variantB, 105, 8, new Date('2026-07-03T12:00:00.000Z'));
+  insertLoggedSet(state, variantC, 110, 6, new Date('2026-07-05T12:00:00.000Z'));
+  assertEq(Object.keys(state.logs).length, 1, 'three differently-capitalized spellings of the same exercise all share one log bucket');
+  assertEq(state.logs[exerciseLogKey(variantA)].length, 3, 'all three logged sets landed in that one shared bucket');
+}
+
+// ---- Tests: empty histories don't crash the aggregate helpers ----
+
+{
+  const exercises = [
+    { id: 'ex_1', name: 'Untouched Exercise', day: 'push' },
+    { id: 'ex_2', name: 'Also Untouched', day: 'legs' },
+  ];
+  assertEq(uniqueExercisesByLogKey(exercises).length, 2, 'exercises with no logged history at all still pass through uniqueness filtering cleanly');
+  const state = { exercises, logs: {} };
+  const removed = deleteExercise(state, 'ex_1');
+  assertTrue(!removed.hasOtherSameNameEntry, 'deleting a never-logged exercise reports no surviving duplicate');
+  assertEq(state.logs, {}, 'deleting a never-logged exercise leaves an already-empty logs object untouched, no crash');
+}
+
 console.log('\n--- ' + pass + ' passed, ' + fail + ' failed ---\n');
 if (fail > 0) process.exit(1);
