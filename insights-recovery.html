@@ -119,6 +119,39 @@
     return out;
   }
 
+  function nextDateKey(dateKey) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const cursor = new Date(y, m - 1, d);
+    cursor.setDate(cursor.getDate() + 1);
+    return dateKeyFromDate(cursor);
+  }
+
+  // A caffeine log is "late" relative to whichever SLEEP SESSION it falls
+  // the evening before — not the calendar date it happens to be logged on.
+  // sleep:nights is keyed by the WAKE-UP date, so checking "late caffeine
+  // logged on the wake-up date itself" checks the wrong day: caffeine at
+  // 11pm the night before (the common case) lands on the PRIOR calendar
+  // date and was invisible to that check, silently awarding a false
+  // clean-caffeine boost. Window: 14:00 (2pm) through 05:59 the next
+  // calendar day, covering caffeine logged both before AND after midnight
+  // — either can disrupt the sleep session that follows. Mirrors
+  // api/telegram-webhook.js's lateCaffeineSleepSessionDays() exactly, so
+  // the Telegram recap and this page always agree on the same nights.
+  const LATE_CAFFEINE_EVENING_HOUR = 14;
+  const LATE_CAFFEINE_MORNING_HOUR = 6;
+  function lateCaffeineSleepSessionDays(cafLogs) {
+    const days = new Set();
+    (cafLogs || []).forEach(l => {
+      if (!l || !l.ts) return;
+      const d = new Date(l.ts);
+      const h = d.getHours();
+      const dateKey = dateKeyFromDate(d);
+      if (h >= LATE_CAFFEINE_EVENING_HOUR) days.add(nextDateKey(dateKey));
+      else if (h < LATE_CAFFEINE_MORNING_HOUR) days.add(dateKey);
+    });
+    return days;
+  }
+
   function buildDayRows(rowsByKey, dateKeys) {
     const peakData = rowsByKey.peak || {};
     const sleepData = rowsByKey.sleep || {};
@@ -137,12 +170,7 @@
       if (c.stress) (stressByDay[c.dateKey] = stressByDay[c.dateKey] || []).push(c.stress);
     });
 
-    const lateCaffeineDays = new Set();
-    cafLogs.forEach(l => {
-      if (!l || !l.ts) return;
-      const d = new Date(l.ts);
-      if (d.getHours() >= 14) lateCaffeineDays.add(dateKeyFromDate(d));
-    });
+    const lateCaffeineDays = lateCaffeineSleepSessionDays(cafLogs);
 
     return dateKeys.map(dateKey => {
       const feelings = feelingByDay[dateKey], stresses = stressByDay[dateKey];
@@ -243,7 +271,7 @@
 
   window.__insightsRecoveryLogic = {
     dateKeyFromDate, lastNDateKeys, buildDayRows, computeNightScore, computeNightScoreTrend,
-    tierForNightScore, computeSleepDebt, computeBurnoutRisk,
+    tierForNightScore, computeSleepDebt, computeBurnoutRisk, nextDateKey, lateCaffeineSleepSessionDays,
   };
 
   // ---- Rendering ----

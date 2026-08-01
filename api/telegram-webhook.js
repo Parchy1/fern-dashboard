@@ -1679,6 +1679,22 @@ function dateKeyFor(ts) {
 function hourFor(ts) {
   return new Date(new Date(ts).toLocaleString('en-US', { timeZone: tz() })).getHours();
 }
+// The trailing N calendar days ending at (and including) `dateKey`, as an
+// exact date-key sequence — NOT "the N most recent keys that happen to
+// exist" in some sparse map, which can silently span an unbounded date
+// range if there are gaps. Operates on Date FIELD arithmetic (setDate),
+// which is DST-safe: civil-day rollover is correct even across a spring-
+// forward/fall-back transition, unlike subtracting a fixed 86400000ms.
+function dayKeysBackFrom(dateKey, days) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const cursor = new Date(y, m - 1, d);
+  const out = [];
+  for (let i = 0; i < days; i++) {
+    out.push(cursor.getFullYear() + '-' + pad2(cursor.getMonth() + 1) + '-' + pad2(cursor.getDate()));
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return out;
+}
 
 // Ports insights-recovery.html's computeNightScore/tierForNightScore exactly
 // (same weights, same 0-100 scale) so a score read out over Telegram always
@@ -1709,6 +1725,42 @@ function formatSleepDuration(hours) {
   return h + 'h' + (m ? ' ' + m + 'm' : '');
 }
 
+// A caffeine log is "late" relative to whichever SLEEP SESSION it actually
+// falls in the evening before — not the calendar date it happens to be
+// logged on. sleep:nights entries are keyed by the WAKE-UP date, so naively
+// checking "was there late caffeine logged on the wake-up date itself"
+// checks the wrong day entirely: caffeine at 11pm the night before (by far
+// the common case) lands on the PRIOR calendar date and was invisible to
+// that check, silently awarding a false clean-caffeine boost. The window
+// here is 14:00 (2pm) through 05:59 the next calendar day, in whichever tz
+// tz() resolves to — covering caffeine logged both before AND after
+// midnight, since either can equally disrupt the sleep session that
+// follows. dateKeyFor()/hourFor() already do the DST-safe tz conversion.
+function nextDateKey(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const cursor = new Date(y, m - 1, d);
+  cursor.setDate(cursor.getDate() + 1);
+  return cursor.getFullYear() + '-' + pad2(cursor.getMonth() + 1) + '-' + pad2(cursor.getDate());
+}
+const LATE_CAFFEINE_EVENING_HOUR = 14; // 2pm — caffeine at/after this hour is "late" for the sleep session that follows that evening
+const LATE_CAFFEINE_MORNING_HOUR = 6;  // caffeine before this hour is still "late" for the session it falls within (post-midnight, pre-wake)
+function lateCaffeineSleepSessionDays(cafLogs) {
+  const days = new Set();
+  (cafLogs || []).forEach((l) => {
+    if (!l || !l.ts) return;
+    const h = hourFor(l.ts);
+    const d = dateKeyFor(l.ts);
+    if (h >= LATE_CAFFEINE_EVENING_HOUR) days.add(nextDateKey(d));
+    else if (h < LATE_CAFFEINE_MORNING_HOUR) days.add(d);
+  });
+  return days;
+}
+
+// Below this many logged nights within the trailing window, an "average"
+// isn't a meaningful claim — the trend line is omitted entirely rather
+// than implying a trend off one data point.
+const NIGHT_SCORE_MIN_TREND_NIGHTS = 2;
+
 // Builds the wake-up recap sent back over Telegram: today's Night Score
 // (identical formula to the dashboard's own gauge), how long/well they
 // slept, a 7-night trend so a single rough night reads in context, running
@@ -1720,22 +1772,23 @@ function formatSleepDuration(hours) {
 function buildSleepRecap(nights, todayKey, entry, caffeineRow) {
   const cafLogs = (caffeineRow && caffeineRow['caf:logs']) || [];
   const caffeineTracked = cafLogs.length > 0;
-  const lateCaffeineDays = new Set();
-  cafLogs.forEach((l) => {
-    if (!l || !l.ts) return;
-    if (hourFor(l.ts) >= 14) lateCaffeineDays.add(dateKeyFor(l.ts));
-  });
+  const lateCaffeineDays = lateCaffeineSleepSessionDays(cafLogs);
 
   const todayScore = computeNightScore(entry.sleepHours, entry.sleepQuality, lateCaffeineDays.has(todayKey), caffeineTracked);
   if (todayScore == null) return null; // neither hours nor quality logged — nothing to score yet
 
-  const recentKeys = Object.keys(nights).sort().reverse().slice(0, NIGHT_SCORE_WINDOW_DAYS);
+  // The ACTUAL trailing 7 calendar days ending today — not "the 7 most
+  // recently logged entries," which can silently span months if there are
+  // gaps in between. Missing nights just don't contribute a score, and how
+  // many real nights DID contribute is reported honestly below rather than
+  // presented as a full week's worth of data regardless of coverage.
+  const recentKeys = dayKeysBackFrom(todayKey, NIGHT_SCORE_WINDOW_DAYS);
   const recentScores = recentKeys
-    .map((k) => computeNightScore(nights[k].sleepHours, nights[k].sleepQuality, lateCaffeineDays.has(k), caffeineTracked))
+    .map((k) => (nights[k] ? computeNightScore(nights[k].sleepHours, nights[k].sleepQuality, lateCaffeineDays.has(k), caffeineTracked) : null))
     .filter((s) => s != null);
   const trendAvg = recentScores.length ? Math.round(recentScores.reduce((a, b) => a + b, 0) / recentScores.length) : null;
 
-  const recentHours = recentKeys.map((k) => nights[k].sleepHours).filter((h) => typeof h === 'number');
+  const recentHours = recentKeys.map((k) => (nights[k] ? nights[k].sleepHours : null)).filter((h) => typeof h === 'number');
   const sleepDebt = recentHours.length ? recentHours.reduce((a, h) => a + Math.max(0, TARGET_SLEEP_HOURS - h), 0) : null;
 
   const headline = ['Score ' + todayScore + ' (' + tierForNightScore(todayScore) + ')'];
@@ -1746,9 +1799,10 @@ function buildSleepRecap(nights, todayKey, entry, caffeineRow) {
   stats.push(headline[0]);
 
   const lines = ['🌙 Sleep Recap', stats.join(' · ')];
-  if (trendAvg != null && recentScores.length > 1) {
+  if (trendAvg != null && recentScores.length >= NIGHT_SCORE_MIN_TREND_NIGHTS) {
+    const coverageSuffix = recentScores.length === NIGHT_SCORE_WINDOW_DAYS ? '' : ' (' + recentScores.length + ' of ' + NIGHT_SCORE_WINDOW_DAYS + ' nights logged)';
     lines.push(
-      NIGHT_SCORE_WINDOW_DAYS + '-night avg: ' + trendAvg
+      NIGHT_SCORE_WINDOW_DAYS + '-night avg: ' + trendAvg + coverageSuffix
       + (sleepDebt != null ? ' · Sleep debt this week: ' + sleepDebt.toFixed(1) + 'h' : '')
     );
   }
@@ -1763,7 +1817,7 @@ function buildSleepRecap(nights, todayKey, entry, caffeineRow) {
     if (worst && worst.ratio < 1) {
       const tip = worst.key === 'hours' ? 'Getting closer to 8h would help the most.'
         : worst.key === 'quality' ? 'Sleep quality was the biggest drag tonight — worth a look at what disrupted it.'
-        : 'Caffeine after 2pm looks like it dented this one.';
+        : 'Caffeine after 2pm (or overnight before you woke up) looks like it dented this one.';
       lines.push('💡 ' + tip);
     }
   }
@@ -3068,5 +3122,6 @@ export default async function handler(req, res) {
 export {
   buildContext, buildGoogleContext, callClaude, TOOL_EXECUTORS, activeDateKey, plainDateKey, summarizeNotesForContext,
   computeNightScore, tierForNightScore, formatSleepDuration, buildSleepRecap, dateKeyFor, hourFor,
+  dayKeysBackFrom, nextDateKey, lateCaffeineSleepSessionDays,
   resolvePendingAction, handleCallbackQuery, scheduleNow, readScheduleModel,
 };
