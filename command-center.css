@@ -20,6 +20,15 @@
 .cc-ai-core.score-card .hud-ring { width:166px;height:166px;animation:ccCoreBreathe 5s ease-in-out infinite; }
 .cc-ai-core.has-alerts .hud-ring { animation-duration:3.3s; }
 @keyframes ccCoreBreathe { 0%,100%{transform:scale(1)} 50%{transform:scale(1.025)} }
+/* design-system.css's global reduced-motion block already resets
+   .cc-ai-core, but that rule can't reach a MORE SPECIFIC selector like
+   .cc-ai-core.score-card .hud-ring above — specificity beats source order,
+   so the breathing animation kept running under prefers-reduced-motion.
+   Overridden here, next to the rule it needs to beat. */
+@media (prefers-reduced-motion: reduce) {
+  .cc-ai-core.score-card .hud-ring,
+  .cc-ai-core.has-alerts .hud-ring { animation: none; }
+}
 .cc-ai-core .score-num { font-size:clamp(48px,8vw,72px); }
 .cc-ai-core .score-max { margin-top:4px; }
 .cc-ai-core .score-tier { margin-top:18px;color:var(--text-primary);font-weight:800; }
