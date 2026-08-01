@@ -169,6 +169,12 @@ function fuzzyFind(list, needle, keyFn) {
   return hit || null;
 }
 
+// Mirrors gym.html's exerciseLogKey(): state.logs is keyed by normalized
+// exercise name, not a specific day-template entry's id, so a set logged
+// here for an exercise that also appears on another day (e.g. an
+// upper/lower duplicate) lands in the same shared history gym.html reads.
+function exerciseLogKey(ex) { return 'name:' + String((ex && ex.name) || '').trim().toLowerCase(); }
+
 // ---------- Supabase app_state row helpers ----------
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 // Retries a transient failure (network blip, 429 rate limit, 5xx) up to
@@ -1283,7 +1289,8 @@ async function execLogWorkoutSet(args) {
     const when = args.date ? new Date(args.date + 'T12:00:00') : new Date();
     if (isNaN(when.getTime())) return { ok: false, reason: 'could not understand date "' + args.date + '"' };
     state.logs = state.logs || {};
-    const arr = state.logs[ex.id] || [];
+    const logKey = exerciseLogKey(ex);
+    const arr = state.logs[logKey] || [];
     const entry = { weight: Number(args.weight) || 0, reps: Number(args.reps) || 0, date: when.toISOString() };
     // gym.html's history/sparkline/best-set logic all assume this array is
     // in chronological (push) order, so a backdated set must be inserted
@@ -1293,7 +1300,7 @@ async function execLogWorkoutSet(args) {
       if (new Date(arr[i].date).getTime() > when.getTime()) { insertAt = i; break; }
     }
     arr.splice(insertAt, 0, entry);
-    state.logs[ex.id] = arr;
+    state.logs[logKey] = arr;
     pc['po_coach_v1'] = state;
     return { ok: true, matched: ex.name, date: when.toISOString().slice(0, 10) };
   });
