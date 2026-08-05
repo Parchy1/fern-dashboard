@@ -91,6 +91,7 @@ const CONFIG = {
     { name: "Cable tricep pushdown",       gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
     { name: "Lateral raise (dumbbell)",    gym: "comm", day: "push", repMin: 10, repMax: 15, step: 1.25, startWeight: 8  },
     { name: "Ab crunch machine",           gym: "comm", day: "push", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
+    { name: "Cable woodchopper",           gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
 
     // Day 2: Pull
     { name: "Lat pulldown",                gym: "comm", day: "pull", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 45 },
@@ -98,6 +99,7 @@ const CONFIG = {
     { name: "Assisted pull-up machine",    gym: "comm", day: "pull", repMin: 5,  repMax: 10, step: 1,    startWeight: 0, bw: true },
     { name: "Dumbbell bicep curl",         gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 1.25, startWeight: 12 },
     { name: "Face pull (cable)",           gym: "comm", day: "pull", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
+    { name: "Hanging leg raise",           gym: "comm", day: "pull", repMin: 8,  repMax: 15, step: 1,    startWeight: 0, bw: true },
 
     // Day 3: Legs
     { name: "Back squat",                  gym: "comm", day: "legs", repMin: 5,  repMax: 8,  step: 5,    startWeight: 80 },
@@ -106,6 +108,7 @@ const CONFIG = {
     { name: "Leg extension machine",       gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 35 },
     { name: "Calf raise",                  gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 40 },
     { name: "Ab crunch machine",           gym: "comm", day: "legs", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
+    { name: "Weighted decline sit-up",     gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 5  },
 
     // Day 4: Upper
     { name: "Incline dumbbell press",      gym: "comm", day: "upper", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 20 },
@@ -114,6 +117,7 @@ const CONFIG = {
     { name: "Cable row (close grip)",      gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
     { name: "Bicep curl (superset)",       gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 1.25, startWeight: 12 },
     { name: "Tricep pushdown (superset)",  gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
+    { name: "Russian twist (dumbbell)",    gym: "comm", day: "upper", repMin: 12, repMax: 20, step: 1.25, startWeight: 8  },
 
     // Day 5: Lower
     { name: "Deadlift",                    gym: "comm", day: "lower", repMin: 4,  repMax: 6,  step: 5,   startWeight: 100 },
@@ -121,7 +125,8 @@ const CONFIG = {
     { name: "Leg curl",                    gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 30 },
     { name: "Leg extension",               gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 35 },
     { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 40 },
-    { name: "Ab crunch machine",           gym: "comm", day: "lower", repMin: 12, repMax: 20, step: 2.5, startWeight: 20 }
+    { name: "Ab crunch machine",           gym: "comm", day: "lower", repMin: 12, repMax: 20, step: 2.5, startWeight: 20 },
+    { name: "Cable crunch",                gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 20 }
   ]
 };
 </script>
@@ -1904,6 +1909,7 @@ img, video, canvas, svg { max-width: 100%; }
       s.splitAnchor = null;
       s.configVersion = CONFIG_VERSION;
       if (s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) s.patchesApplied.push('ab_crunch_machine_2026_07');
+      if (s.patchesApplied.indexOf('core_expansion_2026_08') === -1) s.patchesApplied.push('core_expansion_2026_08');
     }
 
     s.days  = (Array.isArray(s.days)  && s.days.length)  ? s.days  : CONFIG.days.slice();
@@ -1911,6 +1917,9 @@ img, video, canvas, svg { max-width: 100%; }
     s.exercises = Array.isArray(s.exercises) ? s.exercises : buildDefaultExercises();
     if (exercisesWereMissing && s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) {
       s.patchesApplied.push('ab_crunch_machine_2026_07');
+    }
+    if (exercisesWereMissing && s.patchesApplied.indexOf('core_expansion_2026_08') === -1) {
+      s.patchesApplied.push('core_expansion_2026_08');
     }
 
     // The actual additive patch: only reaches here (flag not yet set) for a
@@ -1951,6 +1960,25 @@ img, video, canvas, svg { max-width: 100%; }
         s.logs[key] = existing.concat(merged[key]).sort((a, b) => new Date(a.date) - new Date(b.date));
       });
       s.patchesApplied.push('name_keyed_logs_2026_08');
+    }
+    // The actual additive patch: one new core movement per split day, filling
+    // the two days (Pull, Upper) that previously had none at all. Same
+    // guarded, additive shape as the ab_crunch_machine_2026_07 patch above —
+    // runs once, never re-adds, and a user who deletes one of these on
+    // purpose keeps it deleted on the next normalize() call.
+    if (s.patchesApplied.indexOf('core_expansion_2026_08') === -1) {
+      [
+        { day: 'push',  name: 'Cable woodchopper',       repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
+        { day: 'pull',  name: 'Hanging leg raise',       repMin: 8,  repMax: 15, step: 1,    startWeight: 0, bw: true },
+        { day: 'legs',  name: 'Weighted decline sit-up', repMin: 10, repMax: 15, step: 2.5,  startWeight: 5  },
+        { day: 'upper', name: 'Russian twist (dumbbell)',repMin: 12, repMax: 20, step: 1.25, startWeight: 8  },
+        { day: 'lower', name: 'Cable crunch',            repMin: 10, repMax: 15, step: 2.5,  startWeight: 20 },
+      ].forEach(function (ex) {
+        s.exercises.push(Object.assign({
+          id: 'ex_core_' + ex.day + '_patch', gym: 'comm',
+        }, ex));
+      });
+      s.patchesApplied.push('core_expansion_2026_08');
     }
     s.filterGym = s.filterGym || s.gyms[0].id;
     s.filterDay = s.filterDay || s.days[0].id;
