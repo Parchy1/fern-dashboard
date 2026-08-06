@@ -62,17 +62,16 @@ assertEq(statusFor('friendly', 3), '3 signals need attention', 'friendly status 
 assertTrue(/<div class="cc-kicker" id="ccKicker">Command Center · Online<\/div>/.test(html), 'the kicker stays static text — command-center.js does not touch it at all');
 assertTrue(!/kickerFor/.test(readFileSync(path.join(root, 'command-center.js'), 'utf8')), 'no leftover kicker-tone-switching logic remains in command-center.js');
 
-// ---- 3-rail layout ----
-assertTrue(html.includes('id="ccRailLeft"') && html.includes('id="ccRailRight"') && html.includes('class="cc-main"'), 'the page has a left rail, center column, and right rail');
-assertTrue(html.includes('id="ccScheduleSection"') && html.includes('id="ccSignalsSection"') && html.includes('id="ccBrowseSection"'), 'left-rail sections are individually addressable so applyRailContent can move them');
-assertTrue(html.includes('id="ccAlertsPanel"') && html.includes('id="ccConsolePanel"'), 'right-rail panels are individually addressable so applyRailContent can move them');
-assertTrue(css.includes('.cc-grid') && /grid-template-columns:\s*260px/.test(css), 'the 3-column rail grid is defined');
-assertTrue(/@media\(max-width:980px\)\s*\{\s*\.cc-grid\s*\{\s*grid-template-columns:1fr/.test(css.replace(/\n\s*/g, '')), 'the 3-column rail collapses to a single stacked column on narrower screens');
+// ---- Single-column stacked layout (superseded the earlier 3-rail layout
+// in the mockup-fidelity rebuild — see tests/test_mockup_rebuild.mjs) ----
+assertTrue(html.includes('id="ccAlertsPanel"') && html.includes('id="ccConsolePanel"'), 'Alerts and Recent Activity panels are individually addressable');
+assertTrue(css.includes('.cc-page-flow') && css.includes('.cc-top-row'), 'the page flows as stacked full-width sections, led by a two-up Today/Action row');
+assertTrue(/@media\(max-width:980px\)\s*\{\s*\.cc-top-row\s*\{\s*grid-template-columns:1fr/.test(css.replace(/\n\s*/g, '')), 'the two-up top row collapses to a single stacked column on narrower screens');
 
-// ---- Browse: vertical rail list, not the old bento grid ----
-assertTrue(html.includes('cc-browse-list') && html.includes('cc-browse-item'), 'Browse renders as a vertical rail list');
-assertTrue(!html.includes('class="bento"') && !/class="tile big"/.test(html), 'the old bento/tile grid markup was actually replaced, not left dangling alongside the new list');
-assertTrue(html.includes('href="hub-today.html"') && html.includes('href="hub-body.html"') && html.includes('href="hub-money.html"') && html.includes('href="hub-reflect.html"') && html.includes('href="hub-insights.html"'), 'all five hub destinations are still linked from the new Browse list');
+// ---- Browse: a 5-card horizontal row, not the old vertical rail list ----
+assertTrue(html.includes('cc-browse-cards') && html.includes('cc-browse-card'), 'Browse renders as a card row');
+assertTrue(!html.includes('class="bento"') && !/class="tile big"/.test(html), 'the old bento/tile grid markup was actually replaced, not left dangling alongside the new row');
+assertTrue(html.includes('href="hub-today.html"') && html.includes('href="hub-body.html"') && html.includes('href="hub-money.html"') && html.includes('href="hub-reflect.html"') && html.includes('href="hub-insights.html"'), 'all five hub destinations are still linked from the new Browse row');
 
 // ---- AI Core: tabs, globe decoration, real 7-day trace (no fabricated data) ----
 assertTrue(html.includes('id="coreTabToday"') && html.includes('id="coreTabJarvis"'), 'the AI Core card exposes Today/Jarvis tabs');
@@ -84,7 +83,11 @@ assertTrue(html.includes('Building your trend'), 'with fewer than two real data 
 assertTrue(css.includes('.cc-core-globe'), 'the AI Core ring has the decorative wireframe-globe styling');
 
 // ---- Settings toggles still wired, still live, still persisted ----
-assertTrue(html.includes('id="toneSeg"') && html.includes('id="consoleStyleSeg"') && html.includes('id="railContentSeg"'), 'Settings exposes all three appearance toggles');
+// (the "Show first" rail-order toggle was removed in the mockup-fidelity
+// rebuild along with the rail layout it controlled — nothing left for it
+// to reorder in the new single-column flow)
+assertTrue(html.includes('id="toneSeg"') && html.includes('id="consoleStyleSeg"'), 'Settings exposes the remaining appearance toggles');
+assertTrue(!html.includes('id="railContentSeg"'), 'the obsolete rail-order toggle was actually removed, not left dangling with no effect');
 assertTrue(html.includes("appearance-changed"), 'toggling an appearance setting notifies the Command Center to re-render live, not just on next reload');
 assertTrue(/function open\(\)\s*\{[^}]*paintAppearanceSegs/.test(html), 'opening Settings paints the appearance segmented controls’ active state, not just after the first click');
 assertTrue(css.includes('.cc-core-panel[hidden]'), 'hidden AI Core panels are actually hidden — a bare .cc-core-panel{display:flex} rule alone would beat the UA [hidden] stylesheet default at equal specificity');

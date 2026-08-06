@@ -27,20 +27,20 @@ const iconFiles = {
 };
 const EXPECTED_EMOJI = ['🏠', '⚡', '💰', '🪞', '🧭', '🎯', '🔥', '⏭️', '💪', '🗓️', '📆',
   '💊', '💧', '☕', '😴', '🌙', '📊', '💼', '📚', '🎖️', '🧠', '📝', '🎞️', '⚠️', '🏗️',
-  '🎭', '🌊', '🕰️', '🔮', '🔗'];
-const ICON_SPAN_RE = /class="(tile-emoji|mc-emoji|cc-browse-icon|bottombar-tab-icon|topbar-finance-icon)">([^<]*)</g;
+  '🎭', '🌊', '🕰️', '🔮', '🔗', '❤️', '🔔', '⭐', '📅', '🖥️', '📈', '🏋️'];
+const ICON_SPAN_RE = /class="(tile-emoji|mc-emoji|cc-browse-icon|cc-browse-card-emoji|cc-signal-icon|bottombar-tab-icon|topbar-finance-icon)">([^<]*)</g;
 for (const [file, content] of Object.entries(iconFiles)) {
   const glyphs = Array.from(content.matchAll(ICON_SPAN_RE)).map(m => m[2]);
   if (!glyphs.length) continue;
   const allEmoji = glyphs.every(g => EXPECTED_EMOJI.includes(g));
   assertTrue(allEmoji, file + ': navigation-icon spans are colorful emoji again, not sign glyphs (' + glyphs.length + ' icons checked)');
 }
-assertTrue(read('index.html').includes('cc-browse-icon">🏠<'), 'index.html Today icon is back to 🏠');
+assertTrue(read('index.html').includes('cc-browse-card-emoji">🏠<'), 'index.html Today icon is back to 🏠');
 assertTrue(read('hub-body.html').includes('tile-emoji">💧<'), 'hub-body.html Water icon is back to 💧');
 assertTrue(read('hub-reflect.html').includes('tile-emoji">📝<'), 'hub-reflect.html Notes icon is back to 📝');
-assertTrue(read('command-center.js').includes("'❤️', 'Recovery'") || read('command-center.js').includes("'😴', 'Sleep'"), 'the Signals rail Recovery/Sleep icon uses the requested ❤️/😴 emoji, not a plain sign glyph');
-assertTrue(read('command-center.js').includes("'💧', 'Water'"), 'the Signals rail Water icon uses the requested 💧 emoji');
-assertTrue(read('index.html').includes('📅 Schedule'), 'the Schedule section head carries the requested 📅 marker');
+assertTrue(read('command-center.js').includes('❤️') && read('command-center.js').includes('😴'), 'the Signals grid Recovery/Sleep icon uses the requested ❤️/😴 emoji, not a plain sign glyph');
+assertTrue(read('command-center.js').includes('💧'), 'the Signals grid Water icon uses the requested 💧 emoji');
+assertTrue(read('index.html').includes('📅 Schedule') || read('command-center.js').includes('📅 Schedule'), 'the Schedule section head carries the requested 📅 marker');
 assertTrue(read('index.html').includes('🔔 Alerts'), 'the Alerts section head carries the requested 🔔 marker');
 
 // ---- The explicit accent-color CSS added when these were sign glyphs is

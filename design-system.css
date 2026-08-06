@@ -588,7 +588,7 @@ body.hud-scan::before { content: ''; }
 .tile.big  { grid-column: span 2; grid-row: span 2; }
 .tile.wide { grid-column: span 2; }
 .tile-top { display: flex; align-items: flex-start; justify-content: space-between; }
-.tile-num { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--text-tertiary); }
+.tile-num { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); opacity: 0.85; }
 .tile-emoji { font-size: 26px; line-height: 1; color: var(--accent); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 60%, transparent)); }
 .tile-spacer { flex: 1; }
 .tile-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary); margin: 0 0 4px; }
@@ -598,14 +598,72 @@ body.hud-scan::before { content: ''; }
 .tile-arrow { font-size: 18px; color: var(--accent); transition: transform 0.18s ease; flex-shrink: 0; }
 .tile:hover .tile-arrow { transform: translateX(4px); }
 
+/* ---- Hero tile: a large centered icon-in-ring above the title, for hub
+   pages whose mockup shows a bigger, more deliberate card than the dense
+   bento default (Body's top row, Money's 3 category cards). The absolute-
+   positioned ·0X number keeps its original top-left placement without
+   needing extra wrapper markup. ---- */
+.tile-hero { align-items: center; justify-content: flex-start; text-align: center; gap: 8px; padding-top: 26px; grid-row: span 2; }
+.tile-list { grid-column: span 2; }
+.tile-hero .tile-num { position: absolute; top: 18px; left: 18px; }
+.tile-hero .tile-emoji-ring { width: 84px; height: 84px; border-radius: 50%; border: 1px dashed var(--hud-line); display: flex; align-items: center; justify-content: center; margin-bottom: 10px; transition: border-color 0.18s ease; }
+.tile-hero:hover .tile-emoji-ring { border-color: color-mix(in srgb, var(--accent) 55%, var(--hud-line)); }
+.tile-hero .tile-emoji { font-size: 38px; }
+.tile-hero .tile-title { margin: 0; }
+.tile-hero .tile-sub { white-space: normal; }
+.tile-hero.tile-circle .tile-emoji-ring { width: 108px; height: 108px; }
+.tile-hero.tile-circle .tile-emoji { font-size: 46px; }
+
+/* ---- List tile: icon-in-ring on the left, title/subtitle/arrow on the
+   right — a horizontal read for hub pages whose mockup mixes a couple of
+   wide rows in with the hero cards (Body's Sleep/Recovery). ---- */
+.tile-list { flex-direction: row; align-items: center; gap: 18px; text-align: left; }
+.tile-list .tile-num { position: absolute; top: 14px; left: 18px; }
+.tile-list .tile-emoji-ring { width: 60px; height: 60px; border-radius: 50%; border: 1px dashed var(--hud-line); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: border-color 0.18s ease; }
+.tile-list:hover .tile-emoji-ring { border-color: color-mix(in srgb, var(--accent) 55%, var(--hud-line)); }
+.tile-list .tile-emoji { font-size: 30px; }
+.tile-list .tile-body { min-width: 0; flex: 1; }
+.tile-list .tile-title { margin-bottom: 3px; }
+.tile-list .tile-sub { white-space: normal; }
+
+/* ---- Hub page header status badge — "● RECOVERY SYNCED" style, matching
+   the small colored-dot status line every hub mockup carries under its
+   title. ---- */
+.hub-status { display: inline-flex; align-items: center; gap: 7px; margin: -6px 0 18px; color: var(--success); font: 700 10.5px var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; }
+.hub-status .hud-pulse-dot { background: var(--success); box-shadow: 0 0 8px rgba(63,224,168,0.7); }
+
+/* ---- Hero stat row — a horizontal strip of icon-circle + label/value
+   pairs above the tile grid (Body's Recovery/Sleep/Water/Caffeine, Money's
+   Net worth/This month/Spending/Cash runway). ---- */
+.hub-hero-row { display: flex; flex-wrap: wrap; margin-bottom: 18px; padding: 18px 22px; }
+.hub-hero-stat { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 150px; padding: 4px 18px; border-left: 1px solid var(--hud-line-soft); }
+.hub-hero-stat:first-child { border-left: 0; padding-left: 0; }
+.hub-hero-icon { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; background: color-mix(in srgb, var(--accent, var(--hud)) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent, var(--hud)) 34%, transparent); }
+.hub-hero-body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hub-hero-label { color: var(--text-tertiary); font-size: 11.5px; }
+.hub-hero-value { color: var(--text-primary); font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-hero-spark { display: block; width: 100%; height: 24px; margin-top: 2px; }
+.hub-hero-spark polyline { fill: none; stroke: var(--hud); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.hub-hero-spark polygon { fill: rgba(var(--hud-rgb), 0.14); stroke: none; }
+.hub-hero-spark.is-good polyline { stroke: var(--success); }
+.hub-hero-spark.is-good polygon { fill: rgba(63,224,168,0.12); }
+@media (max-width: 720px) {
+  .hub-hero-stat { min-width: 45%; border-left: 0; padding: 10px 0; border-top: 1px solid var(--hud-line-soft); }
+  .hub-hero-stat:nth-child(-n+2) { border-top: 0; }
+}
+
 @media (max-width: 720px) {
   .bento { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 150px; }
   .tile.big { grid-column: span 2; grid-row: span 1; }
   .tile.big .tile-title { font-size: 22px; }
+  .tile-hero { grid-row: span 2; }
+  .tile-list { grid-column: span 2; grid-row: span 1; }
 }
 @media (max-width: 440px) {
   .bento { grid-template-columns: 1fr; grid-auto-rows: 132px; }
   .tile.big, .tile.wide { grid-column: span 1; }
+  .tile-hero { grid-row: span 2; }
+  .tile-list { grid-column: span 1; }
 }
 
 /* ---- MODALS / SETTINGS PANELS ---- */

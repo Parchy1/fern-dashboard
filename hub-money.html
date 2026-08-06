@@ -18,48 +18,46 @@
 
   <a class="back-link" href="index.html">← Dashboard</a>
   <h1 class="dash-title">Money & Growth</h1>
+  <div class="hub-status"><span class="hud-pulse-dot"></span><span id="hubStatusText">Accounts synced</span></div>
 
-  <div class="bento">
-    <!-- Wide tile -->
-    <a class="tile wide" href="finance.html" style="--accent:#F2C063">
-      <div class="tile-top">
-        <span class="tile-num">·01</span>
-        <span class="tile-emoji">📊</span>
-      </div>
-      <div class="tile-spacer"></div>
+  <div class="hub-hero-row gm-card" id="hubHeroRow">
+    <div class="hub-hero-stat">
+      <div class="hub-hero-body"><span class="hub-hero-label">Net worth</span><span class="hub-hero-value" id="heroNetWorth">—</span><svg class="hub-hero-spark" id="heroNetWorthSpark" viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    </div>
+    <div class="hub-hero-stat">
+      <div class="hub-hero-body"><span class="hub-hero-label">This month</span><span class="hub-hero-value" id="heroMonthChange">—</span><svg class="hub-hero-spark is-good" id="heroMonthSpark" viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    </div>
+    <div class="hub-hero-stat">
+      <div class="hub-hero-body"><span class="hub-hero-label">Spending</span><span class="hub-hero-value" id="heroSpending">—</span></div>
+    </div>
+    <div class="hub-hero-stat">
+      <div class="hub-hero-body"><span class="hub-hero-label">Cash runway</span><span class="hub-hero-value" id="heroRunway">—</span></div>
+    </div>
+  </div>
+
+  <div class="bento" style="grid-template-columns:repeat(3,1fr)">
+    <!-- Hero circle tile -->
+    <a class="tile tile-hero tile-circle" href="finance.html" style="--accent:#F2C063">
+      <span class="tile-num">·01</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">📊</span></span>
       <h2 class="tile-title">Finance</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Net worth & spending</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="financeSub">Net worth & spending</span>
     </a>
 
-    <!-- Wide tile -->
-    <a class="tile wide" href="business.html" style="--accent:#EAB308">
-      <div class="tile-top">
-        <span class="tile-num">·02</span>
-        <span class="tile-emoji">💼</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero circle tile -->
+    <a class="tile tile-hero tile-circle" href="business.html" style="--accent:#EAB308">
+      <span class="tile-num">·02</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">💼</span></span>
       <h2 class="tile-title">Businesses</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Side hustles & revenue</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="businessSub">Side hustles & revenue</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="reading.html" style="--accent:#FDBA74">
-      <div class="tile-top">
-        <span class="tile-num">·03</span>
-        <span class="tile-emoji">📚</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero circle tile -->
+    <a class="tile tile-hero tile-circle" href="reading.html" style="--accent:#FDBA74">
+      <span class="tile-num">·03</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">📚</span></span>
       <h2 class="tile-title">Learning</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Books, courses & more</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="readingSub">Books, courses &amp; more</span>
     </a>
   </div>
 </div>
@@ -77,6 +75,7 @@
     const el = document.querySelector('.tile[href="' + href + '"] .tile-sub');
     if (el && text) el.textContent = text;
   }
+  function setHero(id, text) { const el = document.getElementById(id); if (el && text != null) el.textContent = text; }
 
   // Every nw:<cat> "amount" is stored in CHF-equivalent base units (matching
   // finance.html's internal engine — invisible plumbing, not shown to the
@@ -92,6 +91,7 @@
       if (data && data.rates) {
         hubMoneyRates = { CHF: 1, USD: data.rates.USD || 1, DOP: data.rates.DOP || 1 };
         renderFinanceTile();
+        renderHeroRow();
       }
     } catch (e) {}
   }
@@ -168,7 +168,72 @@
     setTileSub('business.html', done + '/' + total + ' commitments done today');
   }
 
-  function renderSnapshot() { renderFinanceTile(); renderBusinessTile(); renderReadingTile(); }
+  function sparkPoints(values, w, h) {
+    if (!values || values.length < 2) return '';
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = max - min || 1;
+    const step = w / (values.length - 1);
+    return values.map((v, i) => (i * step).toFixed(1) + ',' + (h - ((v - min) / range) * (h - 4) - 2).toFixed(1)).join(' ');
+  }
+  function paintSpark(svgId, values, w, h) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const line = sparkPoints(values, w, h);
+    if (!line) { svg.innerHTML = ''; return; }
+    const fill = line + ' ' + w + ',' + h + ' 0,' + h;
+    svg.innerHTML = '<polygon points="' + fill + '"></polygon><polyline points="' + line + '"></polyline>';
+  }
+
+  // A local, simplified read of the same nw:history/purchases/nw:<cat>
+  // keys finance.html itself owns — this page has never made its own
+  // financial calculations beyond what setTileSub already showed, so
+  // every hero-row number here is either read straight from a real
+  // stored value or a simple, honest ratio of two real values (cash
+  // runway = liquid cash / this month's real spending). Nothing here is
+  // invented copy.
+  function renderHeroRow() {
+    const cats = ['cash', 'bank', 'stocks', 'crypto', 'other'];
+    let totalCHF = 0, cashCHF = 0, any = false;
+    cats.forEach(c => {
+      const arr = storeGet('nw:' + c);
+      if (Array.isArray(arr) && arr.length) {
+        any = true;
+        arr.forEach(it => { const v = Number(it.amount) || 0; totalCHF += v; if (c === 'cash') cashCHF += v; });
+      }
+    });
+    const savedCcy = storeGet('nw_currency');
+    const currency = (savedCcy === 'USD' || savedCcy === 'DOP') ? savedCcy : 'USD';
+    const rate = hubMoneyRates[currency] || 1;
+    setHero('heroNetWorth', any ? currency + ' ' + Math.round(totalCHF * rate).toLocaleString() : 'Not set up');
+
+    const history = (storeGet('nw:history') || []).filter(p => p && Number.isFinite(Number(p.v))).slice(-10);
+    if (history.length >= 2) {
+      const first = history[0].v, last = history[history.length - 1].v;
+      const deltaCHF = last - first;
+      const sign = deltaCHF >= 0 ? '+' : '';
+      setHero('heroMonthChange', sign + currency + ' ' + Math.round(Math.abs(deltaCHF) * rate).toLocaleString());
+      paintSpark('heroNetWorthSpark', history.map(p => p.v), 100, 26);
+      paintSpark('heroMonthSpark', history.map(p => p.v), 100, 26);
+    } else {
+      setHero('heroMonthChange', 'Trend building');
+    }
+
+    const purchases = storeGet('purchases') || [];
+    const now = new Date();
+    const monthPrefix = now.getFullYear() + '-' + pad2(now.getMonth() + 1);
+    const monthSpendCHF = purchases.filter(p => p && typeof p.date === 'string' && p.date.startsWith(monthPrefix)).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    setHero('heroSpending', purchases.length ? currency + ' ' + Math.round(monthSpendCHF * rate).toLocaleString() : 'Not logged');
+
+    if (cashCHF > 0 && monthSpendCHF > 0) {
+      setHero('heroRunway', (cashCHF / monthSpendCHF).toFixed(1) + ' mo');
+    } else {
+      setHero('heroRunway', 'Not enough data');
+    }
+
+    setHero('hubStatusText', any ? 'Accounts synced' : 'Awaiting setup');
+  }
+
+  function renderSnapshot() { renderFinanceTile(); renderBusinessTile(); renderReadingTile(); renderHeroRow(); }
 
   // These captions only pull fresh data from Supabase when
   // finance.html/business.html/reading.html themselves load — this page has

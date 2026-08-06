@@ -113,7 +113,7 @@ assertTrue(/\.gm-card:hover\s*\{[^}]*transform:\s*translateY\(-2px\)/.test(ds), 
 assertTrue(/background-position 0\.6s/.test(ds), 'the border-energy sweep glides across on hover rather than snapping');
 assertTrue(/\.gm-card:nth-child\(2\), \.tile:nth-child\(2\) \{ animation-delay:/.test(ds), 'cards/tiles stagger their entrance by DOM position');
 assertTrue(/\.tile:hover \.tile-emoji \{ transform:\s*scale/.test(ds), 'category emoji react slightly on hover, matching "navigation emojis reacting slightly on hover/selection"');
-assertTrue(/\.cc-browse-item:hover \.cc-browse-icon \{ transform:scale/.test(css), 'the Command Center browse-row emoji react on hover too');
+assertTrue(/\.cc-browse-card:hover \.cc-browse-card-emoji \{ transform:scale/.test(css), 'the Command Center browse-row emoji react on hover too');
 
 // ---- Tab-switch "scan" indicator ----
 assertTrue(/\.cc-core-tab\.is-active\s*\{[^}]*animation:ccTabActivate/.test(css) && css.includes('@keyframes ccTabActivate'), 'selected tabs transition through a scan pulse, not an instant swap');

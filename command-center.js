@@ -261,6 +261,24 @@ function hhmm(timestamp) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
+// A minimal inline SVG sparkline — no charting library, driven only by
+// real stored history (nw:history, sleep:nights, po_water_v1.logs). Never
+// fabricates a shape for missing data; callers simply omit the sparkline
+// when there aren't at least 2 real points.
+function sparklineSvg(values) {
+  if (!values || values.length < 2) return '';
+  const w = 100, h = 26;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const step = w / (values.length - 1);
+  const points = values.map((v, i) => (i * step).toFixed(1) + ',' + (h - ((v - min) / range) * (h - 4) - 2).toFixed(1));
+  const line = points.join(' ');
+  const fill = line + ' ' + w + ',' + h + ' 0,' + h;
+  return '<svg class="cc-signal-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">'
+    + '<polygon class="cc-spark-fill" points="' + fill + '"></polygon>'
+    + '<polyline class="cc-spark-line" points="' + line + '"></polyline></svg>';
+}
+
 function escapeText(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
@@ -303,6 +321,123 @@ function readModel() {
   return model;
 }
 
+function litersPerUnit(water) {
+  if (!water) return 0;
+  if (water.unit === 'glass') return (water.glassMl || 250) / 1000;
+  if (water.unit === 'oz') return 30 * 0.0295735;
+  if (water.unit === 'ml') return 0.001;
+  return (water.bottleMl || 500) / 1000;
+}
+
+function fmtCurrency(n) {
+  return '$' + Math.round(n).toLocaleString('en-US');
+}
+
+// The 4-card Signals grid — Recovery, Hydration, Finance, System Status —
+// each with a real mini-visualization (ring, sparkline, or status check)
+// built only from data already computed in the model or read directly
+// from the same localStorage keys other pages already own. Nothing here
+// is a fabricated number: a card that lacks enough real data to show a
+// ring or sparkline just says so honestly instead of inventing a shape.
+function renderSignalCards(model) {
+  const cards = [];
+
+  // ---- Recovery / Sleep ----
+  const latestSleepEntry = Object.entries(model.sleepNights).filter(([, v]) => v).sort(([a], [b]) => a < b ? -1 : 1).slice(-1)[0];
+  const latestSleep = latestSleepEntry ? latestSleepEntry[1] : null;
+  const sleepValue = latestSleep ? (latestSleep.sleepHours ? latestSleep.sleepHours + 'h' : latestSleep.sleepQuality + '/5') : 'Not logged';
+  const sleepHistory = Object.entries(model.sleepNights)
+    .filter(([, v]) => v && Number.isFinite(Number(v.sleepHours)))
+    .sort(([a], [b]) => a < b ? -1 : 1)
+    .slice(-7)
+    .map(([, v]) => Number(v.sleepHours));
+  const whoopStats = storeGet('whoop_last_stats_v1');
+  const hasWhoop = whoopStats && whoopStats.rec != null;
+  const recoveryPct = hasWhoop ? whoopStats.rec
+    : latestSleep && latestSleep.sleepQuality != null ? Math.round(latestSleep.sleepQuality / 5 * 100)
+    : latestSleep && latestSleep.sleepHours != null ? Math.round(Math.min(100, latestSleep.sleepHours / 8 * 100))
+    : null;
+  cards.push({
+    label: hasWhoop ? 'Recovery' : 'Sleep',
+    href: hasWhoop ? 'health.html' : 'sleep.html',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">' + (hasWhoop ? '❤️' : '😴') + '</span>' + (hasWhoop ? 'RECOVERY' : 'SLEEP') + '</div>'
+      + '<div class="cc-signal-viz">'
+      + '<div class="cc-signal-ring" style="--ring-pct:' + (recoveryPct || 0) + '"><div class="cc-signal-ring-track"></div><span class="cc-signal-ring-value">' + (recoveryPct != null ? recoveryPct + '%' : '—') + '</span></div>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (hasWhoop ? 'HRV ' + (whoopStats.hrv != null ? whoopStats.hrv + 'ms' : '—') : sleepValue) + '</div>'
+      + '<div class="cc-signal-sub-value">' + (hasWhoop ? 'Sleep ' + sleepValue : (latestSleep && latestSleep.sleepQuality != null ? 'Quality ' + latestSleep.sleepQuality + '/5' : 'No recent log')) + '</div></div>'
+      + '</div>'
+      + sparklineSvg(sleepHistory)
+      + '<div class="cc-signal-foot">View details →</div>',
+    extraClass: hasWhoop ? ' is-recovery' : '',
+    diffValue: (recoveryPct || 0) + '|' + sleepValue,
+  });
+
+  // ---- Hydration ----
+  const water = model.water;
+  const wp = model.waterProgress;
+  const lpu = litersPerUnit(water);
+  const doneL = wp ? (wp.done * lpu) : 0;
+  const totalL = wp ? (wp.total * lpu) : 0;
+  const waterHistory = water && water.logs ? Object.keys(water.logs).sort().slice(-7).map(k => Number(water.logs[k]) || 0) : [];
+  cards.push({
+    label: 'Hydration',
+    href: 'health.html#water',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">💧</span>HYDRATION</div>'
+      + '<div class="cc-signal-viz">'
+      + '<div class="cc-signal-ring" style="--ring-pct:' + (wp ? Math.round(wp.ratio * 100) : 0) + '"><div class="cc-signal-ring-track"></div><span class="cc-signal-ring-value">' + (wp ? Math.round(wp.ratio * 100) + '%' : '—') + '</span></div>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (wp ? doneL.toFixed(1) + 'L of ' + totalL.toFixed(1) + 'L' : 'Not set') + '</div>'
+      + '<div class="cc-signal-sub-value">' + (wp ? Math.round(wp.ratio * 100) + '% Daily goal' : 'Add your profile to track') + '</div></div>'
+      + '</div>'
+      + sparklineSvg(waterHistory)
+      + '<div class="cc-signal-foot">Log hydration →</div>',
+    extraClass: '',
+    diffValue: wp ? wp.done + '/' + wp.total : 'unset',
+  });
+
+  // ---- Finance ----
+  const nwHistory = (storeGet('nw:history') || []).filter(p => p && Number.isFinite(Number(p.v))).slice(-10).map(p => Number(p.v));
+  const moneyValue = (model.trend && model.trend.current)
+    ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
+    : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
+  cards.push({
+    label: 'Finance',
+    href: 'finance.html',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">📈</span>FINANCE</div>'
+      + '<div class="cc-signal-main-value">' + (model.trend && model.trend.current ? fmtCurrency(model.trend.current) : 'Net worth') + '</div>'
+      + '<div class="cc-signal-sub-value">' + escapeText(moneyValue) + '</div>'
+      + sparklineSvg(nwHistory)
+      + '<div class="cc-signal-foot">View portfolio →</div>',
+    extraClass: ' is-money',
+    diffValue: moneyValue,
+  });
+
+  // ---- System Status ----
+  const hasIssues = model.alertCount > 0;
+  cards.push({
+    label: 'System',
+    href: '#ccAlertsPanel',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">🖥️</span>SYSTEM STATUS</div>'
+      + '<div class="cc-signal-status"><span class="cc-signal-status-dot">' + (hasIssues ? '!' : '✓') + '</span>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (hasIssues ? model.alertCount + (model.alertCount === 1 ? ' issue' : ' issues') : 'Nominal') + '</div>'
+      + '<div class="cc-signal-sub-value">' + (hasIssues ? 'Needs attention' : 'No issues detected') + '</div></div></div>'
+      + '<div class="cc-signal-foot">View status →</div>',
+    extraClass: hasIssues ? ' is-issues' : ' is-nominal',
+    diffValue: hasIssues ? String(model.alertCount) : 'nominal',
+  });
+
+  // A brief traveling highlight when a card's real value actually changes
+  // since the last render — not on first paint, not on an unrelated re-render.
+  const isFirstSignalsRender = previousSignalValues === null;
+  const nextSignalValues = {};
+  const html = cards.map(card => {
+    nextSignalValues[card.label] = card.diffValue;
+    const changed = !isFirstSignalsRender && previousSignalValues[card.label] !== undefined && previousSignalValues[card.label] !== card.diffValue;
+    return '<a class="cc-signal' + card.extraClass + (changed ? ' is-refreshed' : '') + '" href="' + card.href + '">' + card.html + '</a>';
+  }).join('');
+  previousSignalValues = nextSignalValues;
+  return html;
+}
+
 function render() {
   const model = readModel();
   const hour = model.now.getHours();
@@ -318,10 +453,16 @@ function render() {
   document.getElementById('ccBriefConfidence').textContent = brief.coverage.confidence + ' · ' + brief.coverage.connected + '/' + brief.coverage.total + ' signals';
   document.getElementById('ccBriefTitle').textContent = brief.title;
   document.getElementById('ccBriefSummary').textContent = brief.summary;
-  document.getElementById('ccBriefItems').innerHTML = brief.items.map(item => {
+  const briefItemHtml = item => {
     const tone = ['active', 'good', 'warn', 'critical'].includes(item.tone) ? ' is-' + item.tone : '';
     return '<a class="cc-brief-item' + tone + '" href="' + escapeText(item.href) + '"><span class="cc-brief-icon">' + escapeText(item.icon) + '</span><span class="cc-brief-item-body"><small>' + escapeText(item.label) + '</small><b>' + escapeText(item.title) + '</b><span>' + escapeText(item.detail) + '</span></span><span class="cc-row-arrow">→</span></a>';
-  }).join('');
+  };
+  // A condensed 3-item strip leads by default, matching the design
+  // reference's compact AI Daily Brief read — "View Full Brief" reveals
+  // the same real title/summary/full item list underneath rather than
+  // hiding any of it permanently.
+  document.getElementById('ccBriefRow').innerHTML = brief.items.slice(0, 3).map(briefItemHtml).join('');
+  document.getElementById('ccBriefItems').innerHTML = brief.items.map(briefItemHtml).join('');
 
   const actionEl = document.getElementById('ccAction');
   if (model.action) {
@@ -340,42 +481,12 @@ function render() {
 
   const scheduleEl = document.getElementById('ccSchedule');
   scheduleEl.innerHTML = model.schedule.length ? model.schedule.map(item =>
-    '<a class="cc-schedule-item' + (item.isNext ? ' is-next' : '') + (item.done ? ' is-done' : '') + '" href="' + item.href + '">'
-    + (item.isNext ? '<span class="hud-pulse-dot cc-now-marker"></span>' : '<span class="cc-schedule-node"></span>')
-    + '<span class="cc-schedule-time">' + escapeText(item.time) + '</span><span class="cc-schedule-title">' + escapeText(item.title) + '</span></a>'
+    '<a class="cc-schedule-chip' + (item.isNext ? ' is-next' : '') + (item.done ? ' is-done' : '') + '" href="' + item.href + '">'
+    + '<span class="cc-schedule-dot"></span>'
+    + '<span class="cc-schedule-chip-time">' + escapeText(item.time) + '</span><span>' + escapeText(item.title) + '</span></a>'
   ).join('') : '<a class="cc-empty-inline" href="main.html">Nothing timed yet — add a time to any goal →</a>';
 
-  const latestSleep = Object.values(model.sleepNights).filter(Boolean).slice(-1)[0];
-  const sleepValue = latestSleep ? (latestSleep.sleepHours ? latestSleep.sleepHours + 'h' : latestSleep.sleepQuality + '/5') : 'Not logged';
-  // Prefer a real WHOOP recovery % when it's actually connected (cached by
-  // the Settings modal's own WHOOP sync — this page makes no WHOOP calls of
-  // its own). Falls back to the sleep signal rather than fabricating a
-  // recovery number nobody's device actually reported.
-  let whoopStats = storeGet('whoop_last_stats_v1');
-  const recoverySignal = (whoopStats && whoopStats.rec != null)
-    ? ['❤️', 'Recovery', whoopStats.rec + '%', 'health.html']
-    : ['😴', 'Sleep', sleepValue, 'sleep.html'];
-  const moneyValue = (model.trend && model.trend.current)
-    ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
-    : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
-  const signalRows = [
-    recoverySignal,
-    ['💧', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
-    ['▲', 'Net worth', moneyValue, 'finance.html'],
-    ['●', 'Streak', model.streak.days ? model.streak.days + 'd · ' + model.streak.label : 'Start today', 'main.html'],
-  ];
-  // A brief traveling highlight when a signal's displayed value actually
-  // changes since the last render — not on first paint (nothing to compare
-  // against yet) and not just because the whole list got re-rendered.
-  const isFirstSignalsRender = previousSignalValues === null;
-  const nextSignalValues = {};
-  document.getElementById('ccSignals').innerHTML = signalRows.map(signal => {
-    const [icon, label, value, href] = signal;
-    nextSignalValues[label] = value;
-    const changed = !isFirstSignalsRender && previousSignalValues[label] !== undefined && previousSignalValues[label] !== value;
-    return '<a class="cc-signal' + (changed ? ' is-refreshed' : '') + '" href="' + href + '"><span class="cc-signal-icon">' + icon + '</span><span><b>' + escapeText(label) + '</b><small>' + escapeText(value) + '</small></span></a>';
-  }).join('');
-  previousSignalValues = nextSignalValues;
+  document.getElementById('ccSignals').innerHTML = renderSignalCards(model);
 
   document.getElementById('ccInsightText').textContent = model.insight;
   document.getElementById('ccAlertCount').textContent = String(model.alertCount);
@@ -411,30 +522,6 @@ function render() {
 // Browse always pinned last) or Alerts+Activity, with the other pair moving
 // to the right rail. appendChild on an already-attached node just moves it,
 // so calling this repeatedly is idempotent.
-function applyRailContent(pref) {
-  const railLeft = document.getElementById('ccRailLeft');
-  const railRight = document.getElementById('ccRailRight');
-  const scheduleSection = document.getElementById('ccScheduleSection');
-  const signalsSection = document.getElementById('ccSignalsSection');
-  const browseSection = document.getElementById('ccBrowseSection');
-  const alertsPanel = document.getElementById('ccAlertsPanel');
-  const consolePanel = document.getElementById('ccConsolePanel');
-  if (!railLeft || !railRight || !scheduleSection || !signalsSection || !browseSection || !alertsPanel || !consolePanel) return;
-  if (pref === 'alerts_activity') {
-    railLeft.appendChild(alertsPanel);
-    railLeft.appendChild(consolePanel);
-    railLeft.appendChild(browseSection);
-    railRight.appendChild(scheduleSection);
-    railRight.appendChild(signalsSection);
-  } else {
-    railLeft.appendChild(scheduleSection);
-    railLeft.appendChild(signalsSection);
-    railLeft.appendChild(browseSection);
-    railRight.appendChild(alertsPanel);
-    railRight.appendChild(consolePanel);
-  }
-}
-
 function boot() {
   if (!document.getElementById('ccAction')) return;
   const doneButton = document.getElementById('ccActionDone');
@@ -456,6 +543,17 @@ function boot() {
     window.dispatchEvent(new CustomEvent('goals-changed'));
     render();
   });
+
+  const briefToggle = document.getElementById('ccBriefToggle');
+  const briefFull = document.getElementById('ccBriefFull');
+  if (briefToggle && briefFull) {
+    briefToggle.addEventListener('click', () => {
+      const expanded = briefFull.hidden;
+      briefFull.hidden = !expanded;
+      briefToggle.setAttribute('aria-expanded', String(expanded));
+      briefToggle.textContent = expanded ? 'Hide Full Brief' : 'View Full Brief';
+    });
+  }
 
   const focus = document.getElementById('focusMode');
   const openButtons = document.querySelectorAll('[data-focus-open]');
@@ -587,8 +685,7 @@ function boot() {
     });
   }
 
-  applyRailContent(readAppearance().railContent);
-  window.addEventListener('appearance-changed', () => { applyRailContent(readAppearance().railContent); render(); });
+  window.addEventListener('appearance-changed', () => { render(); });
 
   const cmdPlaceholderEl = document.getElementById('ccCmdBarPlaceholder');
   if (cmdPlaceholderEl) {

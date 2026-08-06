@@ -18,90 +18,62 @@
 
   <a class="back-link" href="index.html">← Dashboard</a>
   <h1 class="dash-title">Body</h1>
+  <div class="hub-status"><span class="hud-pulse-dot"></span><span id="hubStatusText">Recovery synced</span></div>
+
+  <div class="hub-hero-row gm-card" id="hubHeroRow">
+    <div class="hub-hero-stat"><span class="hub-hero-icon" style="--accent:#5EEAD4">❤️</span><div class="hub-hero-body"><span class="hub-hero-label">Recovery</span><span class="hub-hero-value" id="heroRecovery">—</span></div></div>
+    <div class="hub-hero-stat"><span class="hub-hero-icon" style="--accent:#818CF8">🌙</span><div class="hub-hero-body"><span class="hub-hero-label">Sleep</span><span class="hub-hero-value" id="heroSleep">—</span></div></div>
+    <div class="hub-hero-stat"><span class="hub-hero-icon" style="--accent:#60A5FA">💧</span><div class="hub-hero-body"><span class="hub-hero-label">Water</span><span class="hub-hero-value" id="heroWater">—</span></div></div>
+    <div class="hub-hero-stat"><span class="hub-hero-icon" style="--accent:#C9A36B">☕</span><div class="hub-hero-body"><span class="hub-hero-label">Caffeine</span><span class="hub-hero-value" id="heroCaffeine">—</span></div></div>
+  </div>
 
   <div class="bento">
-    <!-- Small tile -->
-    <a class="tile" href="health.html" style="--accent:#A7F3D0">
-      <div class="tile-top">
-        <span class="tile-num">·01</span>
-        <span class="tile-emoji">💊</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero tile -->
+    <a class="tile tile-hero" href="health.html" style="--accent:#A7F3D0">
+      <span class="tile-num">·01</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">💊</span></span>
       <h2 class="tile-title">Health</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Supplements & vitals</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="healthSub">Supplements &amp; vitals</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="po-water.html" style="--accent:#60A5FA">
-      <div class="tile-top">
-        <span class="tile-num">·02</span>
-        <span class="tile-emoji">💧</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero tile -->
+    <a class="tile tile-hero" href="po-water.html" style="--accent:#60A5FA">
+      <span class="tile-num">·02</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">💧</span></span>
       <h2 class="tile-title">Water</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Hydration</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="waterSub">Hydration</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="caffeine.html" style="--accent:#C9A36B">
-      <div class="tile-top">
-        <span class="tile-num">·03</span>
-        <span class="tile-emoji">☕</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero tile -->
+    <a class="tile tile-hero" href="caffeine.html" style="--accent:#C9A36B">
+      <span class="tile-num">·03</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">☕</span></span>
       <h2 class="tile-title">Caffeine</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Intake & timing</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="caffeineSub">Intake &amp; timing</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="peak.html" style="--accent:#C4B5FD">
-      <div class="tile-top">
-        <span class="tile-num">·04</span>
-        <span class="tile-emoji">⚡</span>
-      </div>
-      <div class="tile-spacer"></div>
+    <!-- Hero tile -->
+    <a class="tile tile-hero" href="peak.html" style="--accent:#C4B5FD">
+      <span class="tile-num">·04</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">⚡</span></span>
       <h2 class="tile-title">Peak</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Energy & recovery</span>
-        <span class="tile-arrow">→</span>
-      </div>
+      <span class="tile-sub" id="peakSub">Energy &amp; recovery</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="sleep.html" style="--accent:#818CF8">
-      <div class="tile-top">
-        <span class="tile-num">·05</span>
-        <span class="tile-emoji">😴</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Sleep</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Bedtime, wake-up, quality &amp; RHR</span>
-        <span class="tile-arrow">→</span>
-      </div>
+    <!-- List tile -->
+    <a class="tile tile-list" href="sleep.html" style="--accent:#818CF8">
+      <span class="tile-num">·05</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">😴</span></span>
+      <span class="tile-body"><h2 class="tile-title">Sleep</h2><span class="tile-sub">Bedtime, wake-up, quality &amp; RHR</span></span>
+      <span class="tile-arrow">→</span>
     </a>
 
-    <!-- Small tile -->
-    <a class="tile" href="insights-recovery.html" style="--accent:#5EEAD4">
-      <div class="tile-top">
-        <span class="tile-num">·06</span>
-        <span class="tile-emoji">🌙</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Recovery</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Night Score, sleep debt, burnout risk</span>
-        <span class="tile-arrow">→</span>
-      </div>
+    <!-- List tile -->
+    <a class="tile tile-list" href="insights-recovery.html" style="--accent:#5EEAD4">
+      <span class="tile-num">·06</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">🌙</span></span>
+      <span class="tile-body"><h2 class="tile-title">Recovery</h2><span class="tile-sub">Night Score, sleep debt, burnout risk</span></span>
+      <span class="tile-arrow">→</span>
     </a>
   </div>
 </div>
@@ -170,7 +142,42 @@
     if (keys.length) { const last = daily[keys[keys.length - 1]]; setTileSub('peak.html', 'Last: ' + last.avgScore + ' · ' + last.tier); }
   }
 
-  function renderSnapshot() { renderHealthTile(); renderWaterTile(); renderCaffeineTile(); renderPeakTile(); }
+  function setHero(id, text) { const el = document.getElementById(id); if (el && text != null) el.textContent = text; }
+
+  function renderHeroRow() {
+    const whoop = storeGet('whoop_last_stats_v1');
+    setHero('heroRecovery', whoop && whoop.rec != null ? whoop.rec + '%' : 'Not synced');
+
+    const nights = storeGet('sleep:nights') || {};
+    const keys = Object.keys(nights).sort();
+    const latest = keys.length ? nights[keys[keys.length - 1]] : null;
+    setHero('heroSleep', latest && latest.sleepHours ? latest.sleepHours + 'h' : 'Not logged');
+
+    const water = storeGet('po_water_v1');
+    if (water && water.profile && water.profile.weightKg) {
+      const p = water.profile;
+      const wKg = water.weightUnit === 'lb' ? (p.weightKg || 0) / 2.20462 : (p.weightKg || 0);
+      const base = wKg * 35;
+      const exercise = (p.activityHrsPerWeek || 0) / 7 * 500;
+      const caffeine = Math.max(0, (water.caffeineMgPerDay || 0) - 200) * 1.5;
+      let adjust = 0; if (p.sex === 'm') adjust += 200; if ((p.age || 0) >= 50) adjust += 100;
+      let unitMl = 1; if (water.unit === 'bottle') unitMl = water.bottleMl || 500; else if (water.unit === 'glass') unitMl = water.glassMl || 250; else if (water.unit === 'oz') unitMl = 30;
+      const targetUnits = Math.ceil((base + exercise + caffeine + adjust) / unitMl);
+      const count = (water.logs && water.logs[plainTodayKey()]) || 0;
+      setHero('heroWater', count + '/' + targetUnits);
+    } else {
+      setHero('heroWater', 'Not set');
+    }
+
+    const cafLogs = storeGet('caf:logs') || [];
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0); const mt = midnight.getTime();
+    const cafToday = Math.round(cafLogs.filter(l => l.ts >= mt).reduce((a, l) => a + l.mg, 0));
+    setHero('heroCaffeine', cafLogs.length ? cafToday + 'mg' : 'Not logged');
+
+    setHero('hubStatusText', whoop && whoop.rec != null ? 'Recovery synced' : 'Awaiting sync');
+  }
+
+  function renderSnapshot() { renderHealthTile(); renderWaterTile(); renderCaffeineTile(); renderPeakTile(); renderHeroRow(); }
 
   // These captions only pull fresh data from Supabase when
   // health.html/caffeine.html/peak.html themselves load — this page has no
