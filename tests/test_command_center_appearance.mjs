@@ -77,7 +77,7 @@ assertTrue(html.includes('href="hub-today.html"') && html.includes('href="hub-bo
 // ---- AI Core: tabs, globe decoration, real 7-day trace (no fabricated data) ----
 assertTrue(html.includes('id="coreTabToday"') && html.includes('id="coreTabJarvis"'), 'the AI Core card exposes Today/Jarvis tabs');
 assertTrue(html.includes('id="coreJarvisPanel"') && /id="coreJarvisPanel"[^>]*hidden/.test(html), 'the Jarvis panel starts hidden — Today is the default view on load');
-assertTrue(html.includes('cc-jarvis-btn" disabled'), 'the Jarvis "Tap to talk" button ships disabled — it is a placeholder, not a working feature');
+assertTrue(html.includes('id="jarvisPromptBtn"'), 'the Jarvis tab has a real prompt button (superseded the earlier disabled-placeholder mic in the cinematic-pass rebuild — see tests/test_jarvis_widget.mjs)');
 assertTrue(html.includes('id="scoreTrace"'), 'the AI Core card has a trend trace element');
 assertTrue(html.includes('SCORE_HISTORY_KEY') && html.includes('cc_score_history_v1'), 'score history is persisted under its own key rather than recomputed/fabricated');
 assertTrue(html.includes('Building your trend'), 'with fewer than two real data points the trace admits it is still building rather than drawing fake bars');

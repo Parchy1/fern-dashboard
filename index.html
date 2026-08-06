@@ -14,6 +14,8 @@
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
 <script type="module" src="command-center.js"></script>
+<script type="module" src="jarvis-globe.js"></script>
+<script src="jarvis-background.js" defer></script>
 
 <style>
 /* Page-specific only — shared tokens/components now live in design-system.css. */
@@ -124,7 +126,7 @@
   <div class="cc-grid">
     <aside class="cc-rail cc-rail-left" id="ccRailLeft">
       <section class="cc-section" aria-labelledby="ccScheduleLabel" id="ccScheduleSection">
-        <div class="cc-section-head" id="ccScheduleLabel">Schedule</div>
+        <div class="cc-section-head" id="ccScheduleLabel">📅 Schedule</div>
         <div class="cc-strip" id="ccSchedule"></div>
       </section>
 
@@ -139,11 +141,11 @@
           <span class="ps-ovr" id="psOvr">—</span><span class="ps-body"><span class="ps-title">Player Card</span><span class="ps-sub" id="psSub">Tap to build your rating</span></span><span class="ps-lvl"><span class="ps-lvl-k">LVL</span><span class="ps-lvl-v" id="psLvl">1</span></span><span class="ps-arrow">→</span>
         </a>
         <div class="cc-browse-list">
-          <a class="cc-browse-item" href="hub-today.html" style="--accent:#6BE3A4"><span class="cc-browse-icon">◉</span><span class="cc-browse-body"><b>Today</b><small>Main & Fitness</small></span><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-item" href="hub-body.html" style="--accent:#C4B5FD"><span class="cc-browse-icon">⬡</span><span class="cc-browse-body"><b>Body</b><small>Health, Water, Caffeine, Peak, Sleep, Recovery</small></span><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-item" href="hub-money.html" style="--accent:#F2C063"><span class="cc-browse-icon">◈</span><span class="cc-browse-body"><b>Money & Growth</b><small>Finance, Businesses, Learning</small></span><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-item" href="hub-reflect.html" style="--accent:#A78BFA"><span class="cc-browse-icon">◑</span><span class="cc-browse-body"><b>Reflect</b><small>Nova, Notes, Review</small></span><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-item" href="hub-insights.html" style="--accent:#22D3F5"><span class="cc-browse-icon">✦</span><span class="cc-browse-body"><b>Insights</b><small>Patterns, mode, triggers, drift, adherence</small></span><span class="cc-row-arrow">→</span></a>
+          <a class="cc-browse-item" href="hub-today.html" style="--accent:#6BE3A4"><span class="cc-browse-icon">🏠</span><span class="cc-browse-body"><b>Today</b><small>Main & Fitness</small></span><span class="cc-row-arrow">→</span></a>
+          <a class="cc-browse-item" href="hub-body.html" style="--accent:#C4B5FD"><span class="cc-browse-icon">⚡</span><span class="cc-browse-body"><b>Body</b><small>Health, Water, Caffeine, Peak, Sleep, Recovery</small></span><span class="cc-row-arrow">→</span></a>
+          <a class="cc-browse-item" href="hub-money.html" style="--accent:#F2C063"><span class="cc-browse-icon">💰</span><span class="cc-browse-body"><b>Money & Growth</b><small>Finance, Businesses, Learning</small></span><span class="cc-row-arrow">→</span></a>
+          <a class="cc-browse-item" href="hub-reflect.html" style="--accent:#A78BFA"><span class="cc-browse-icon">🪞</span><span class="cc-browse-body"><b>Reflect</b><small>Nova, Notes, Review</small></span><span class="cc-row-arrow">→</span></a>
+          <a class="cc-browse-item" href="hub-insights.html" style="--accent:#22D3F5"><span class="cc-browse-icon">🧭</span><span class="cc-browse-body"><b>Insights</b><small>Patterns, mode, triggers, drift, adherence</small></span><span class="cc-row-arrow">→</span></a>
         </div>
       </section>
     </aside>
@@ -166,18 +168,48 @@
         </div>
         <div class="cc-core-panel" id="coreJarvisPanel" role="tabpanel" aria-labelledby="coreTabJarvis" hidden>
           <div class="cc-core-label">AI Core · Jarvis</div>
-          <div class="cc-jarvis-mic" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/><path d="M8 23h8"/>
+          <div class="cc-jarvis-orb" id="jarvisOrb" data-state="idle" aria-hidden="true">
+            <div class="cc-jarvis-ring cc-jarvis-ring-1"></div>
+            <div class="cc-jarvis-ring cc-jarvis-ring-2"></div>
+            <div class="cc-jarvis-ring cc-jarvis-ring-3"></div>
+            <svg class="cc-jarvis-core-svg" viewBox="0 0 100 100">
+              <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" class="cc-jarvis-facet cc-jarvis-facet-outer"></polygon>
+              <polygon points="50,28 70,40 70,60 50,72 30,60 30,40" class="cc-jarvis-facet cc-jarvis-facet-inner"></polygon>
+              <line x1="50" y1="8" x2="50" y2="28" class="cc-jarvis-facet-line"></line>
+              <line x1="88" y1="30" x2="70" y2="40" class="cc-jarvis-facet-line"></line>
+              <line x1="88" y1="70" x2="70" y2="60" class="cc-jarvis-facet-line"></line>
+              <line x1="50" y1="92" x2="50" y2="72" class="cc-jarvis-facet-line"></line>
+              <line x1="12" y1="70" x2="30" y2="60" class="cc-jarvis-facet-line"></line>
+              <line x1="12" y1="30" x2="30" y2="40" class="cc-jarvis-facet-line"></line>
             </svg>
           </div>
-          <div class="score-body"><div class="score-tier">Voice mode — coming soon</div><div class="score-breakdown">Talk to your dashboard the way you already text it on Telegram.</div></div>
-          <button type="button" class="cc-secondary-btn cc-jarvis-btn" disabled>◌ Tap to talk</button>
+          <div class="cc-jarvis-status-row">
+            <span class="cc-jarvis-status-dot" id="jarvisStatusDot"></span>
+            <span class="cc-jarvis-status-text" id="jarvisStatusText">ONLINE</span>
+          </div>
+          <div class="cc-jarvis-nodes" id="jarvisNodes"></div>
+          <div class="cc-jarvis-waveform" id="jarvisWaveform" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <button type="button" class="cc-jarvis-prompt-btn" id="jarvisPromptBtn">
+            <span class="cc-jarvis-prompt-icon">◌</span>
+            <span id="jarvisPromptText">What needs attention?</span>
+          </button>
+          <div class="cc-jarvis-response" id="jarvisResponse" hidden>
+            <div class="cc-jarvis-response-head">
+              <span id="jarvisResponseLabel">RESPONSE READY</span>
+              <span class="cc-jarvis-response-check">✓</span>
+            </div>
+            <p class="cc-jarvis-response-body" id="jarvisResponseBody"></p>
+            <div class="cc-jarvis-response-foot">
+              <span id="jarvisResponseSource">Built from data already on this dashboard</span>
+            </div>
+          </div>
         </div>
       </div>
 
       <article class="gm-card cc-action" id="ccAction" aria-live="polite">
-        <div class="cc-action-top"><span class="cc-action-eyebrow" id="ccActionEyebrow">Recommended next action</span><span class="cc-action-badge">One priority</span></div>
+        <div class="cc-action-top"><span class="cc-action-eyebrow" id="ccActionEyebrow">Recommended next action</span><span class="cc-action-badge">⭐ One priority</span></div>
         <h2 class="cc-action-title" id="ccActionTitle">Reading today’s plan…</h2>
         <p class="cc-action-reason" id="ccActionReason">Finding the clearest next move from your existing goals.</p>
         <div class="cc-action-buttons"><button class="cc-primary-btn" id="ccActionDone" type="button">Mark complete</button><a class="cc-secondary-btn" href="main.html">Open today</a></div>
@@ -201,7 +233,7 @@
 
     <aside class="cc-rail cc-rail-right" id="ccRailRight">
       <article class="gm-card cc-panel" id="ccAlertsPanel">
-        <div class="cc-section-head">Alerts <span class="cc-section-count" id="ccAlertCount">0</span></div>
+        <div class="cc-section-head">🔔 Alerts <span class="cc-section-count" id="ccAlertCount">0</span></div>
         <div class="cc-panel-list" id="ccAlerts"></div>
       </article>
       <article class="gm-card cc-panel" id="ccConsolePanel">
@@ -750,6 +782,26 @@
     wrap.innerHTML = '<div class="cc-trace-bars">' + bars + '</div><div class="cc-trace-caption">Last ' + days.length + ' days · avg ' + avg + (delta != null ? ' · today ' + (delta >= 0 ? '+' : '') + delta : '') + '</div>';
   }
 
+  // Counts the score number up/down to its new value instead of an instant
+  // text swap — skipped entirely under prefers-reduced-motion, which jumps
+  // straight to the final value.
+  const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let scoreCounterRaf = null;
+  function animateScoreNum(el, from, to) {
+    if (prefersReducedMotion || from === to) { el.textContent = to; return; }
+    if (scoreCounterRaf) cancelAnimationFrame(scoreCounterRaf);
+    const duration = 500, start = performance.now();
+    function tick(now) {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(from + (to - from) * eased);
+      if (p < 1) scoreCounterRaf = requestAnimationFrame(tick);
+      else scoreCounterRaf = null;
+    }
+    scoreCounterRaf = requestAnimationFrame(tick);
+  }
+
+  let lastRenderedScore = null;
   function renderTodayScore() {
     const card = document.getElementById('scoreCard');
     const result = computeTodayScore();
@@ -762,13 +814,20 @@
       renderScoreTrace();
       return;
     }
-    document.getElementById('scoreNum').textContent = result.score;
+    animateScoreNum(document.getElementById('scoreNum'), lastRenderedScore || 0, result.score);
     document.getElementById('scoreTier').textContent = tierForScore(result.score);
     document.getElementById('scoreBreakdown').textContent = result.breakdown;
     document.getElementById('scoreRing').style.setProperty('--ring-pct', result.score);
     card.classList.add('show');
     recordScoreHistory(activeDateKey6am(), result.score);
     renderScoreTrace();
+    // A short pulse on the globe when the score actually changes, rather
+    // than an instant silent swap — no-op if jarvis-globe.js never mounted
+    // (no WebGL, reduced motion, or the CDN import failed).
+    if (lastRenderedScore !== null && lastRenderedScore !== result.score && typeof window.__jarvisGlobePulse === 'function') {
+      window.__jarvisGlobePulse();
+    }
+    lastRenderedScore = result.score;
   }
 
   // Every domain's own page (main.html, health.html, gym.html, ...) only

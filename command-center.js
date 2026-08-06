@@ -200,6 +200,12 @@ function storeGet(key) {
 // (index.html). Never synced — same device can show a different tone/style
 // than another, which is fine since this changes nothing the model computes.
 const APPEARANCE_KEY = 'cc_appearance_v1';
+// Tracks which alert ids were already on screen, so only genuinely new
+// alerts get the one-shot entry pulse on the next render() (see below).
+let previousAlertIds = new Set();
+// Tracks each Signals-rail value by label so a real change (not just a
+// re-render) gets a brief highlight. null means "no render yet."
+let previousSignalValues = null;
 export function readAppearance() {
   const a = storeGet(APPEARANCE_KEY) || {};
   // Defaults match the design handoff's own defaults (tone: callsign,
@@ -243,6 +249,11 @@ function formatAgo(timestamp) {
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
   return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function updateJarvisAlertState(alertCount) {
+  const jarvisOrb = document.getElementById('jarvisOrb');
+  if (jarvisOrb) jarvisOrb.classList.toggle('is-alert', alertCount > 0);
 }
 
 function hhmm(timestamp) {
@@ -299,6 +310,8 @@ function render() {
   document.getElementById('ccGreeting').textContent = greetingFor(appearance.tone, hour);
   document.getElementById('ccSystemText').textContent = statusFor(appearance.tone, model.alertCount);
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
+  if (typeof window.__jarvisGlobeSetAlertLevel === 'function') window.__jarvisGlobeSetAlertLevel(model.alertCount);
+  updateJarvisAlertState(model.alertCount);
 
   const brief = model.dailyBrief;
   document.getElementById('ccBriefPeriod').textContent = brief.eyebrow;
@@ -340,23 +353,41 @@ function render() {
   // recovery number nobody's device actually reported.
   let whoopStats = storeGet('whoop_last_stats_v1');
   const recoverySignal = (whoopStats && whoopStats.rec != null)
-    ? ['♥', 'Recovery', whoopStats.rec + '%', 'health.html']
-    : ['◐', 'Sleep', sleepValue, 'sleep.html'];
+    ? ['❤️', 'Recovery', whoopStats.rec + '%', 'health.html']
+    : ['😴', 'Sleep', sleepValue, 'sleep.html'];
   const moneyValue = (model.trend && model.trend.current)
     ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
     : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
-  document.getElementById('ccSignals').innerHTML = [
+  const signalRows = [
     recoverySignal,
-    ['◇', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
+    ['💧', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
     ['▲', 'Net worth', moneyValue, 'finance.html'],
     ['●', 'Streak', model.streak.days ? model.streak.days + 'd · ' + model.streak.label : 'Start today', 'main.html'],
-  ].map(signal => '<a class="cc-signal" href="' + signal[3] + '"><span class="cc-signal-icon">' + signal[0] + '</span><span><b>' + escapeText(signal[1]) + '</b><small>' + escapeText(signal[2]) + '</small></span></a>').join('');
+  ];
+  // A brief traveling highlight when a signal's displayed value actually
+  // changes since the last render — not on first paint (nothing to compare
+  // against yet) and not just because the whole list got re-rendered.
+  const isFirstSignalsRender = previousSignalValues === null;
+  const nextSignalValues = {};
+  document.getElementById('ccSignals').innerHTML = signalRows.map(signal => {
+    const [icon, label, value, href] = signal;
+    nextSignalValues[label] = value;
+    const changed = !isFirstSignalsRender && previousSignalValues[label] !== undefined && previousSignalValues[label] !== value;
+    return '<a class="cc-signal' + (changed ? ' is-refreshed' : '') + '" href="' + href + '"><span class="cc-signal-icon">' + icon + '</span><span><b>' + escapeText(label) + '</b><small>' + escapeText(value) + '</small></span></a>';
+  }).join('');
+  previousSignalValues = nextSignalValues;
 
   document.getElementById('ccInsightText').textContent = model.insight;
   document.getElementById('ccAlertCount').textContent = String(model.alertCount);
+  // Only alerts that are genuinely new since the last render get the
+  // one-shot entry pulse — every render rebuilding the whole list from
+  // innerHTML would otherwise re-pulse alerts that were already sitting
+  // there, which reads as noise rather than a "new" signal.
+  const currentAlertIds = new Set(model.alerts.map(a => a.id));
   document.getElementById('ccAlerts').innerHTML = model.alerts.length ? model.alerts.map(alert =>
-    '<div class="cc-alert is-' + alert.level + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
+    '<div class="cc-alert is-' + alert.level + (previousAlertIds.has(alert.id) ? '' : ' is-new') + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
   ).join('') : '<div class="cc-panel-empty"><span>✓</span><b>No active alerts</b><small>Threshold checks are clear.</small></div>';
+  previousAlertIds = currentAlertIds;
 
   const activityEl = document.getElementById('ccActivity');
   activityEl.classList.toggle('is-terminal', appearance.consoleStyle === 'terminal');
@@ -494,6 +525,68 @@ function boot() {
     coreTabJarvis.addEventListener('click', () => setCoreTab(true));
   }
 
+  // ---- JARVIS AI-core widget ----
+  // Idle/Listening/Thinking/Responding state machine. Not a real voice
+  // assistant (no mic access, no backend call) — it visually represents
+  // the AI reasoning about signals that are already genuinely on this
+  // page: the response text is the exact same buildProactiveInsight()
+  // string the Insight banner already shows, read live off
+  // window.__commandCenterModel, not a scripted/fabricated line.
+  const jarvisOrb = document.getElementById('jarvisOrb');
+  const jarvisStatusText = document.getElementById('jarvisStatusText');
+  const jarvisNodesEl = document.getElementById('jarvisNodes');
+  const jarvisPromptBtn = document.getElementById('jarvisPromptBtn');
+  const jarvisResponseEl = document.getElementById('jarvisResponse');
+  const jarvisResponseBody = document.getElementById('jarvisResponseBody');
+  const jarvisResponseSource = document.getElementById('jarvisResponseSource');
+  const JARVIS_NODE_LABELS = ['SCHEDULE', 'RECOVERY', 'FINANCE', 'HABITS'];
+  if (jarvisNodesEl) {
+    jarvisNodesEl.innerHTML = JARVIS_NODE_LABELS.map((label, i) =>
+      '<span class="cc-jarvis-node" style="--i:' + i + '">' + label + '</span>'
+    ).join('');
+  }
+  function setJarvisState(state) {
+    if (jarvisOrb) jarvisOrb.dataset.state = state;
+    if (jarvisStatusText) jarvisStatusText.textContent = {
+      listening: 'LISTENING', thinking: 'THINKING', responding: 'RESPONDING',
+    }[state] || 'ONLINE';
+  }
+  let jarvisBusy = false;
+  function runJarvisAnalysis() {
+    if (jarvisBusy || !jarvisOrb) return;
+    jarvisBusy = true;
+    if (jarvisPromptBtn) jarvisPromptBtn.disabled = true;
+    if (jarvisResponseEl) jarvisResponseEl.hidden = true;
+    setJarvisState('listening');
+    setTimeout(() => {
+      setJarvisState('thinking');
+      setTimeout(() => {
+        const model = window.__commandCenterModel;
+        const insightText = (model && model.insight) || 'Add a goal or check-in and the Command Center will start prioritizing your day.';
+        const connected = model && model.dailyBrief ? model.dailyBrief.coverage.connected : 0;
+        const alertCount = model ? model.alertCount : 0;
+        const signalCount = connected + alertCount;
+        setJarvisState('responding');
+        if (jarvisResponseBody) jarvisResponseBody.textContent = insightText;
+        if (jarvisResponseSource) jarvisResponseSource.textContent = signalCount + ' active signal' + (signalCount === 1 ? '' : 's') + ' · built from data already on this dashboard';
+        if (jarvisResponseEl) jarvisResponseEl.hidden = false;
+        jarvisBusy = false;
+        if (jarvisPromptBtn) jarvisPromptBtn.disabled = false;
+        setTimeout(() => { if (jarvisOrb.dataset.state === 'responding') setJarvisState('idle'); }, 4000);
+      }, 1100);
+    }, 700);
+  }
+  if (jarvisPromptBtn) jarvisPromptBtn.addEventListener('click', runJarvisAnalysis);
+  // "Even before voice interaction is fully connected, the widget should
+  // visually represent the AI analyzing dashboard signals" — auto-plays
+  // once the first time the tab is opened, not on every switch back to it.
+  let jarvisAutoPlayed = false;
+  if (coreTabJarvis) {
+    coreTabJarvis.addEventListener('click', () => {
+      if (!jarvisAutoPlayed) { jarvisAutoPlayed = true; setTimeout(runJarvisAnalysis, 900); }
+    });
+  }
+
   applyRailContent(readAppearance().railContent);
   window.addEventListener('appearance-changed', () => { applyRailContent(readAppearance().railContent); render(); });
 
@@ -511,10 +604,26 @@ function boot() {
     }
   }
 
-  window.addEventListener('storage', render);
-  window.addEventListener('goals-changed', render);
-  window.addEventListener('alert-state-changed', render);
-  document.addEventListener('command-center:refresh', render);
+  // A single logical change (e.g. one `storage` event) can fan out into
+  // several of these listeners firing synchronously in the same tick —
+  // index.html's own `storage` handler, for instance, re-dispatches
+  // `command-center:refresh` after it runs. Calling render() once per
+  // listener means the 2nd+ call always compares against the 1st call's
+  // just-written previousSignalValues/previousAlertIds and sees "no
+  // change," silently erasing the is-refreshed/is-new highlight before the
+  // browser ever paints it. Coalescing into one microtask per tick means
+  // render() runs exactly once with the final state, so the diff-based
+  // highlight actually reflects the real before/after.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    queueMicrotask(() => { renderQueued = false; render(); });
+  }
+  window.addEventListener('storage', scheduleRender);
+  window.addEventListener('goals-changed', scheduleRender);
+  window.addEventListener('alert-state-changed', scheduleRender);
+  document.addEventListener('command-center:refresh', scheduleRender);
   setInterval(render, 60000);
   render();
 }
