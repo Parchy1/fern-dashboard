@@ -59,7 +59,9 @@
 
 </div>
 
-<script>
+<script type="module">
+import { dateKeyFromDate, lastNDateKeys, buildDayRows } from './correlation-lab.js';
+
 (function () {
   'use strict';
 
@@ -82,42 +84,6 @@
   const DRIFT_RELATIVE_DROP = 0.25;
 
   function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
-  function pad2(n) { return String(n).padStart(2, '0'); }
-  function dateKeyFromDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
-
-  function lastNDateKeys(n) {
-    const out = [];
-    const d = new Date();
-    for (let i = 0; i < n; i++) { out.push(dateKeyFromDate(d)); d.setDate(d.getDate() - 1); }
-    return out;
-  }
-
-  function buildDayRows(rowsByKey, dateKeys) {
-    const gymData = rowsByKey['po-coach'] || {};
-    const doneDays = gymData['po_coach_workout_done'] || {};
-    const goalsData = rowsByKey.goals || {};
-    const habitDefs = goalsData['habits:defs'] || [];
-    const habitLog = goalsData['habits:log'] || {};
-    const peakData = rowsByKey.peak || {};
-    const sleepData = rowsByKey.sleep || {};
-    const morning = sleepData['sleep:nights'] || {};
-
-    return dateKeys.map(dateKey => {
-      const habitTotal = habitDefs.length;
-      const habitDone = habitTotal ? habitDefs.filter(h => habitLog[h.id] && habitLog[h.id][dateKey]).length : 0;
-      const habitRate = habitTotal ? habitDone / habitTotal : null;
-      const goalsToday = goalsData['goals:' + dateKey] || [];
-      const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
-      const morningEntry = morning[dateKey];
-      const sleepQuality = morningEntry ? morningEntry.sleepQuality : null;
-
-      return {
-        dateKey, habitRate, todoRate,
-        sleepQuality: sleepQuality != null ? sleepQuality : null,
-        factors: { workoutDone: !!doneDays[dateKey] },
-      };
-    });
-  }
 
   const DRIFT_METRICS = [
     { field: 'workoutDone', label: 'Workouts', get: r => r.factors.workoutDone ? 1 : 0, scaleMax: 1, fmt: v => Math.round(v * 100) + '%' },

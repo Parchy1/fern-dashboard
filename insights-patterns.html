@@ -92,16 +92,15 @@
 
 </div>
 
-<script>
+<script type="module">
+import { dateKeyFromDate, lastNDateKeys, buildDayRows } from './correlation-lab.js';
+
 (function () {
   'use strict';
 
   // ============================================================
-  // Same day-level dataset + bucket-comparison engine as the rest of the
-  // Insights suite (see insights-recovery.html, insights-mode.html, etc. —
-  // each dedicated page rebuilds its own slice of dayRows rather than
-  // sharing a module, matching this codebase's existing per-page
-  // convention). This page merges what used to be two separate stacked
+  // Same shared day-level dataset + bucket-comparison engine as the rest of
+  // the Insights suite. This page merges what used to be two separate stacked
   // sections (Biggest Limiter + Patterns) into one: a hero callout for the
   // single worst limiter, and a full diverging "tornado" chart of every
   // factor that clears the meaningful-difference bar, ranked by effect
@@ -114,18 +113,6 @@
   const TORNADO_MAX_DIFF = 2.5; // effect size that fills the bar to 100%
 
   function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
-  function pad2(n) { return String(n).padStart(2, '0'); }
-  function dateKeyFromDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
-
-  function lastNDateKeys(n) {
-    const out = [];
-    const d = new Date();
-    for (let i = 0; i < n; i++) {
-      out.push(dateKeyFromDate(d));
-      d.setDate(d.getDate() - 1);
-    }
-    return out;
-  }
 
   const FACTOR_LABELS = {
     goodSleepQuality: 'good sleep quality (4-5/5)',
@@ -150,66 +137,6 @@
     highTodoRate: 'Getting through your to-do list correlates with feeling better, not just being "productive."',
     lowTodoRate: 'Days with a lot left undone on your list tend to be harder days.',
   };
-
-  function buildDayRows(rowsByKey, dateKeys) {
-    const peakData = rowsByKey.peak || {};
-    const sleepData = rowsByKey.sleep || {};
-    const morning = sleepData['sleep:nights'] || {};
-    const checkins = peakData['peak:checkins'] || [];
-    const gymData = rowsByKey['po-coach'] || {};
-    const doneDays = gymData['po_coach_workout_done'] || {};
-    const caffeineData = rowsByKey.caffeine || {};
-    const cafLogs = caffeineData['caf:logs'] || [];
-    const goalsData = rowsByKey.goals || {};
-    const habitDefs = goalsData['habits:defs'] || [];
-    const habitLog = goalsData['habits:log'] || {};
-
-    const feelingByDay = {}, stressByDay = {};
-    checkins.forEach(c => {
-      if (!c || !c.dateKey) return;
-      if (c.feeling) (feelingByDay[c.dateKey] = feelingByDay[c.dateKey] || []).push(c.feeling);
-      if (c.stress) (stressByDay[c.dateKey] = stressByDay[c.dateKey] || []).push(c.stress);
-    });
-
-    const lateCaffeineDays = new Set();
-    cafLogs.forEach(l => {
-      if (!l || !l.ts) return;
-      const d = new Date(l.ts);
-      if (d.getHours() >= 14) lateCaffeineDays.add(dateKeyFromDate(d));
-    });
-
-    return dateKeys.map(dateKey => {
-      const feelings = feelingByDay[dateKey], stresses = stressByDay[dateKey];
-      const morningEntry = morning[dateKey];
-      const sleepQuality = morningEntry ? morningEntry.sleepQuality : null;
-      const sleepHours = morningEntry ? morningEntry.sleepHours : null;
-      const habitTotal = habitDefs.length;
-      const habitDone = habitTotal ? habitDefs.filter(h => habitLog[h.id] && habitLog[h.id][dateKey]).length : 0;
-      const habitRate = habitTotal ? habitDone / habitTotal : null;
-      const goalsToday = goalsData['goals:' + dateKey] || [];
-      const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
-
-      return {
-        dateKey,
-        outcomeFeeling: feelings && feelings.length ? avg(feelings) : null,
-        outcomeStress: stresses && stresses.length ? avg(stresses) : null,
-        sleepQuality: sleepQuality != null ? sleepQuality : null,
-        sleepHours: sleepHours != null ? sleepHours : null,
-        habitRate, todoRate,
-        factors: {
-          goodSleepQuality: sleepQuality != null ? sleepQuality >= 4 : null,
-          poorSleepQuality: sleepQuality != null ? sleepQuality <= 2 : null,
-          lowSleepHours: sleepHours != null ? sleepHours < 6.5 : null,
-          workoutDone: !!doneDays[dateKey],
-          lateCaffeine: lateCaffeineDays.has(dateKey),
-          highHabitRate: habitRate != null ? habitRate >= 0.8 : null,
-          lowHabitRate: habitRate != null ? habitRate < 0.5 : null,
-          highTodoRate: todoRate != null ? todoRate >= 0.8 : null,
-          lowTodoRate: todoRate != null ? todoRate < 0.4 : null,
-        },
-      };
-    });
-  }
 
   function computeFactorEffect(dayRows, factorKey, outcomeKey) {
     const withF = [], withoutF = [];
