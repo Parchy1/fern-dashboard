@@ -1,3 +1,6 @@
+import { dateKeyFromDate, lastNDateKeys, buildDayRows } from './correlation-lab.js';
+export { dateKeyFromDate, lastNDateKeys, buildDayRows } from './correlation-lab.js';
+
 // Shared, side-effect-free Prediction Center module. Pure data
 // transformation only — no DOM, no storage, no network — so
 // prediction-center.html and its tests share the exact same logic. See
@@ -117,89 +120,8 @@ export function computeNwScenarios(history, windowDays, goal) {
   return { windowed, current, scenarios, etas, goal };
 }
 
-// ---------- Day-row builder (insights-recovery.html:111-198, shared verbatim
-// with insights-adherence.html — both pages already carry independent copies
-// of this exact function; this is a third copy for the same reason those two
-// pages didn't import from each other: no ES-module export exists to import
-// from on either source page.) ----------
+// ---------- Shared day-row builder (correlation-lab.js) ----------
 function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
-function pad2(n) { return String(n).padStart(2, '0'); }
-
-export function dateKeyFromDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
-
-export function lastNDateKeys(n) {
-  const out = [];
-  const d = new Date();
-  for (let i = 0; i < n; i++) { out.push(dateKeyFromDate(d)); d.setDate(d.getDate() - 1); }
-  return out;
-}
-
-function nextDateKey(dateKey) {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const cursor = new Date(y, m - 1, d);
-  cursor.setDate(cursor.getDate() + 1);
-  return dateKeyFromDate(cursor);
-}
-
-const LATE_CAFFEINE_EVENING_HOUR = 14;
-const LATE_CAFFEINE_MORNING_HOUR = 6;
-function lateCaffeineSleepSessionDays(cafLogs) {
-  const days = new Set();
-  (cafLogs || []).forEach(l => {
-    if (!l || !l.ts) return;
-    const d = new Date(l.ts);
-    const h = d.getHours();
-    const dateKey = dateKeyFromDate(d);
-    if (h >= LATE_CAFFEINE_EVENING_HOUR) days.add(nextDateKey(dateKey));
-    else if (h < LATE_CAFFEINE_MORNING_HOUR) days.add(dateKey);
-  });
-  return days;
-}
-
-export function buildDayRows(rowsByKey, dateKeys) {
-  const peakData = rowsByKey.peak || {};
-  const sleepData = rowsByKey.sleep || {};
-  const morning = sleepData['sleep:nights'] || {};
-  const checkins = peakData['peak:checkins'] || [];
-  const caffeineData = rowsByKey.caffeine || {};
-  const cafLogs = caffeineData['caf:logs'] || [];
-  const goalsData = rowsByKey.goals || {};
-  const habitDefs = goalsData['habits:defs'] || [];
-  const habitLog = goalsData['habits:log'] || {};
-
-  const feelingByDay = {}, stressByDay = {};
-  checkins.forEach(c => {
-    if (!c || !c.dateKey) return;
-    if (c.feeling) (feelingByDay[c.dateKey] = feelingByDay[c.dateKey] || []).push(c.feeling);
-    if (c.stress) (stressByDay[c.dateKey] = stressByDay[c.dateKey] || []).push(c.stress);
-  });
-
-  const lateCaffeineDays = lateCaffeineSleepSessionDays(cafLogs);
-
-  return dateKeys.map(dateKey => {
-    const feelings = feelingByDay[dateKey], stresses = stressByDay[dateKey];
-    const morningEntry = morning[dateKey];
-    const sleepQuality = morningEntry ? morningEntry.sleepQuality : null;
-    const sleepHours = morningEntry ? morningEntry.sleepHours : null;
-    const habitTotal = habitDefs.length;
-    const habitDone = habitTotal ? habitDefs.filter(h => habitLog[h.id] && habitLog[h.id][dateKey]).length : 0;
-    const habitRate = habitTotal ? habitDone / habitTotal : null;
-    const goalsToday = goalsData['goals:' + dateKey] || [];
-    const todoRate = goalsToday.length ? goalsToday.filter(g => g.done).length / goalsToday.length : null;
-    const consistencyParts = [habitRate, todoRate].filter(v => v != null);
-
-    return {
-      dateKey,
-      outcomeFeeling: feelings && feelings.length ? avg(feelings) : null,
-      outcomeStress: stresses && stresses.length ? avg(stresses) : null,
-      sleepQuality: sleepQuality != null ? sleepQuality : null,
-      sleepHours: sleepHours != null ? sleepHours : null,
-      habitRate, todoRate,
-      consistencyRate: consistencyParts.length ? avg(consistencyParts) : null,
-      factors: { lateCaffeine: lateCaffeineDays.has(dateKey) },
-    };
-  });
-}
 
 // ---------- Sleep debt + Burnout risk (insights-recovery.html:224-269) ----------
 const TARGET_SLEEP_HOURS = 8;
