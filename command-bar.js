@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { type: 'Navigate', icon: '🪞', title: 'Reflect', snippet: 'Nova, notes, and reviews', href: 'hub-reflect.html', searchText: 'reflect nova notes review journal' },
   { type: 'Navigate', icon: '🧭', title: 'Insights', snippet: 'Patterns, recovery, and drift', href: 'hub-insights.html', searchText: 'insights patterns recovery drift analytics' },
   { type: 'Navigate', icon: '🕰️', title: 'Life Timeline', snippet: 'Everything you\'ve logged, in one feed', href: 'life-timeline.html', searchText: 'life timeline history feed activity log everything all events' },
+  { type: 'Navigate', icon: '🔮', title: 'Prediction Center', snippet: 'Weight, net worth, sleep debt forecasts', href: 'prediction-center.html', searchText: 'prediction center forecast forecasting weight net worth sleep debt burnout adherence trajectory' },
   { type: 'Navigate', icon: '🗓️', title: 'Weekly Schedule', snippet: 'Your Mon–Sat routine, hour by hour', href: 'schedule.html', searchText: 'weekly schedule routine timeline calendar blocks summer university' },
   { type: 'Navigate', icon: '⚙️', title: 'Dashboard settings', snippet: 'Profile, WHOOP, and backup', href: 'index.html#settings', searchText: 'settings profile whoop backup data export' },
 ];
