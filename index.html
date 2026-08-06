@@ -103,7 +103,7 @@
 <main class="page cc-page">
   <header class="cc-header">
     <div>
-      <div class="cc-kicker">Command Center · Online</div>
+      <div class="cc-kicker" id="ccKicker">Command Center · Online</div>
       <h1 class="cc-greeting" id="ccGreeting">Good day, Fernando</h1>
       <div class="cc-status"><span class="hud-pulse-dot"></span><span id="ccSystemText" aria-live="polite">Reading your systems…</span></div>
     </div>
@@ -120,12 +120,28 @@
 
   <section class="cc-hero" aria-label="Today overview">
     <div class="score-card cc-ai-core gm-card" id="scoreCard">
-      <div class="cc-core-label">AI Core · Today</div>
-      <div class="hud-ring" id="scoreRing" style="--ring-pct:0">
-        <div class="hud-ring-track"></div>
-        <div class="hud-ring-value"><span class="score-num" id="scoreNum">—</span><span class="score-max">/100</span></div>
+      <div class="cc-core-tabs" role="tablist" aria-label="AI Core view">
+        <button type="button" class="cc-core-tab is-active" id="coreTabToday" role="tab" aria-selected="true" aria-controls="coreTodayPanel">Today</button>
+        <button type="button" class="cc-core-tab" id="coreTabJarvis" role="tab" aria-selected="false" aria-controls="coreJarvisPanel">Jarvis</button>
       </div>
-      <div class="score-body"><div class="score-tier" id="scoreTier">Systems ready</div><div class="score-breakdown" id="scoreBreakdown">Building today’s picture…</div></div>
+      <div class="cc-core-panel" id="coreTodayPanel" role="tabpanel" aria-labelledby="coreTabToday">
+        <div class="cc-core-label">AI Core · Today</div>
+        <div class="hud-ring" id="scoreRing" style="--ring-pct:0">
+          <div class="hud-ring-track"></div>
+          <div class="hud-ring-value"><span class="score-num" id="scoreNum">—</span><span class="score-max">/100</span></div>
+        </div>
+        <div class="score-body"><div class="score-tier" id="scoreTier">Systems ready</div><div class="score-breakdown" id="scoreBreakdown">Building today’s picture…</div></div>
+      </div>
+      <div class="cc-core-panel" id="coreJarvisPanel" role="tabpanel" aria-labelledby="coreTabJarvis" hidden>
+        <div class="cc-core-label">AI Core · Jarvis</div>
+        <div class="cc-jarvis-mic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/><path d="M8 23h8"/>
+          </svg>
+        </div>
+        <div class="score-body"><div class="score-tier">Voice mode — coming soon</div><div class="score-breakdown">Talk to your dashboard the way you already text it on Telegram.</div></div>
+        <button type="button" class="cc-secondary-btn cc-jarvis-btn" disabled>◌ Tap to talk</button>
+      </div>
     </div>
 
     <article class="gm-card cc-action" id="ccAction" aria-live="polite">
@@ -320,6 +336,31 @@
 
     <div class="section-divider"></div>
 
+    <label class="field-label">Appearance</label>
+    <div class="field">
+      <label class="field-label">Greeting tone</label>
+      <div class="seg" id="toneSeg" style="width:100%;display:flex">
+        <button type="button" data-tone="friendly" style="flex:1">Friendly</button>
+        <button type="button" data-tone="callsign" style="flex:1">Callsign</button>
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label">Recent activity style</label>
+      <div class="seg" id="consoleStyleSeg" style="width:100%;display:flex">
+        <button type="button" data-console="cards" style="flex:1">Cards</button>
+        <button type="button" data-console="terminal" style="flex:1">Terminal</button>
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label">Show first</label>
+      <div class="seg" id="railContentSeg" style="width:100%;display:flex">
+        <button type="button" data-rail="schedule_signals" style="flex:1">Schedule & Signals</button>
+        <button type="button" data-rail="alerts_activity" style="flex:1">Alerts & Activity</button>
+      </div>
+    </div>
+
+    <div class="section-divider"></div>
+
     <label class="field-label">WHOOP</label>
     <div class="whoop-box">
       <div class="whoop-row">
@@ -358,6 +399,7 @@
   const WATER_KEY = 'po_water_v1';
   const WHOOP_KEY = 'whoop_tokens_v1';
   const SYNC_KEY  = 'whoop_last_sync';
+  const APPEARANCE_KEY = 'cc_appearance_v1';
 
   function loadJSON(k, f) { try { return JSON.parse(localStorage.getItem(k)) || f; } catch (e) { return f; } }
   function saveJSON(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
@@ -368,6 +410,35 @@
       profile:{ weightKg:75, age:25, sex:'m', activityHrsPerWeek:5 },
       caffeineMgPerDay:200, substances:[], logs:{} };
   }
+
+  /* ---------- Appearance (tone / console style / rail content) ----------
+   * Purely a display preference for this device — not part of the synced
+   * profile, so it lives in its own key and applies immediately on click
+   * (no Save button) the way a visual toggle should. command-center.js
+   * reads this same key to render the Command Center itself. */
+  function defaultAppearance() { return { tone: 'friendly', consoleStyle: 'cards', railContent: 'schedule_signals' }; }
+  function readAppearance() {
+    const a = loadJSON(APPEARANCE_KEY, defaultAppearance());
+    return {
+      tone: a.tone === 'callsign' ? 'callsign' : 'friendly',
+      consoleStyle: a.consoleStyle === 'terminal' ? 'terminal' : 'cards',
+      railContent: a.railContent === 'alerts_activity' ? 'alerts_activity' : 'schedule_signals',
+    };
+  }
+  function paintAppearanceSegs(a) {
+    $('toneSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tone === a.tone));
+    $('consoleStyleSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.console === a.consoleStyle));
+    $('railContentSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.rail === a.railContent));
+  }
+  function setAppearance(patch) {
+    const next = Object.assign(readAppearance(), patch);
+    saveJSON(APPEARANCE_KEY, next);
+    paintAppearanceSegs(next);
+    window.dispatchEvent(new CustomEvent('appearance-changed'));
+  }
+  $('toneSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setAppearance({ tone: b.dataset.tone })));
+  $('consoleStyleSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setAppearance({ consoleStyle: b.dataset.console })));
+  $('railContentSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setAppearance({ railContent: b.dataset.rail })));
 
   /* ---------- unit state ---------- */
   let heightUnit = 'cm';   // 'cm' | 'ft'
