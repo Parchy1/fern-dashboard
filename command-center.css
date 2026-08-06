@@ -37,8 +37,26 @@
 .cc-core-tab:hover { color:var(--hud); }
 .cc-core-panel { display:flex;flex-direction:column;align-items:center;width:100%; }
 .cc-core-panel[hidden] { display:none; }
-.cc-jarvis-mic { width:64px;height:64px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--hud-line);background:rgba(var(--hud-rgb),.07);color:var(--hud); }
-.cc-jarvis-mic svg { width:28px;height:28px; }
+/* Fade+rise-in replayed on whichever panel becomes visible — command-center.js
+   toggles this class off/on (forcing a reflow between) each time the tab
+   switches, so it isn't just a one-shot on page load. */
+.cc-core-panel-enter { animation: ccCorePanelIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes ccCorePanelIn { from { opacity:0; transform:translateY(6px) scale(.98); } to { opacity:1; transform:none; } }
+.cc-jarvis-mic { position:relative;width:64px;height:64px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--hud-line);background:rgba(var(--hud-rgb),.07);color:var(--hud); }
+.cc-jarvis-mic svg { position:relative;z-index:1;width:28px;height:28px; }
+/* Two concentric rings pulsing outward like a "listening" indicator —
+   purely decorative, since the Jarvis tab itself is a non-functional
+   placeholder (see the disabled Tap-to-talk button below). */
+.cc-jarvis-mic::before,.cc-jarvis-mic::after {
+  content:''; position:absolute; inset:0; border-radius:50%;
+  border:1px solid var(--hud-dim);
+  animation: ccJarvisPulse 2.6s ease-out infinite;
+}
+.cc-jarvis-mic::after { animation-delay: 1.3s; }
+@keyframes ccJarvisPulse {
+  0%   { transform:scale(1); opacity:.7; }
+  100% { transform:scale(1.9); opacity:0; }
+}
 .cc-jarvis-btn { margin-top:var(--space-4);opacity:.55;cursor:not-allowed; }
 @media (max-width:480px) {
   .cc-core-tab { padding:5px 9px;font-size:9px; }
@@ -53,7 +71,11 @@
    Overridden here, next to the rule it needs to beat. */
 @media (prefers-reduced-motion: reduce) {
   .cc-ai-core.score-card .hud-ring,
-  .cc-ai-core.has-alerts .hud-ring { animation: none; }
+  .cc-ai-core.has-alerts .hud-ring,
+  .cc-core-panel-enter,
+  .cc-jarvis-mic::before,
+  .cc-jarvis-mic::after,
+  .cc-trace-bar { animation: none; }
 }
 .cc-ai-core .score-num { font-size:clamp(48px,8vw,72px); }
 .cc-ai-core .score-max { margin-top:4px; }
@@ -70,7 +92,8 @@
 
 .cc-core-trace { margin-top:var(--space-4);width:100%; }
 .cc-trace-bars { display:flex;align-items:flex-end;justify-content:center;gap:5px;height:28px; }
-.cc-trace-bar { width:9px;height:calc(var(--v) * 1%);min-height:4px;border-radius:3px 3px 0 0;background:var(--hud-line);transition:height .3s ease; }
+.cc-trace-bar { width:9px;height:calc(var(--v) * 1%);min-height:4px;border-radius:3px 3px 0 0;background:var(--hud-line);transform-origin:bottom;animation:ccTraceGrow .5s cubic-bezier(0.16, 1, 0.3, 1) both;transition:height .3s ease; }
+@keyframes ccTraceGrow { from { transform:scaleY(0); } to { transform:scaleY(1); } }
 .cc-trace-bar.is-today { background:var(--hud);box-shadow:0 0 8px var(--hud-glow); }
 .cc-trace-caption,.cc-trace-empty { margin-top:8px;color:var(--text-tertiary);font:11px var(--font-mono); }
 
@@ -196,7 +219,7 @@
 .cc-browse-item { --accent: var(--hud);display:flex;align-items:center;gap:11px;padding:9px 4px;border-radius:var(--radius-sm);text-decoration:none;border-bottom:1px solid var(--hud-line-soft); }
 .cc-browse-item:last-child { border-bottom:0; }
 .cc-browse-item:hover { background:rgba(var(--hud-rgb),.06); }
-.cc-browse-icon { width:30px;height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:15px;background:color-mix(in srgb, var(--accent) 14%, transparent);border:1px solid color-mix(in srgb, var(--accent) 32%, transparent); }
+.cc-browse-icon { width:30px;height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:15px;color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);border:1px solid color-mix(in srgb, var(--accent) 32%, transparent); }
 .cc-browse-body { min-width:0;flex:1;display:flex;flex-direction:column; }
 .cc-browse-body b { color:var(--text-primary);font-size:13px; }
 .cc-browse-body small { margin-top:2px;color:var(--text-tertiary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }

@@ -145,7 +145,7 @@ body::before {
   filter: blur(0.2px);
   pointer-events: none;
   z-index: -2;
-  animation: hud-drift 40s ease-in-out infinite alternate;
+  animation: hud-drift 24s ease-in-out infinite alternate, hud-bg-pulse 7s ease-in-out infinite;
 }
 body::after {
   content: '';
@@ -157,10 +157,17 @@ body::after {
 }
 @keyframes hud-drift {
   0%   { transform: translate3d(0,0,0); }
-  100% { transform: translate3d(-18px, 12px, 0); }
+  100% { transform: translate3d(-28px, 18px, 0); }
 }
-/* A faint horizontal scan sweeping down the page every so often — the one
-   "alive" flourish, kept slow/low-opacity enough to ignore while reading. */
+@keyframes hud-bg-pulse {
+  0%, 100% { opacity: 0.82; }
+  50%      { opacity: 1; }
+}
+/* A faint horizontal scan sweeping down the page every so often — one of
+   the few "alive" flourishes, kept slow/low-opacity enough to ignore while
+   reading. topbar.js injects the actual .hud-scanline element on every
+   page (this file only ever defined the CSS), so it now runs everywhere
+   rather than sitting dormant. */
 body.hud-scan::before { content: ''; }
 .hud-scanline {
   position: fixed; left: 0; right: 0; height: 120px; top: -120px;
@@ -171,6 +178,17 @@ body.hud-scan::before { content: ''; }
 @keyframes hud-scan {
   0%   { transform: translateY(-10vh); }
   100% { transform: translateY(110vh); }
+}
+/* A one-shot fade/rise-in for every card and nav tile on every page, so
+   content feels like it's arriving rather than just appearing. Runs once
+   per page load, not looped — `both` holds the end state so nothing snaps
+   back after. */
+@keyframes gmEntranceIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.gm-card, .tile {
+  animation: gmEntranceIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @media (prefers-reduced-motion: reduce) {
   html:focus-within { scroll-behavior: auto; }
@@ -184,7 +202,9 @@ body.hud-scan::before { content: ''; }
   .cc-activity-item,
   .cc-now-marker,
   .command-bar,
-  .focus-mode { animation: none; transition: none; }
+  .focus-mode,
+  .gm-card,
+  .tile { animation: none; transition: none; }
 }
 
 .page { max-width: 1100px; margin: 0 auto; }
@@ -547,7 +567,7 @@ body.hud-scan::before { content: ''; }
 .tile.wide { grid-column: span 2; }
 .tile-top { display: flex; align-items: flex-start; justify-content: space-between; }
 .tile-num { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--text-tertiary); }
-.tile-emoji { font-size: 26px; line-height: 1; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.tile-emoji { font-size: 26px; line-height: 1; color: var(--accent); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 60%, transparent)); }
 .tile-spacer { flex: 1; }
 .tile-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary); margin: 0 0 4px; }
 .tile.big .tile-title { font-size: 28px; }

@@ -223,7 +223,7 @@ body.topbar-modal-open {
     <button class="topbar-water-add" id="topbarWaterAdd" aria-label="Log one drink" type="button">+</button>
   </div>
   <a href="finance.html" class="topbar-finance-btn" id="topbarFinance" aria-label="Finance">
-    <span class="topbar-finance-icon">📊</span>
+    <span class="topbar-finance-icon">▤</span>
   </a>
   ${commandButtonHtml}
 </header>
@@ -232,15 +232,15 @@ body.topbar-modal-open {
   const bottombarHtml = `
 <nav class="bottombar" id="bottombar" role="navigation" aria-label="Main tabs">
   <a href="index.html" class="bottombar-tab" data-page="main">
-    <span class="bottombar-tab-icon">🏠</span>
+    <span class="bottombar-tab-icon">◉</span>
     <span>Main</span>
   </a>
   <a href="health.html" class="bottombar-tab" data-page="health">
-    <span class="bottombar-tab-icon">💊</span>
+    <span class="bottombar-tab-icon">⬟</span>
     <span>Health</span>
   </a>
   <a href="gym.html" class="bottombar-tab" data-page="fitness">
-    <span class="bottombar-tab-icon">💪</span>
+    <span class="bottombar-tab-icon">⬢</span>
     <span>Fitness</span>
   </a>
 </nav>
@@ -499,9 +499,23 @@ body.topbar-modal-open {
     sync();
   }
 
+  // A faint scanline sweep behind every page — design-system.css has always
+  // defined the CSS for this, but nothing ever created the element, so it
+  // sat completely dormant. Injected unconditionally (unlike the nav chrome
+  // above, which skips lock/fullscreen pages) since it's just ambient
+  // background, not navigation.
+  function injectScanline() {
+    if (document.querySelector('.hud-scanline')) return;
+    const scan = document.createElement('div');
+    scan.className = 'hud-scanline';
+    scan.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(scan);
+  }
+
   // -------- Boot --------
   function boot() {
     injectStyleAndHTML();
+    injectScanline();
     const btn = document.getElementById('topbarWaterAdd');
     if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); addWater(); });
     render();
