@@ -196,6 +196,29 @@ function storeGet(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
 }
 
+// Display-only preference set from the Settings modal's Appearance section
+// (index.html). Never synced — same device can show a different tone/style
+// than another, which is fine since this changes nothing the model computes.
+const APPEARANCE_KEY = 'cc_appearance_v1';
+export function readAppearance() {
+  const a = storeGet(APPEARANCE_KEY) || {};
+  return {
+    tone: a.tone === 'callsign' ? 'callsign' : 'friendly',
+    consoleStyle: a.consoleStyle === 'terminal' ? 'terminal' : 'cards',
+    railContent: a.railContent === 'alerts_activity' ? 'alerts_activity' : 'schedule_signals',
+  };
+}
+export function greetingFor(tone, hour) {
+  if (tone === 'callsign') {
+    const status = hour < 5 ? 'STANDBY' : hour < 12 ? 'GOOD MORNING' : hour < 18 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
+    return 'JARVIS // ' + status;
+  }
+  return (hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + ', Fernando';
+}
+export function kickerFor(tone) {
+  return tone === 'callsign' ? 'FERNANDO-OS · Online' : 'Command Center · Online';
+}
+
 function collectGoalsByDate() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -258,8 +281,10 @@ function readModel() {
 function render() {
   const model = readModel();
   const hour = model.now.getHours();
-  const greeting = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  document.getElementById('ccGreeting').textContent = greeting + ', Fernando';
+  const appearance = readAppearance();
+  document.getElementById('ccGreeting').textContent = greetingFor(appearance.tone, hour);
+  const kickerEl = document.getElementById('ccKicker');
+  if (kickerEl) kickerEl.textContent = kickerFor(appearance.tone);
   document.getElementById('ccSystemText').textContent = model.alertCount ? model.alertCount + ' signal' + (model.alertCount === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
 
@@ -311,12 +336,38 @@ function render() {
     '<div class="cc-alert is-' + alert.level + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
   ).join('') : '<div class="cc-panel-empty"><span>✓</span><b>No active alerts</b><small>Threshold checks are clear.</small></div>';
 
-  document.getElementById('ccActivity').innerHTML = model.activity.length ? model.activity.map(item =>
-    '<a class="cc-activity-item" href="' + item.href + '"><span class="cc-activity-icon">' + item.icon + '</span><span><b>' + escapeText(item.title) + '</b><small>' + escapeText(item.detail) + ' · ' + formatAgo(item.ts) + '</small></span></a>'
-  ).join('') : '<div class="cc-panel-empty"><span>◎</span><b>No recent activity yet</b><small>Completed tasks and updates appear here.</small></div>';
+  const activityEl = document.getElementById('ccActivity');
+  activityEl.classList.toggle('is-terminal', appearance.consoleStyle === 'terminal');
+  if (!model.activity.length) {
+    activityEl.innerHTML = '<div class="cc-panel-empty"><span>◎</span><b>No recent activity yet</b><small>Completed tasks and updates appear here.</small></div>';
+  } else if (appearance.consoleStyle === 'terminal') {
+    activityEl.innerHTML = model.activity.map(item =>
+      '<a class="cc-console-row" href="' + item.href + '"><span class="cc-console-prompt">&gt;</span><span class="cc-console-body">' + escapeText(item.title) + ' <small>· ' + escapeText(item.detail) + ' · ' + formatAgo(item.ts) + '</small></span></a>'
+    ).join('') + '<span class="cc-console-cursor" aria-hidden="true"></span>';
+  } else {
+    activityEl.innerHTML = model.activity.map(item =>
+      '<a class="cc-activity-item" href="' + item.href + '"><span class="cc-activity-icon">' + item.icon + '</span><span><b>' + escapeText(item.title) + '</b><small>' + escapeText(item.detail) + ' · ' + formatAgo(item.ts) + '</small></span></a>'
+    ).join('');
+  }
 
   document.getElementById('focusObjective').textContent = model.action ? model.action.title : 'Plan your next objective';
   window.__commandCenterModel = model;
+}
+
+// Moves the Alerts/Activity panel (.cc-dual) above or back below the
+// Schedule/Signals sections. All are direct siblings inside <main class="cc-page">,
+// so a plain insertBefore is enough — no separate flex/order layout needed.
+function applyRailContent(pref) {
+  const scheduleSection = document.querySelector('.cc-section[aria-labelledby="ccScheduleLabel"]');
+  const dualSection = document.querySelector('.cc-dual');
+  const insight = document.querySelector('.cc-insight');
+  if (!scheduleSection || !dualSection || !scheduleSection.parentNode) return;
+  const parent = scheduleSection.parentNode;
+  if (pref === 'alerts_activity') {
+    parent.insertBefore(dualSection, scheduleSection);
+  } else if (insight && insight.nextSibling !== dualSection) {
+    parent.insertBefore(dualSection, insight.nextSibling);
+  }
 }
 
 function boot() {
@@ -385,6 +436,26 @@ function boot() {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
   });
+  const coreTabToday = document.getElementById('coreTabToday');
+  const coreTabJarvis = document.getElementById('coreTabJarvis');
+  const coreTodayPanel = document.getElementById('coreTodayPanel');
+  const coreJarvisPanel = document.getElementById('coreJarvisPanel');
+  function setCoreTab(showJarvis) {
+    coreTabToday.classList.toggle('is-active', !showJarvis);
+    coreTabToday.setAttribute('aria-selected', String(!showJarvis));
+    coreTabJarvis.classList.toggle('is-active', showJarvis);
+    coreTabJarvis.setAttribute('aria-selected', String(showJarvis));
+    coreTodayPanel.hidden = showJarvis;
+    coreJarvisPanel.hidden = !showJarvis;
+  }
+  if (coreTabToday && coreTabJarvis) {
+    coreTabToday.addEventListener('click', () => setCoreTab(false));
+    coreTabJarvis.addEventListener('click', () => setCoreTab(true));
+  }
+
+  applyRailContent(readAppearance().railContent);
+  window.addEventListener('appearance-changed', () => { applyRailContent(readAppearance().railContent); render(); });
+
   window.addEventListener('storage', render);
   window.addEventListener('goals-changed', render);
   window.addEventListener('alert-state-changed', render);
