@@ -202,21 +202,30 @@ function storeGet(key) {
 const APPEARANCE_KEY = 'cc_appearance_v1';
 export function readAppearance() {
   const a = storeGet(APPEARANCE_KEY) || {};
+  // Defaults match the design handoff's own defaults (tone: callsign,
+  // consoleStyle: terminal, railContent: schedule_signals) rather than the
+  // pre-redesign look, so the JARVIS direction is what actually ships.
   return {
-    tone: a.tone === 'callsign' ? 'callsign' : 'friendly',
-    consoleStyle: a.consoleStyle === 'terminal' ? 'terminal' : 'cards',
+    tone: a.tone === 'friendly' ? 'friendly' : 'callsign',
+    consoleStyle: a.consoleStyle === 'cards' ? 'cards' : 'terminal',
     railContent: a.railContent === 'alerts_activity' ? 'alerts_activity' : 'schedule_signals',
   };
 }
+// Callsign is a fixed identifier, not a time-of-day greeting — matches the
+// design reference exactly ("JARVIS // FERNANDO-OS" regardless of hour).
+// Friendly is the only tone that varies with the clock.
 export function greetingFor(tone, hour) {
-  if (tone === 'callsign') {
-    const status = hour < 5 ? 'STANDBY' : hour < 12 ? 'GOOD MORNING' : hour < 18 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
-    return 'JARVIS // ' + status;
-  }
+  if (tone === 'callsign') return 'JARVIS // FERNANDO-OS';
   return (hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + ', Fernando';
 }
-export function kickerFor(tone) {
-  return tone === 'callsign' ? 'FERNANDO-OS · Online' : 'Command Center · Online';
+// The status line under the greeting is also fixed under callsign tone in
+// the design reference — it reads "ALL SYSTEMS SYNCED — STANDING BY" even
+// with active alerts, rather than restating the alert count a second time
+// (the Alerts panel already does that). Friendly tone keeps the original
+// alert-aware phrasing.
+export function statusFor(tone, alertCount) {
+  if (tone === 'callsign') return 'ALL SYSTEMS SYNCED — STANDING BY';
+  return alertCount ? alertCount + ' signal' + (alertCount === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
 }
 
 function collectGoalsByDate() {
@@ -234,6 +243,11 @@ function formatAgo(timestamp) {
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
   return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function hhmm(timestamp) {
+  const d = new Date(timestamp);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
 function escapeText(value) {
@@ -283,9 +297,7 @@ function render() {
   const hour = model.now.getHours();
   const appearance = readAppearance();
   document.getElementById('ccGreeting').textContent = greetingFor(appearance.tone, hour);
-  const kickerEl = document.getElementById('ccKicker');
-  if (kickerEl) kickerEl.textContent = kickerFor(appearance.tone);
-  document.getElementById('ccSystemText').textContent = model.alertCount ? model.alertCount + ' signal' + (model.alertCount === 1 ? '' : 's') + ' need attention' : 'All systems nominal';
+  document.getElementById('ccSystemText').textContent = statusFor(appearance.tone, model.alertCount);
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
 
   const brief = model.dailyBrief;
@@ -322,12 +334,22 @@ function render() {
 
   const latestSleep = Object.values(model.sleepNights).filter(Boolean).slice(-1)[0];
   const sleepValue = latestSleep ? (latestSleep.sleepHours ? latestSleep.sleepHours + 'h' : latestSleep.sleepQuality + '/5') : 'Not logged';
-  const moneyValue = model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
+  // Prefer a real WHOOP recovery % when it's actually connected (cached by
+  // the Settings modal's own WHOOP sync — this page makes no WHOOP calls of
+  // its own). Falls back to the sleep signal rather than fabricating a
+  // recovery number nobody's device actually reported.
+  let whoopStats = storeGet('whoop_last_stats_v1');
+  const recoverySignal = (whoopStats && whoopStats.rec != null)
+    ? ['♥', 'Recovery', whoopStats.rec + '%', 'health.html']
+    : ['◐', 'Sleep', sleepValue, 'sleep.html'];
+  const moneyValue = (model.trend && model.trend.current)
+    ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
+    : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
   document.getElementById('ccSignals').innerHTML = [
-    ['◐', 'Sleep', sleepValue, 'sleep.html'],
-    ['◒', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
-    ['↗', 'Net worth', moneyValue, 'finance.html'],
-    ['⚡', 'Best streak', model.streak.days ? model.streak.days + 'd · ' + model.streak.label : 'Start today', 'main.html'],
+    recoverySignal,
+    ['◇', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
+    ['▲', 'Net worth', moneyValue, 'finance.html'],
+    ['●', 'Streak', model.streak.days ? model.streak.days + 'd · ' + model.streak.label : 'Start today', 'main.html'],
   ].map(signal => '<a class="cc-signal" href="' + signal[3] + '"><span class="cc-signal-icon">' + signal[0] + '</span><span><b>' + escapeText(signal[1]) + '</b><small>' + escapeText(signal[2]) + '</small></span></a>').join('');
 
   document.getElementById('ccInsightText').textContent = model.insight;
@@ -342,8 +364,8 @@ function render() {
     activityEl.innerHTML = '<div class="cc-panel-empty"><span>◎</span><b>No recent activity yet</b><small>Completed tasks and updates appear here.</small></div>';
   } else if (appearance.consoleStyle === 'terminal') {
     activityEl.innerHTML = model.activity.map(item =>
-      '<a class="cc-console-row" href="' + item.href + '"><span class="cc-console-prompt">&gt;</span><span class="cc-console-body">' + escapeText(item.title) + ' <small>· ' + escapeText(item.detail) + ' · ' + formatAgo(item.ts) + '</small></span></a>'
-    ).join('') + '<span class="cc-console-cursor" aria-hidden="true"></span>';
+      '<a class="cc-console-row" href="' + item.href + '"><span class="cc-console-time">[' + hhmm(item.ts) + ']</span> <span class="cc-console-cat">' + escapeText((item.detail || '').toLowerCase()) + '</span><span class="cc-console-sep"> · </span><span class="cc-console-desc">' + escapeText(item.title) + '</span></a>'
+    ).join('') + '<div class="cc-console-prompt-row"><span class="cc-console-prompt">&gt;</span> standing by…<span class="cc-console-cursor" aria-hidden="true"></span></div>';
   } else {
     activityEl.innerHTML = model.activity.map(item =>
       '<a class="cc-activity-item" href="' + item.href + '"><span class="cc-activity-icon">' + item.icon + '</span><span><b>' + escapeText(item.title) + '</b><small>' + escapeText(item.detail) + ' · ' + formatAgo(item.ts) + '</small></span></a>'
@@ -354,19 +376,31 @@ function render() {
   window.__commandCenterModel = model;
 }
 
-// Moves the Alerts/Activity panel (.cc-dual) above or back below the
-// Schedule/Signals sections. All are direct siblings inside <main class="cc-page">,
-// so a plain insertBefore is enough — no separate flex/order layout needed.
+// Swaps which pair of panels leads the left rail: Schedule+Signals (with
+// Browse always pinned last) or Alerts+Activity, with the other pair moving
+// to the right rail. appendChild on an already-attached node just moves it,
+// so calling this repeatedly is idempotent.
 function applyRailContent(pref) {
-  const scheduleSection = document.querySelector('.cc-section[aria-labelledby="ccScheduleLabel"]');
-  const dualSection = document.querySelector('.cc-dual');
-  const insight = document.querySelector('.cc-insight');
-  if (!scheduleSection || !dualSection || !scheduleSection.parentNode) return;
-  const parent = scheduleSection.parentNode;
+  const railLeft = document.getElementById('ccRailLeft');
+  const railRight = document.getElementById('ccRailRight');
+  const scheduleSection = document.getElementById('ccScheduleSection');
+  const signalsSection = document.getElementById('ccSignalsSection');
+  const browseSection = document.getElementById('ccBrowseSection');
+  const alertsPanel = document.getElementById('ccAlertsPanel');
+  const consolePanel = document.getElementById('ccConsolePanel');
+  if (!railLeft || !railRight || !scheduleSection || !signalsSection || !browseSection || !alertsPanel || !consolePanel) return;
   if (pref === 'alerts_activity') {
-    parent.insertBefore(dualSection, scheduleSection);
-  } else if (insight && insight.nextSibling !== dualSection) {
-    parent.insertBefore(dualSection, insight.nextSibling);
+    railLeft.appendChild(alertsPanel);
+    railLeft.appendChild(consolePanel);
+    railLeft.appendChild(browseSection);
+    railRight.appendChild(scheduleSection);
+    railRight.appendChild(signalsSection);
+  } else {
+    railLeft.appendChild(scheduleSection);
+    railLeft.appendChild(signalsSection);
+    railLeft.appendChild(browseSection);
+    railRight.appendChild(alertsPanel);
+    railRight.appendChild(consolePanel);
   }
 }
 
@@ -455,6 +489,20 @@ function boot() {
 
   applyRailContent(readAppearance().railContent);
   window.addEventListener('appearance-changed', () => { applyRailContent(readAppearance().railContent); render(); });
+
+  const cmdPlaceholderEl = document.getElementById('ccCmdBarPlaceholder');
+  if (cmdPlaceholderEl) {
+    const examples = ['open finance', 'open gym', 'search notes', 'open insights', 'log a workout'];
+    let exampleIndex = 0;
+    function paintCmdPlaceholder() {
+      cmdPlaceholderEl.textContent = 'Try “' + examples[exampleIndex % examples.length] + '”…';
+      exampleIndex++;
+    }
+    paintCmdPlaceholder();
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setInterval(paintCmdPlaceholder, 4000);
+    }
+  }
 
   window.addEventListener('storage', render);
   window.addEventListener('goals-changed', render);
