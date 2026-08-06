@@ -481,6 +481,13 @@ function boot() {
     coreTabJarvis.setAttribute('aria-selected', String(showJarvis));
     coreTodayPanel.hidden = showJarvis;
     coreJarvisPanel.hidden = !showJarvis;
+    // Replay the fade/rise-in on whichever panel just became visible —
+    // removing+re-adding the class in the same tick wouldn't restart a CSS
+    // animation, so force a reflow between the two.
+    const entering = showJarvis ? coreJarvisPanel : coreTodayPanel;
+    entering.classList.remove('cc-core-panel-enter');
+    void entering.offsetWidth;
+    entering.classList.add('cc-core-panel-enter');
   }
   if (coreTabToday && coreTabJarvis) {
     coreTabToday.addEventListener('click', () => setCoreTab(false));
