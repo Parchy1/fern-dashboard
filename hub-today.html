@@ -73,6 +73,31 @@
   .mc-grid { grid-template-columns: 1fr; gap: 10px; }
   .mc-wide { grid-column: span 1; }
 }
+
+/* ===== NEXT UP hero bar ===== */
+.hub-nextup { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 22px; margin-bottom: 18px; flex-wrap: wrap; }
+.hub-nextup-label { display: block; color: var(--hud); font: 700 10px var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 4px; }
+.hub-nextup-title { color: var(--text-primary); font-size: 15px; font-weight: 600; }
+.hub-nextup-time { color: var(--hud); font-weight: 700; margin-right: 8px; font-family: var(--font-mono); }
+.hub-nextup-countdown { min-width: 200px; text-align: right; }
+.hub-nextup-countdown-text { display: block; color: var(--text-tertiary); font-size: 12px; margin-bottom: 6px; }
+.hub-nextup-bar { width: 200px; max-width: 100%; height: 4px; border-radius: 2px; background: var(--hud-line-soft); overflow: hidden; margin-left: auto; }
+.hub-nextup-bar-fill { height: 100%; width: 0%; background: var(--hud); border-radius: 2px; transition: width 0.4s ease; }
+
+/* ===== Feature tile — big icon anchored right, title/subtitle bottom-left,
+   matching the mockup's Main/Fitness cards (no dashed ring, unlike Body's
+   hero tiles — this page's icons read as large ambient art, not a status
+   ring). ===== */
+.tile-feature { position: relative; justify-content: flex-end; align-items: flex-start; text-align: left; grid-row: span 2; padding-bottom: 24px; }
+.tile-feature .tile-emoji { position: absolute; top: 50%; right: 22px; transform: translateY(-50%); font-size: 62px; opacity: 0.92; }
+.tile-feature .tile-title { font-size: 26px; }
+.tile-feature .tile-foot { width: 100%; }
+
+/* ===== Secondary stats strip — Mission Control's Goals/Streak/Energy/Net
+   Worth, kept as real functionality but demoted below the mockup-matching
+   hero cards above (the "Next up" card was folded into the new NEXT UP
+   bar, so this strip is 4 cards now, not 5). ===== */
+.mc-secondary-label { margin: 26px 0 10px; color: var(--hud-dim); font: 700 10px var(--font-mono); letter-spacing: 0.18em; text-transform: uppercase; }
 </style>
 </head>
 <body>
@@ -80,107 +105,88 @@
 
   <a class="back-link" href="index.html">← Dashboard</a>
   <h1 class="dash-title">Today</h1>
+  <div class="hub-status"><span class="hud-pulse-dot"></span><span id="mcDate">LIVE</span></div>
 
-  <div class="mc-head">
-    <div class="mc-greeting" id="mcGreeting">Today</div>
-    <div class="mc-date" id="mcDate"></div>
+  <div class="hub-nextup gm-card" id="hubNextUp">
+    <div class="hub-nextup-info">
+      <span class="hub-nextup-label">Next up</span>
+      <div class="hub-nextup-title"><span class="hub-nextup-time" id="nextUpTime"></span><span id="nextUpTitle">Nothing scheduled</span></div>
+    </div>
+    <div class="hub-nextup-countdown">
+      <span class="hub-nextup-countdown-text" id="nextUpCountdown"></span>
+      <div class="hub-nextup-bar"><div class="hub-nextup-bar-fill" id="nextUpBarFill"></div></div>
+    </div>
   </div>
 
+  <div class="bento" style="grid-template-columns:repeat(2,1fr)">
+    <!-- Feature tile -->
+    <a class="tile tile-feature" href="main.html" style="--accent:#6BE3A4">
+      <div class="tile-top"><span class="tile-num">·01</span></div>
+      <span class="tile-emoji">🎯</span>
+      <div class="tile-foot">
+        <div><h2 class="tile-title">Main</h2><span class="tile-sub" id="mainSub">Daily goals &amp; supplements</span></div>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+
+    <!-- Feature tile -->
+    <a class="tile tile-feature" href="gym.html" style="--accent:#7DD3FC">
+      <div class="tile-top"><span class="tile-num">·02</span></div>
+      <span class="tile-emoji">🏋️</span>
+      <div class="tile-foot">
+        <div><h2 class="tile-title">Fitness</h2><span class="tile-sub" id="fitnessSub">Workout &amp; progress</span></div>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="bento" style="grid-template-columns:2fr 1fr">
+    <a class="tile tile-list" href="google.html" style="--accent:#FBBC05;grid-column:span 1">
+      <span class="tile-num">·03</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">🗓️</span></span>
+      <span class="tile-body"><h2 class="tile-title">Google</h2><span class="tile-sub">Calendar, Gmail, Drive</span></span>
+      <span class="tile-arrow">→</span>
+    </a>
+
+    <a class="tile tile-list" href="calendar.html" style="--accent:#B794F4;grid-column:span 1">
+      <span class="tile-num">·04</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">📆</span></span>
+      <span class="tile-body"><h2 class="tile-title">Calendar</h2><span class="tile-sub">Day, week &amp; month</span></span>
+      <span class="tile-arrow">→</span>
+    </a>
+  </div>
+
+  <div class="bento" style="grid-template-columns:1fr">
+    <a class="tile tile-list" href="schedule.html" style="--accent:#22D3F5;grid-column:span 1">
+      <span class="tile-num">·05</span>
+      <span class="tile-emoji-ring"><span class="tile-emoji">🗓️</span></span>
+      <span class="tile-body"><h2 class="tile-title">Weekly Schedule</h2><span class="tile-sub">Hourly plan · Monday–Saturday</span></span>
+      <span class="tile-arrow">→</span>
+    </a>
+  </div>
+
+  <div class="mc-secondary-label">Mission control</div>
   <div class="mc-grid">
     <div class="mc-card" style="--accent:#6BE3A4">
-      <div class="mc-card-top"><span class="mc-emoji">◎</span><span class="mc-label">Goals</span></div>
+      <div class="mc-card-top"><span class="mc-emoji">🎯</span><span class="mc-label">Goals</span></div>
       <div class="mc-value" id="mcGoalsValue">—</div>
       <div class="mc-sub" id="mcGoalsSub"></div>
     </div>
     <div class="mc-card" style="--accent:#FB923C">
-      <div class="mc-card-top"><span class="mc-emoji">▲</span><span class="mc-label">Streak</span></div>
+      <div class="mc-card-top"><span class="mc-emoji">🔥</span><span class="mc-label">Streak</span></div>
       <div class="mc-value" id="mcStreakValue">—</div>
       <div class="mc-sub" id="mcStreakSub"></div>
     </div>
     <div class="mc-card" style="--accent:#C4B5FD">
-      <div class="mc-card-top"><span class="mc-emoji">↯</span><span class="mc-label">Energy</span></div>
+      <div class="mc-card-top"><span class="mc-emoji">⚡</span><span class="mc-label">Energy</span></div>
       <div class="mc-value" id="mcEnergyValue">—</div>
       <div class="mc-sub" id="mcEnergySub"></div>
     </div>
     <div class="mc-card" style="--accent:#7DD3FC">
-      <div class="mc-card-top"><span class="mc-emoji">◈</span><span class="mc-label">Net Worth</span></div>
+      <div class="mc-card-top"><span class="mc-emoji">💰</span><span class="mc-label">Net Worth</span></div>
       <div class="mc-value" id="mcMoneyValue">—</div>
       <div class="mc-sub" id="mcMoneySub"></div>
     </div>
-    <div class="mc-card mc-wide" style="--accent:#F2C063">
-      <div class="mc-card-top"><span class="mc-emoji">▷</span><span class="mc-label">Next up</span></div>
-      <div class="mc-value" id="mcNextValue">—</div>
-      <div class="mc-sub" id="mcNextSub"></div>
-    </div>
-  </div>
-
-  <div class="bento">
-    <!-- Big tile -->
-    <a class="tile big" href="main.html" style="--accent:#6BE3A4">
-      <div class="tile-top">
-        <span class="tile-num">·01</span>
-        <span class="tile-emoji">◉</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Main</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Goals & daily plan</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
-    <!-- Wide tile -->
-    <a class="tile wide" href="gym.html" style="--accent:#7DD3FC">
-      <div class="tile-top">
-        <span class="tile-num">·02</span>
-        <span class="tile-emoji">⬢</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Fitness</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Workouts, splits, sessions</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
-    <a class="tile" href="google.html" style="--accent:#FBBC05">
-      <div class="tile-top">
-        <span class="tile-num">·03</span>
-        <span class="tile-emoji">◫</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Google</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Calendar, Gmail, Drive</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
-    <a class="tile" href="calendar.html" style="--accent:#B794F4">
-      <div class="tile-top">
-        <span class="tile-num">·04</span>
-        <span class="tile-emoji">▤</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Calendar</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Day, week & month view</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
-
-    <a class="tile" href="schedule.html" style="--accent:#22D3F5">
-      <div class="tile-top">
-        <span class="tile-num">·05</span>
-        <span class="tile-emoji">▦</span>
-      </div>
-      <div class="tile-spacer"></div>
-      <h2 class="tile-title">Weekly Schedule</h2>
-      <div class="tile-foot">
-        <span class="tile-sub">Your Mon–Sat routine, hour by hour</span>
-        <span class="tile-arrow">→</span>
-      </div>
-    </a>
   </div>
 </div>
 
@@ -220,11 +226,8 @@
   // =====================================================================
 
   function renderGreeting() {
-    const h = new Date().getHours();
-    const greeting = h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    const gEl = document.getElementById('mcGreeting'), dEl = document.getElementById('mcDate');
-    if (gEl) gEl.textContent = greeting;
-    if (dEl) dEl.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const dEl = document.getElementById('mcDate');
+    if (dEl) dEl.textContent = 'LIVE · ' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   }
 
   function renderGoalsStat() {
@@ -384,15 +387,47 @@
     const upcoming = timed.find(g => g.time >= nowHM);
     return upcoming || timed[0] || undone[0];
   }
+  // The countdown bar's fill is a real ratio (minutes remaining vs. a
+  // fixed 4-hour visual window), not a fabricated progress value — same
+  // "computed from real inputs, honestly capped" approach as the other
+  // hub pages' derived stats (e.g. hub-money's cash-runway ratio). Capped
+  // at 4h since a countdown further out than that reads as "later today,"
+  // not something worth filling most of the bar for.
+  const NEXTUP_WINDOW_MIN = 240;
   function renderNextStat() {
-    const valEl = document.getElementById('mcNextValue'), subEl = document.getElementById('mcNextSub');
-    if (!valEl) return;
+    const timeEl = document.getElementById('nextUpTime'), titleEl = document.getElementById('nextUpTitle');
+    const countdownEl = document.getElementById('nextUpCountdown'), barEl = document.getElementById('nextUpBarFill');
+    if (!titleEl) return;
     const goals = storeGet('goals:' + activeDateKey6am()) || [];
     const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
     const pick = nextUpPick(goals, pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
-    if (!pick) { valEl.textContent = goals.length ? 'All done for today' : 'Nothing scheduled'; subEl.textContent = ''; return; }
-    valEl.textContent = pick.text;
-    subEl.textContent = pick.time ? fmtTime12(pick.time) : 'Anytime today';
+    if (!pick) {
+      timeEl.textContent = '';
+      titleEl.textContent = goals.length ? 'All done for today' : 'Nothing scheduled';
+      countdownEl.textContent = '';
+      barEl.style.width = '0%';
+      return;
+    }
+    titleEl.textContent = pick.text;
+    if (pick.time) {
+      timeEl.textContent = fmtTime12(pick.time) + ' · ';
+      const parts = pick.time.split(':');
+      const pickMinutes = Number(parts[0]) * 60 + Number(parts[1]);
+      const untilMin = pickMinutes - nowMinutes;
+      if (untilMin > 0) {
+        const h = Math.floor(untilMin / 60), m = untilMin % 60;
+        countdownEl.textContent = 'Starting in ' + (h > 0 ? h + 'h ' : '') + m + 'm';
+        barEl.style.width = Math.max(4, 100 - Math.min(100, (untilMin / NEXTUP_WINDOW_MIN) * 100)) + '%';
+      } else {
+        countdownEl.textContent = 'In progress';
+        barEl.style.width = '100%';
+      }
+    } else {
+      timeEl.textContent = '';
+      countdownEl.textContent = 'Anytime today';
+      barEl.style.width = '8%';
+    }
   }
 
   function renderMissionControl() {

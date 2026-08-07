@@ -223,7 +223,7 @@ body.topbar-modal-open {
     <button class="topbar-water-add" id="topbarWaterAdd" aria-label="Log one drink" type="button">+</button>
   </div>
   <a href="finance.html" class="topbar-finance-btn" id="topbarFinance" aria-label="Finance">
-    <span class="topbar-finance-icon">▤</span>
+    <span class="topbar-finance-icon">📊</span>
   </a>
   ${commandButtonHtml}
 </header>
@@ -232,15 +232,15 @@ body.topbar-modal-open {
   const bottombarHtml = `
 <nav class="bottombar" id="bottombar" role="navigation" aria-label="Main tabs">
   <a href="index.html" class="bottombar-tab" data-page="main">
-    <span class="bottombar-tab-icon">◉</span>
+    <span class="bottombar-tab-icon">🏠</span>
     <span>Main</span>
   </a>
   <a href="health.html" class="bottombar-tab" data-page="health">
-    <span class="bottombar-tab-icon">⬟</span>
+    <span class="bottombar-tab-icon">💊</span>
     <span>Health</span>
   </a>
   <a href="gym.html" class="bottombar-tab" data-page="fitness">
-    <span class="bottombar-tab-icon">⬢</span>
+    <span class="bottombar-tab-icon">💪</span>
     <span>Fitness</span>
   </a>
 </nav>
@@ -511,6 +511,18 @@ body.topbar-modal-open {
     scan.setAttribute('aria-hidden', 'true');
     document.body.appendChild(scan);
   }
+
+  // .gm-card/.tile's one-shot entrance animation (design-system.css) uses
+  // fill-mode "both" so it doesn't flash full-opacity before its stagger
+  // delay. But a filled animation keeps holding its animated properties
+  // (including transform) forever once finished, which silently blocks the
+  // CSS :hover lift underneath. Drop the animation once it ends so the
+  // element's transform reverts to the normal cascade.
+  document.addEventListener('animationend', (e) => {
+    if (e.animationName === 'gmEntranceIn' && e.target instanceof HTMLElement) {
+      e.target.style.animation = 'none';
+    }
+  });
 
   // -------- Boot --------
   function boot() {

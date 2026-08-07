@@ -200,6 +200,12 @@ function storeGet(key) {
 // (index.html). Never synced — same device can show a different tone/style
 // than another, which is fine since this changes nothing the model computes.
 const APPEARANCE_KEY = 'cc_appearance_v1';
+// Tracks which alert ids were already on screen, so only genuinely new
+// alerts get the one-shot entry pulse on the next render() (see below).
+let previousAlertIds = new Set();
+// Tracks each Signals-rail value by label so a real change (not just a
+// re-render) gets a brief highlight. null means "no render yet."
+let previousSignalValues = null;
 export function readAppearance() {
   const a = storeGet(APPEARANCE_KEY) || {};
   // Defaults match the design handoff's own defaults (tone: callsign,
@@ -245,9 +251,32 @@ function formatAgo(timestamp) {
   return Math.floor(seconds / 86400) + 'd ago';
 }
 
+function updateJarvisAlertState(alertCount) {
+  const jarvisOrb = document.getElementById('jarvisOrb');
+  if (jarvisOrb) jarvisOrb.classList.toggle('is-alert', alertCount > 0);
+}
+
 function hhmm(timestamp) {
   const d = new Date(timestamp);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// A minimal inline SVG sparkline — no charting library, driven only by
+// real stored history (nw:history, sleep:nights, po_water_v1.logs). Never
+// fabricates a shape for missing data; callers simply omit the sparkline
+// when there aren't at least 2 real points.
+function sparklineSvg(values) {
+  if (!values || values.length < 2) return '';
+  const w = 100, h = 26;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const step = w / (values.length - 1);
+  const points = values.map((v, i) => (i * step).toFixed(1) + ',' + (h - ((v - min) / range) * (h - 4) - 2).toFixed(1));
+  const line = points.join(' ');
+  const fill = line + ' ' + w + ',' + h + ' 0,' + h;
+  return '<svg class="cc-signal-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">'
+    + '<polygon class="cc-spark-fill" points="' + fill + '"></polygon>'
+    + '<polyline class="cc-spark-line" points="' + line + '"></polyline></svg>';
 }
 
 function escapeText(value) {
@@ -292,6 +321,123 @@ function readModel() {
   return model;
 }
 
+function litersPerUnit(water) {
+  if (!water) return 0;
+  if (water.unit === 'glass') return (water.glassMl || 250) / 1000;
+  if (water.unit === 'oz') return 30 * 0.0295735;
+  if (water.unit === 'ml') return 0.001;
+  return (water.bottleMl || 500) / 1000;
+}
+
+function fmtCurrency(n) {
+  return '$' + Math.round(n).toLocaleString('en-US');
+}
+
+// The 4-card Signals grid — Recovery, Hydration, Finance, System Status —
+// each with a real mini-visualization (ring, sparkline, or status check)
+// built only from data already computed in the model or read directly
+// from the same localStorage keys other pages already own. Nothing here
+// is a fabricated number: a card that lacks enough real data to show a
+// ring or sparkline just says so honestly instead of inventing a shape.
+function renderSignalCards(model) {
+  const cards = [];
+
+  // ---- Recovery / Sleep ----
+  const latestSleepEntry = Object.entries(model.sleepNights).filter(([, v]) => v).sort(([a], [b]) => a < b ? -1 : 1).slice(-1)[0];
+  const latestSleep = latestSleepEntry ? latestSleepEntry[1] : null;
+  const sleepValue = latestSleep ? (latestSleep.sleepHours ? latestSleep.sleepHours + 'h' : latestSleep.sleepQuality + '/5') : 'Not logged';
+  const sleepHistory = Object.entries(model.sleepNights)
+    .filter(([, v]) => v && Number.isFinite(Number(v.sleepHours)))
+    .sort(([a], [b]) => a < b ? -1 : 1)
+    .slice(-7)
+    .map(([, v]) => Number(v.sleepHours));
+  const whoopStats = storeGet('whoop_last_stats_v1');
+  const hasWhoop = whoopStats && whoopStats.rec != null;
+  const recoveryPct = hasWhoop ? whoopStats.rec
+    : latestSleep && latestSleep.sleepQuality != null ? Math.round(latestSleep.sleepQuality / 5 * 100)
+    : latestSleep && latestSleep.sleepHours != null ? Math.round(Math.min(100, latestSleep.sleepHours / 8 * 100))
+    : null;
+  cards.push({
+    label: hasWhoop ? 'Recovery' : 'Sleep',
+    href: hasWhoop ? 'health.html' : 'sleep.html',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">' + (hasWhoop ? '❤️' : '😴') + '</span>' + (hasWhoop ? 'RECOVERY' : 'SLEEP') + '</div>'
+      + '<div class="cc-signal-viz">'
+      + '<div class="cc-signal-ring" style="--ring-pct:' + (recoveryPct || 0) + '"><div class="cc-signal-ring-track"></div><span class="cc-signal-ring-value">' + (recoveryPct != null ? recoveryPct + '%' : '—') + '</span></div>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (hasWhoop ? 'HRV ' + (whoopStats.hrv != null ? whoopStats.hrv + 'ms' : '—') : sleepValue) + '</div>'
+      + '<div class="cc-signal-sub-value">' + (hasWhoop ? 'Sleep ' + sleepValue : (latestSleep && latestSleep.sleepQuality != null ? 'Quality ' + latestSleep.sleepQuality + '/5' : 'No recent log')) + '</div></div>'
+      + '</div>'
+      + sparklineSvg(sleepHistory)
+      + '<div class="cc-signal-foot">View details →</div>',
+    extraClass: hasWhoop ? ' is-recovery' : '',
+    diffValue: (recoveryPct || 0) + '|' + sleepValue,
+  });
+
+  // ---- Hydration ----
+  const water = model.water;
+  const wp = model.waterProgress;
+  const lpu = litersPerUnit(water);
+  const doneL = wp ? (wp.done * lpu) : 0;
+  const totalL = wp ? (wp.total * lpu) : 0;
+  const waterHistory = water && water.logs ? Object.keys(water.logs).sort().slice(-7).map(k => Number(water.logs[k]) || 0) : [];
+  cards.push({
+    label: 'Hydration',
+    href: 'health.html#water',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">💧</span>HYDRATION</div>'
+      + '<div class="cc-signal-viz">'
+      + '<div class="cc-signal-ring" style="--ring-pct:' + (wp ? Math.round(wp.ratio * 100) : 0) + '"><div class="cc-signal-ring-track"></div><span class="cc-signal-ring-value">' + (wp ? Math.round(wp.ratio * 100) + '%' : '—') + '</span></div>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (wp ? doneL.toFixed(1) + 'L of ' + totalL.toFixed(1) + 'L' : 'Not set') + '</div>'
+      + '<div class="cc-signal-sub-value">' + (wp ? Math.round(wp.ratio * 100) + '% Daily goal' : 'Add your profile to track') + '</div></div>'
+      + '</div>'
+      + sparklineSvg(waterHistory)
+      + '<div class="cc-signal-foot">Log hydration →</div>',
+    extraClass: '',
+    diffValue: wp ? wp.done + '/' + wp.total : 'unset',
+  });
+
+  // ---- Finance ----
+  const nwHistory = (storeGet('nw:history') || []).filter(p => p && Number.isFinite(Number(p.v))).slice(-10).map(p => Number(p.v));
+  const moneyValue = (model.trend && model.trend.current)
+    ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
+    : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
+  cards.push({
+    label: 'Finance',
+    href: 'finance.html',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">📈</span>FINANCE</div>'
+      + '<div class="cc-signal-main-value">' + (model.trend && model.trend.current ? fmtCurrency(model.trend.current) : 'Net worth') + '</div>'
+      + '<div class="cc-signal-sub-value">' + escapeText(moneyValue) + '</div>'
+      + sparklineSvg(nwHistory)
+      + '<div class="cc-signal-foot">View portfolio →</div>',
+    extraClass: ' is-money',
+    diffValue: moneyValue,
+  });
+
+  // ---- System Status ----
+  const hasIssues = model.alertCount > 0;
+  cards.push({
+    label: 'System',
+    href: '#ccAlertsPanel',
+    html: '<div class="cc-signal-head"><span class="cc-signal-icon">🖥️</span>SYSTEM STATUS</div>'
+      + '<div class="cc-signal-status"><span class="cc-signal-status-dot">' + (hasIssues ? '!' : '✓') + '</span>'
+      + '<div class="cc-signal-viz-body"><div class="cc-signal-main-value">' + (hasIssues ? model.alertCount + (model.alertCount === 1 ? ' issue' : ' issues') : 'Nominal') + '</div>'
+      + '<div class="cc-signal-sub-value">' + (hasIssues ? 'Needs attention' : 'No issues detected') + '</div></div></div>'
+      + '<div class="cc-signal-foot">View status →</div>',
+    extraClass: hasIssues ? ' is-issues' : ' is-nominal',
+    diffValue: hasIssues ? String(model.alertCount) : 'nominal',
+  });
+
+  // A brief traveling highlight when a card's real value actually changes
+  // since the last render — not on first paint, not on an unrelated re-render.
+  const isFirstSignalsRender = previousSignalValues === null;
+  const nextSignalValues = {};
+  const html = cards.map(card => {
+    nextSignalValues[card.label] = card.diffValue;
+    const changed = !isFirstSignalsRender && previousSignalValues[card.label] !== undefined && previousSignalValues[card.label] !== card.diffValue;
+    return '<a class="cc-signal' + card.extraClass + (changed ? ' is-refreshed' : '') + '" href="' + card.href + '">' + card.html + '</a>';
+  }).join('');
+  previousSignalValues = nextSignalValues;
+  return html;
+}
+
 function render() {
   const model = readModel();
   const hour = model.now.getHours();
@@ -299,16 +445,24 @@ function render() {
   document.getElementById('ccGreeting').textContent = greetingFor(appearance.tone, hour);
   document.getElementById('ccSystemText').textContent = statusFor(appearance.tone, model.alertCount);
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
+  if (typeof window.__jarvisGlobeSetAlertLevel === 'function') window.__jarvisGlobeSetAlertLevel(model.alertCount);
+  updateJarvisAlertState(model.alertCount);
 
   const brief = model.dailyBrief;
   document.getElementById('ccBriefPeriod').textContent = brief.eyebrow;
   document.getElementById('ccBriefConfidence').textContent = brief.coverage.confidence + ' · ' + brief.coverage.connected + '/' + brief.coverage.total + ' signals';
   document.getElementById('ccBriefTitle').textContent = brief.title;
   document.getElementById('ccBriefSummary').textContent = brief.summary;
-  document.getElementById('ccBriefItems').innerHTML = brief.items.map(item => {
+  const briefItemHtml = item => {
     const tone = ['active', 'good', 'warn', 'critical'].includes(item.tone) ? ' is-' + item.tone : '';
     return '<a class="cc-brief-item' + tone + '" href="' + escapeText(item.href) + '"><span class="cc-brief-icon">' + escapeText(item.icon) + '</span><span class="cc-brief-item-body"><small>' + escapeText(item.label) + '</small><b>' + escapeText(item.title) + '</b><span>' + escapeText(item.detail) + '</span></span><span class="cc-row-arrow">→</span></a>';
-  }).join('');
+  };
+  // A condensed 3-item strip leads by default, matching the design
+  // reference's compact AI Daily Brief read — "View Full Brief" reveals
+  // the same real title/summary/full item list underneath rather than
+  // hiding any of it permanently.
+  document.getElementById('ccBriefRow').innerHTML = brief.items.slice(0, 3).map(briefItemHtml).join('');
+  document.getElementById('ccBriefItems').innerHTML = brief.items.map(briefItemHtml).join('');
 
   const actionEl = document.getElementById('ccAction');
   if (model.action) {
@@ -327,36 +481,24 @@ function render() {
 
   const scheduleEl = document.getElementById('ccSchedule');
   scheduleEl.innerHTML = model.schedule.length ? model.schedule.map(item =>
-    '<a class="cc-schedule-item' + (item.isNext ? ' is-next' : '') + (item.done ? ' is-done' : '') + '" href="' + item.href + '">'
-    + (item.isNext ? '<span class="hud-pulse-dot cc-now-marker"></span>' : '<span class="cc-schedule-node"></span>')
-    + '<span class="cc-schedule-time">' + escapeText(item.time) + '</span><span class="cc-schedule-title">' + escapeText(item.title) + '</span></a>'
+    '<a class="cc-schedule-chip' + (item.isNext ? ' is-next' : '') + (item.done ? ' is-done' : '') + '" href="' + item.href + '">'
+    + '<span class="cc-schedule-dot"></span>'
+    + '<span class="cc-schedule-chip-time">' + escapeText(item.time) + '</span><span>' + escapeText(item.title) + '</span></a>'
   ).join('') : '<a class="cc-empty-inline" href="main.html">Nothing timed yet — add a time to any goal →</a>';
 
-  const latestSleep = Object.values(model.sleepNights).filter(Boolean).slice(-1)[0];
-  const sleepValue = latestSleep ? (latestSleep.sleepHours ? latestSleep.sleepHours + 'h' : latestSleep.sleepQuality + '/5') : 'Not logged';
-  // Prefer a real WHOOP recovery % when it's actually connected (cached by
-  // the Settings modal's own WHOOP sync — this page makes no WHOOP calls of
-  // its own). Falls back to the sleep signal rather than fabricating a
-  // recovery number nobody's device actually reported.
-  let whoopStats = storeGet('whoop_last_stats_v1');
-  const recoverySignal = (whoopStats && whoopStats.rec != null)
-    ? ['♥', 'Recovery', whoopStats.rec + '%', 'health.html']
-    : ['◐', 'Sleep', sleepValue, 'sleep.html'];
-  const moneyValue = (model.trend && model.trend.current)
-    ? (model.trend.monthly >= 0 ? '+' : '') + ((model.trend.monthly / Math.abs(model.trend.current)) * 100).toFixed(1) + '%/mo'
-    : model.trend ? (model.trend.monthly >= 0 ? '▲ ' : '▼ ') + Math.abs(model.trend.monthly).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '/mo' : 'Trend building';
-  document.getElementById('ccSignals').innerHTML = [
-    recoverySignal,
-    ['◇', 'Water', model.waterProgress ? model.waterProgress.done + '/' + model.waterProgress.total : 'Not set', 'health.html#water'],
-    ['▲', 'Net worth', moneyValue, 'finance.html'],
-    ['●', 'Streak', model.streak.days ? model.streak.days + 'd · ' + model.streak.label : 'Start today', 'main.html'],
-  ].map(signal => '<a class="cc-signal" href="' + signal[3] + '"><span class="cc-signal-icon">' + signal[0] + '</span><span><b>' + escapeText(signal[1]) + '</b><small>' + escapeText(signal[2]) + '</small></span></a>').join('');
+  document.getElementById('ccSignals').innerHTML = renderSignalCards(model);
 
   document.getElementById('ccInsightText').textContent = model.insight;
   document.getElementById('ccAlertCount').textContent = String(model.alertCount);
+  // Only alerts that are genuinely new since the last render get the
+  // one-shot entry pulse — every render rebuilding the whole list from
+  // innerHTML would otherwise re-pulse alerts that were already sitting
+  // there, which reads as noise rather than a "new" signal.
+  const currentAlertIds = new Set(model.alerts.map(a => a.id));
   document.getElementById('ccAlerts').innerHTML = model.alerts.length ? model.alerts.map(alert =>
-    '<div class="cc-alert is-' + alert.level + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
+    '<div class="cc-alert is-' + alert.level + (previousAlertIds.has(alert.id) ? '' : ' is-new') + '"><a class="cc-alert-link" href="' + alert.href + '"><span class="cc-alert-icon">' + alert.icon + '</span><span><b>' + escapeText(alert.title) + '</b><small>' + escapeText(alert.detail) + '</small></span><span class="cc-row-arrow">→</span></a><button class="cc-alert-dismiss" type="button" data-alert-dismiss="' + escapeText(alert.id) + '" aria-label="Dismiss ' + escapeText(alert.title) + '">×</button></div>'
   ).join('') : '<div class="cc-panel-empty"><span>✓</span><b>No active alerts</b><small>Threshold checks are clear.</small></div>';
+  previousAlertIds = currentAlertIds;
 
   const activityEl = document.getElementById('ccActivity');
   activityEl.classList.toggle('is-terminal', appearance.consoleStyle === 'terminal');
@@ -380,30 +522,6 @@ function render() {
 // Browse always pinned last) or Alerts+Activity, with the other pair moving
 // to the right rail. appendChild on an already-attached node just moves it,
 // so calling this repeatedly is idempotent.
-function applyRailContent(pref) {
-  const railLeft = document.getElementById('ccRailLeft');
-  const railRight = document.getElementById('ccRailRight');
-  const scheduleSection = document.getElementById('ccScheduleSection');
-  const signalsSection = document.getElementById('ccSignalsSection');
-  const browseSection = document.getElementById('ccBrowseSection');
-  const alertsPanel = document.getElementById('ccAlertsPanel');
-  const consolePanel = document.getElementById('ccConsolePanel');
-  if (!railLeft || !railRight || !scheduleSection || !signalsSection || !browseSection || !alertsPanel || !consolePanel) return;
-  if (pref === 'alerts_activity') {
-    railLeft.appendChild(alertsPanel);
-    railLeft.appendChild(consolePanel);
-    railLeft.appendChild(browseSection);
-    railRight.appendChild(scheduleSection);
-    railRight.appendChild(signalsSection);
-  } else {
-    railLeft.appendChild(scheduleSection);
-    railLeft.appendChild(signalsSection);
-    railLeft.appendChild(browseSection);
-    railRight.appendChild(alertsPanel);
-    railRight.appendChild(consolePanel);
-  }
-}
-
 function boot() {
   if (!document.getElementById('ccAction')) return;
   const doneButton = document.getElementById('ccActionDone');
@@ -425,6 +543,17 @@ function boot() {
     window.dispatchEvent(new CustomEvent('goals-changed'));
     render();
   });
+
+  const briefToggle = document.getElementById('ccBriefToggle');
+  const briefFull = document.getElementById('ccBriefFull');
+  if (briefToggle && briefFull) {
+    briefToggle.addEventListener('click', () => {
+      const expanded = briefFull.hidden;
+      briefFull.hidden = !expanded;
+      briefToggle.setAttribute('aria-expanded', String(expanded));
+      briefToggle.textContent = expanded ? 'Hide Full Brief' : 'View Full Brief';
+    });
+  }
 
   const focus = document.getElementById('focusMode');
   const openButtons = document.querySelectorAll('[data-focus-open]');
@@ -494,8 +623,69 @@ function boot() {
     coreTabJarvis.addEventListener('click', () => setCoreTab(true));
   }
 
-  applyRailContent(readAppearance().railContent);
-  window.addEventListener('appearance-changed', () => { applyRailContent(readAppearance().railContent); render(); });
+  // ---- JARVIS AI-core widget ----
+  // Idle/Listening/Thinking/Responding state machine. Not a real voice
+  // assistant (no mic access, no backend call) — it visually represents
+  // the AI reasoning about signals that are already genuinely on this
+  // page: the response text is the exact same buildProactiveInsight()
+  // string the Insight banner already shows, read live off
+  // window.__commandCenterModel, not a scripted/fabricated line.
+  const jarvisOrb = document.getElementById('jarvisOrb');
+  const jarvisStatusText = document.getElementById('jarvisStatusText');
+  const jarvisNodesEl = document.getElementById('jarvisNodes');
+  const jarvisPromptBtn = document.getElementById('jarvisPromptBtn');
+  const jarvisResponseEl = document.getElementById('jarvisResponse');
+  const jarvisResponseBody = document.getElementById('jarvisResponseBody');
+  const jarvisResponseSource = document.getElementById('jarvisResponseSource');
+  const JARVIS_NODE_LABELS = ['SCHEDULE', 'RECOVERY', 'FINANCE', 'HABITS'];
+  if (jarvisNodesEl) {
+    jarvisNodesEl.innerHTML = JARVIS_NODE_LABELS.map((label, i) =>
+      '<span class="cc-jarvis-node" style="--i:' + i + '">' + label + '</span>'
+    ).join('');
+  }
+  function setJarvisState(state) {
+    if (jarvisOrb) jarvisOrb.dataset.state = state;
+    if (jarvisStatusText) jarvisStatusText.textContent = {
+      listening: 'LISTENING', thinking: 'THINKING', responding: 'RESPONDING',
+    }[state] || 'ONLINE';
+  }
+  let jarvisBusy = false;
+  function runJarvisAnalysis() {
+    if (jarvisBusy || !jarvisOrb) return;
+    jarvisBusy = true;
+    if (jarvisPromptBtn) jarvisPromptBtn.disabled = true;
+    if (jarvisResponseEl) jarvisResponseEl.hidden = true;
+    setJarvisState('listening');
+    setTimeout(() => {
+      setJarvisState('thinking');
+      setTimeout(() => {
+        const model = window.__commandCenterModel;
+        const insightText = (model && model.insight) || 'Add a goal or check-in and the Command Center will start prioritizing your day.';
+        const connected = model && model.dailyBrief ? model.dailyBrief.coverage.connected : 0;
+        const alertCount = model ? model.alertCount : 0;
+        const signalCount = connected + alertCount;
+        setJarvisState('responding');
+        if (jarvisResponseBody) jarvisResponseBody.textContent = insightText;
+        if (jarvisResponseSource) jarvisResponseSource.textContent = signalCount + ' active signal' + (signalCount === 1 ? '' : 's') + ' · built from data already on this dashboard';
+        if (jarvisResponseEl) jarvisResponseEl.hidden = false;
+        jarvisBusy = false;
+        if (jarvisPromptBtn) jarvisPromptBtn.disabled = false;
+        setTimeout(() => { if (jarvisOrb.dataset.state === 'responding') setJarvisState('idle'); }, 4000);
+      }, 1100);
+    }, 700);
+  }
+  if (jarvisPromptBtn) jarvisPromptBtn.addEventListener('click', runJarvisAnalysis);
+  // "Even before voice interaction is fully connected, the widget should
+  // visually represent the AI analyzing dashboard signals" — auto-plays
+  // once the first time the tab is opened, not on every switch back to it.
+  let jarvisAutoPlayed = false;
+  if (coreTabJarvis) {
+    coreTabJarvis.addEventListener('click', () => {
+      if (!jarvisAutoPlayed) { jarvisAutoPlayed = true; setTimeout(runJarvisAnalysis, 900); }
+    });
+  }
+
+  window.addEventListener('appearance-changed', () => { render(); });
 
   const cmdPlaceholderEl = document.getElementById('ccCmdBarPlaceholder');
   if (cmdPlaceholderEl) {
@@ -511,10 +701,26 @@ function boot() {
     }
   }
 
-  window.addEventListener('storage', render);
-  window.addEventListener('goals-changed', render);
-  window.addEventListener('alert-state-changed', render);
-  document.addEventListener('command-center:refresh', render);
+  // A single logical change (e.g. one `storage` event) can fan out into
+  // several of these listeners firing synchronously in the same tick —
+  // index.html's own `storage` handler, for instance, re-dispatches
+  // `command-center:refresh` after it runs. Calling render() once per
+  // listener means the 2nd+ call always compares against the 1st call's
+  // just-written previousSignalValues/previousAlertIds and sees "no
+  // change," silently erasing the is-refreshed/is-new highlight before the
+  // browser ever paints it. Coalescing into one microtask per tick means
+  // render() runs exactly once with the final state, so the diff-based
+  // highlight actually reflects the real before/after.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    queueMicrotask(() => { renderQueued = false; render(); });
+  }
+  window.addEventListener('storage', scheduleRender);
+  window.addEventListener('goals-changed', scheduleRender);
+  window.addEventListener('alert-state-changed', scheduleRender);
+  document.addEventListener('command-center:refresh', scheduleRender);
   setInterval(render, 60000);
   render();
 }

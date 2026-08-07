@@ -12,18 +12,39 @@
 <script src="sync.js" defer></script>
 <script src="topbar.js" defer></script>
 <link rel="stylesheet" href="design-system.css">
+
+<style>
+.insights-finding { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; padding: 16px 20px; }
+.insights-finding-icon { font-size: 20px; color: var(--hud); flex-shrink: 0; }
+.insights-finding-body { min-width: 0; flex: 1; }
+.insights-finding-label { display: block; color: var(--hud-dim); font: 700 10px var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 4px; }
+.insights-finding-text { color: var(--text-primary); font-size: 14.5px; }
+.insights-finding-badge { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: var(--radius-full); font: 700 10px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.insights-finding-badge.is-high { color: var(--success); background: rgba(63,224,168,0.08); border: 1px solid rgba(63,224,168,0.3); }
+.insights-finding-badge.is-low { color: var(--text-tertiary); background: rgba(255,255,255,0.03); border: 1px solid var(--hud-line-soft); }
+</style>
 </head>
 <body>
 <div class="page">
 
   <a class="back-link" href="index.html">← Dashboard</a>
   <h1 class="dash-title">Insights</h1>
+  <div class="hub-status"><span class="hud-pulse-dot"></span><span id="insightsDaysAnalyzed">Analyzing…</span></div>
+
+  <div class="insights-finding gm-card" id="insightsFinding">
+    <span class="insights-finding-icon">✦</span>
+    <div class="insights-finding-body">
+      <span class="insights-finding-label">Latest finding</span>
+      <span class="insights-finding-text" id="insightsFindingText">Building your picture — keep logging to unlock findings.</span>
+    </div>
+    <span class="insights-finding-badge is-low" id="insightsFindingBadge">Low confidence</span>
+  </div>
 
   <div class="bento">
-    <a class="tile wide" href="insights-patterns.html" style="--accent:#22D3F5">
+    <a class="tile" href="insights-patterns.html" style="--accent:#22D3F5">
       <div class="tile-top">
         <span class="tile-num">·01</span>
-        <span class="tile-emoji">▤</span>
+        <span class="tile-emoji">📊</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Patterns & Limiters</h2>
@@ -36,7 +57,7 @@
     <a class="tile" href="insights-mode.html" style="--accent:#FBBF24">
       <div class="tile-top">
         <span class="tile-num">·02</span>
-        <span class="tile-emoji">◐</span>
+        <span class="tile-emoji">🎭</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Mode Breakdown</h2>
@@ -49,7 +70,7 @@
     <a class="tile" href="insights-triggers.html" style="--accent:#FF5470">
       <div class="tile-top">
         <span class="tile-num">·03</span>
-        <span class="tile-emoji">↯</span>
+        <span class="tile-emoji">⚡</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Emotional Triggers</h2>
@@ -62,7 +83,7 @@
     <a class="tile" href="insights-drift.html" style="--accent:#22D3F5">
       <div class="tile-top">
         <span class="tile-num">·04</span>
-        <span class="tile-emoji">≈</span>
+        <span class="tile-emoji">🌊</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Drift Detection</h2>
@@ -75,7 +96,7 @@
     <a class="tile" href="insights-adherence.html" style="--accent:#3FE0A8">
       <div class="tile-top">
         <span class="tile-num">·05</span>
-        <span class="tile-emoji">◎</span>
+        <span class="tile-emoji">🎯</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Reality vs Plan</h2>
@@ -88,7 +109,7 @@
     <a class="tile" href="life-timeline.html" style="--accent:#A78BFA">
       <div class="tile-top">
         <span class="tile-num">·06</span>
-        <span class="tile-emoji">↻</span>
+        <span class="tile-emoji">🕰️</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Life Timeline</h2>
@@ -101,7 +122,7 @@
     <a class="tile" href="prediction-center.html" style="--accent:#3FE0A8">
       <div class="tile-top">
         <span class="tile-num">·07</span>
-        <span class="tile-emoji">◈</span>
+        <span class="tile-emoji">🔮</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Prediction Center</h2>
@@ -114,7 +135,7 @@
     <a class="tile wide" href="correlation-lab.html" style="--accent:#A78BFA">
       <div class="tile-top">
         <span class="tile-num">·08</span>
-        <span class="tile-emoji">⬡</span>
+        <span class="tile-emoji">🔗</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Correlation Lab</h2>
@@ -125,5 +146,63 @@
     </a>
   </div>
 </div>
+
+<script>
+(function () {
+  'use strict';
+  function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  function average(values) { return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null; }
+
+  // A real count of distinct days with at least one real log across the
+  // stores this dashboard already keeps (goals, sleep, peak check-ins) —
+  // not a fabricated "N days analyzed" figure. Scans up to 60 days back so
+  // the count stays honest without an unbounded localStorage scan.
+  function countDaysAnalyzed() {
+    const days = new Set();
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const goals = storeGet('goals:' + key);
+      if (Array.isArray(goals) && goals.length) days.add(key);
+    }
+    const nights = storeGet('sleep:nights') || {};
+    Object.keys(nights).forEach(k => { if (nights[k]) days.add(k); });
+    const checkins = storeGet('peak:checkins') || [];
+    checkins.forEach(c => { if (c && c.ts) { const d = new Date(c.ts); days.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); } });
+    return days.size;
+  }
+
+  // The same "latest sleep trend" heuristic buildProactiveInsight() (the
+  // Command Center's own insight) checks first, duplicated in this plain
+  // page's own small script rather than pulling in a JS module — same
+  // pattern the other hub pages already use for their own local
+  // recomputations. Falls back to an honest low-confidence empty state
+  // rather than inventing a finding when there isn't one yet.
+  function computeLatestFinding() {
+    const nights = Object.values(storeGet('sleep:nights') || {}).filter(n => n && Number(n.sleepHours) > 0).slice(-3);
+    if (nights.length >= 2) {
+      const hours = average(nights.map(n => Number(n.sleepHours)));
+      if (hours < 7) return { text: 'Sleep averaged ' + hours.toFixed(1) + ' hours across your latest logs — protecting tonight would have the highest recovery payoff.', confident: true };
+      return { text: 'Sleep has averaged ' + hours.toFixed(1) + ' hours across your latest logs — a healthy range right now.', confident: true };
+    }
+    return { text: 'Building your picture — keep logging to unlock findings.', confident: false };
+  }
+
+  function render() {
+    const days = countDaysAnalyzed();
+    document.getElementById('insightsDaysAnalyzed').textContent = days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ' analyzed' : 'Awaiting your first logs';
+    const finding = computeLatestFinding();
+    document.getElementById('insightsFindingText').textContent = finding.text;
+    const badge = document.getElementById('insightsFindingBadge');
+    badge.textContent = finding.confident ? 'High confidence' : 'Low confidence';
+    badge.classList.toggle('is-high', finding.confident);
+    badge.classList.toggle('is-low', !finding.confident);
+  }
+
+  render();
+  window.addEventListener('storage', render);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') render(); });
+})();
+</script>
 </body>
 </html>
