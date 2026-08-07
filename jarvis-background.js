@@ -27,7 +27,13 @@
   const canvas = document.createElement('canvas');
   canvas.id = 'jarvisBg';
   canvas.setAttribute('aria-hidden', 'true');
-  canvas.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;';
+  // No negative z-index: body has its own explicit background-color, and a
+  // negative z-index here ends up painting behind that (verified — the
+  // canvas was drawing correctly but was completely invisible on screen).
+  // Since this canvas is inserted as body's first child, plain DOM paint
+  // order already puts it behind every other z-index:auto element without
+  // needing z-index at all.
+  canvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;';
   document.body.insertBefore(canvas, document.body.firstChild);
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -50,7 +56,7 @@
     const layers = [];
     for (let l = 0; l < 3; l++) {
       const speed = 0.06 + l * 0.05;
-      const size = 0.7 + l * 0.5;
+      const size = 1.3 + l * 0.9;
       const points = [];
       for (let i = 0; i < perLayer; i++) {
         points.push({
@@ -104,9 +110,21 @@
     offsetX += (targetOffsetX - offsetX) * 0.04;
     offsetY += (targetOffsetY - offsetY) * 0.04;
     const color = hudColor();
+    const rgb = color.r + ',' + color.g + ',' + color.b;
     ctx.clearRect(0, 0, width, height);
     ctx.save();
     ctx.translate(offsetX, offsetY);
+
+    // Technical grid — a real drawn layer (not just the near-invisible CSS
+    // background line), so the "faint technical grid" from the brief
+    // actually reads as present rather than being a rounding error.
+    const gridSize = 64;
+    ctx.strokeStyle = 'rgba(' + rgb + ',0.09)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let gx = -gridSize; gx < width + gridSize; gx += gridSize) { ctx.moveTo(gx, 0); ctx.lineTo(gx, height); }
+    for (let gy = -gridSize; gy < height + gridSize; gy += gridSize) { ctx.moveTo(0, gy); ctx.lineTo(width, gy); }
+    ctx.stroke();
 
     // Fog blobs
     fogBlobs.forEach(b => {
@@ -114,8 +132,8 @@
       const cy = height * b.yr + Math.cos(t * b.driftY + b.phase) * height * 0.03;
       const r = Math.min(width, height) * b.radiusRatio;
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(0, 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',0.05)');
-      g.addColorStop(1, 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',0)');
+      g.addColorStop(0, 'rgba(' + rgb + ',0.16)');
+      g.addColorStop(1, 'rgba(' + rgb + ',0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     });
@@ -128,11 +146,14 @@
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(rotation);
-      ctx.strokeStyle = 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',0.10)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(' + rgb + ',0.38)';
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = 'rgba(' + rgb + ',0.6)';
+      ctx.shadowBlur = 6;
       ctx.beginPath();
       ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       if (t >= arc.nextPulseAt && arc.pulse === null) {
         arc.pulse = { start: t, duration: 2.6 + Math.random() * 1.2 };
@@ -146,10 +167,13 @@
           const angle = progress * Math.PI * 2;
           const px = Math.cos(angle) * rx, py = Math.sin(angle) * ry;
           const fade = Math.sin(progress * Math.PI);
-          ctx.fillStyle = 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',' + (0.85 * fade) + ')';
-          ctx.beginPath(); ctx.arc(px, py, 2.4, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',' + (0.18 * fade) + ')';
-          ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowColor = 'rgba(' + rgb + ',0.9)';
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = 'rgba(' + rgb + ',' + (0.95 * fade) + ')';
+          ctx.beginPath(); ctx.arc(px, py, 3.2, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(' + rgb + ',' + (0.3 * fade) + ')';
+          ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.fill();
         }
       }
       ctx.restore();
@@ -161,9 +185,12 @@
         p.x += layer.speed * (p.drift > 0 ? 0.15 : -0.15);
         if (p.x < -5) p.x = width + 5;
         if (p.x > width + 5) p.x = -5;
-        const twinkle = 0.35 + 0.35 * Math.sin(t * 0.6 + p.twinkle);
-        ctx.fillStyle = 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',' + (twinkle * 0.5) + ')';
+        const twinkle = 0.5 + 0.5 * Math.sin(t * 0.6 + p.twinkle);
+        ctx.fillStyle = 'rgba(' + rgb + ',' + (0.25 + twinkle * 0.65) + ')';
+        ctx.shadowColor = 'rgba(' + rgb + ',0.8)';
+        ctx.shadowBlur = p.r * 2.5;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
       });
     });
 

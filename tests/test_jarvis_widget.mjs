@@ -92,7 +92,12 @@ assertTrue(globe.includes('amber') || globe.includes('0xffb84d'), 'a restrained 
 // ---- Ambient Canvas background: Command Center only, layered, reduced-motion aware ----
 assertTrue(/if \(!document\.querySelector\('\.cc-page'\)\) return;/.test(bg), 'the ambient background mounts only on the Command Center page, not dashboard-wide');
 assertTrue(/window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) return;/.test(bg), 'the ambient background bails entirely under reduced motion, leaving the existing static CSS backdrop');
-assertTrue(bg.includes("canvas.id = 'jarvisBg'") && /z-index:-1/.test(bg) && /pointer-events:none/.test(bg), 'the canvas sits behind all content and never intercepts clicks');
+// No negative z-index — verified against a real browser that it silently
+// hides behind body's own explicit background-color (a real, confirmed
+// stacking bug, not a style preference). Inserted as body's first child
+// instead, so plain DOM paint order puts it behind everything on its own.
+const bgCanvasStyle = (bg.match(/canvas\.style\.cssText = '([^']*)'/) || [])[1] || '';
+assertTrue(bg.includes("canvas.id = 'jarvisBg'") && !bgCanvasStyle.includes('z-index') && bgCanvasStyle.includes('pointer-events:none') && /insertBefore\(canvas, document\.body\.firstChild\)/.test(bg), 'the canvas sits behind all content via DOM order (no negative z-index, which hides behind body\'s own background) and never intercepts clicks');
 assertTrue(bg.includes('particleLayers') && /for \(let l = 0; l < 3; l\+\+\)/.test(bg), 'the particle field has multiple depth layers, matching "multiple layers of slowly drifting particles"');
 assertTrue(bg.includes('arcs') && bg.includes('nextPulseAt') && bg.includes('pulse'), 'orbital arcs carry occasional traveling energy pulses, not just static rings');
 assertTrue(bg.includes('fogBlobs'), 'a soft fog/bloom layer is present');
