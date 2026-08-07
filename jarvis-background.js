@@ -1,14 +1,15 @@
 /* =============================================================
-   Cinematic ambient background — Command Center only.
-   Layered Canvas atmosphere: drifting particles, slow orbital arcs with
-   occasional traveling energy pulses, soft fog blobs, gentle pointer
+   Cinematic ambient background — loaded on every page via topbar.js's
+   loadSharedModules() (same pattern as time-theme.js/command-bar.js), so
+   this one file covers the whole dashboard instead of just the Command
+   Center. Layered Canvas atmosphere: drifting particles, slow orbital arcs
+   with occasional traveling energy pulses, soft fog blobs, gentle pointer
    parallax on desktop, and a day/night tint pulled from time-theme.js's
    existing html[data-time-theme] attribute (no new storage, no new state).
 
    design-system.css's body::before/::after (grid + ambient glow) keep
-   running underneath this on every page, including this one — this file
-   adds a richer *additional* layer specific to the homepage rather than
-   replacing the shared base every page already gets.
+   running underneath this on every page — this file adds a richer
+   *additional* layer on top of that shared base, not a replacement.
 
    Respects prefers-reduced-motion (skips entirely, leaving the existing
    static CSS backdrop) and pauses the render loop while the tab is
@@ -19,7 +20,7 @@
   'use strict';
   if (typeof document === 'undefined') return;
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  if (!document.querySelector('.cc-page')) return; // Command Center only.
+  if (document.getElementById('jarvisBg')) return; // Already mounted (e.g. a page still carries its own static <script> tag alongside topbar.js's shared loader).
 
   const isNarrow = () => window.innerWidth <= 640;
   const isFinePointer = () => window.matchMedia && window.matchMedia('(pointer: fine)').matches;
