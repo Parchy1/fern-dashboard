@@ -72,6 +72,15 @@ assertTrue(js.includes('jarvisBusy') && /if \(jarvisBusy/.test(js), 'a run in pr
 assertTrue(/^function updateJarvisAlertState\(alertCount\) \{/m.test(js), 'updateJarvisAlertState is a module-scope function (not nested inside boot()), so render() can actually call it');
 assertTrue(/updateJarvisAlertState\(model\.alertCount\);/.test(js), 'render() calls updateJarvisAlertState on every render so the alert tint always reflects the current alert count');
 
+// ---- Orb prominence + idle liveliness (follow-up polish pass) ----
+assertTrue(/\.cc-jarvis-orb \{[^}]*width:172px/.test(css), 'the orb is sized up from the original 118px for more visual weight');
+assertTrue(css.includes('.cc-jarvis-glow') && css.includes('@keyframes ccJarvisGlowPulse'), 'a soft radial energy field pulses behind the orb, independent of the ring animations');
+assertTrue(css.includes('.cc-jarvis-orbit') && css.includes('.cc-jarvis-orbit-dot'), 'small signal nodes continuously trace the rings, even at idle, so the widget never reads as a static image');
+assertTrue(css.includes('@keyframes ccJarvisIdleShimmer') && /\.cc-jarvis-facet-line \{[^}]*animation:ccJarvisIdleShimmer/.test(css), 'facet lines shimmer even in idle (thinking state still overrides with the faster/brighter scan)');
+assertTrue(css.includes('.cc-jarvis-facet-core') && css.includes('.cc-jarvis-core-dot') && css.includes('@keyframes ccJarvisCorePulse'), 'a third, innermost facet layer and a pulsing core dot add geometric depth beyond the original two-layer hexagon');
+assertTrue(css.includes('.cc-jarvis-orb.is-alert .cc-jarvis-glow'), 'the alert state also tints the ambient glow amber, not just the ring stroke');
+assertTrue(/\.cc-jarvis-glow,\s*\n?\s*\.cc-jarvis-orbit,\s*\n?\s*\.cc-jarvis-core-dot,/.test(css) || (css.includes('.cc-jarvis-glow') && css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/)[1].includes('.cc-jarvis-glow')), 'the new always-on glow/orbit/core-dot animations are disabled under reduced motion too, not just the original elements');
+
 // ---- Holographic globe: existing ring is the real fallback, not removed ----
 assertTrue(html.includes('id="scoreRing"') && html.includes('hud-ring-track'), 'the original flat ring markup is still intact in the DOM as the WebGL fallback');
 assertTrue(globe.includes("document.getElementById('scoreRing')") && /if \(!mount\) return;/.test(globe), 'the globe module bails cleanly (leaving the ring alone) if its mount point is missing');
@@ -89,8 +98,20 @@ assertTrue(ringPeriodA >= 8 && ringPeriodA <= 12 && ringPeriodB >= 8 && ringPeri
 assertTrue(globe.includes("document.addEventListener('visibilitychange'") && /cancelAnimationFrame/.test(globe), 'the globe animation loop pauses when the tab is hidden');
 assertTrue(globe.includes('amber') || globe.includes('0xffb84d'), 'a restrained amber tone is used for priority signals on the globe, not a loud/flashing color');
 
-// ---- Ambient Canvas background: Command Center only, layered, reduced-motion aware ----
-assertTrue(/if \(!document\.querySelector\('\.cc-page'\)\) return;/.test(bg), 'the ambient background mounts only on the Command Center page, not dashboard-wide');
+// ---- Globe polish pass: bigger stage, more surface detail, a real axial tilt ----
+assertTrue(/\.cc-ai-core\.score-card \.hud-ring\.has-globe \{ width:224px/.test(css), 'the globe gets a noticeably bigger stage than the flat-ring fallback once it actually mounts');
+const lightCount = Number((globe.match(/LIGHT_COUNT = (\d+)/) || [])[1]);
+assertTrue(lightCount > 260, 'the city-light point count was increased from the original pass (' + lightCount + ' > 260) for a visibly richer surface');
+assertTrue(globe.includes('atmosphere') && globe.includes('THREE.BackSide'), 'a back-face atmosphere shell adds a soft rim glow around the globe');
+assertTrue(globe.includes('AXIAL_TILT') && /globeGroup\.rotation\.x = AXIAL_TILT/.test(globe), 'the globe spins on a real axial tilt rather than dead-level, for a more planetary motion feel');
+assertTrue(/globeGroup\.rotation\.x = AXIAL_TILT \+ Math\.sin\(elapsed \* [\d.]+\) \* [\d.]+;/.test(globe), 'a slow, subtle wobble is layered on top of the tilt rather than a perfectly rigid spin');
+
+// ---- Ambient Canvas background: sitewide (loaded by topbar.js on every
+// page, same pattern as time-theme.js/command-bar.js), layered, reduced-
+// motion aware, idempotent against double-mounting ----
+assertTrue(topbar.includes("loadSharedModule('jarvis-background.js'"), 'topbar.js loads the ambient background on every page it runs on, not just the Command Center');
+assertTrue(!html.includes('<script src="jarvis-background.js"'), "index.html no longer carries its own static script tag now that topbar.js's shared loader covers it (would double-mount otherwise)");
+assertTrue(bg.includes("if (document.getElementById('jarvisBg')) return;"), 'the background bails if already mounted, so a page double-loading it (e.g. its own leftover tag) never creates a second canvas');
 assertTrue(/window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) return;/.test(bg), 'the ambient background bails entirely under reduced motion, leaving the existing static CSS backdrop');
 // No negative z-index — verified against a real browser that it silently
 // hides behind body's own explicit background-color (a real, confirmed

@@ -15,7 +15,6 @@
 <script src="topbar.js" defer></script>
 <script type="module" src="command-center.js"></script>
 <script type="module" src="jarvis-globe.js"></script>
-<script src="jarvis-background.js" defer></script>
 
 <style>
 /* Page-specific only — shared tokens/components now live in design-system.css. */
@@ -146,18 +145,23 @@
         <div class="cc-core-panel" id="coreJarvisPanel" role="tabpanel" aria-labelledby="coreTabJarvis" hidden>
           <div class="cc-core-label">AI Core · Jarvis</div>
           <div class="cc-jarvis-orb" id="jarvisOrb" data-state="idle" aria-hidden="true">
+            <div class="cc-jarvis-glow"></div>
             <div class="cc-jarvis-ring cc-jarvis-ring-1"></div>
             <div class="cc-jarvis-ring cc-jarvis-ring-2"></div>
             <div class="cc-jarvis-ring cc-jarvis-ring-3"></div>
+            <div class="cc-jarvis-orbit cc-jarvis-orbit-a"><span class="cc-jarvis-orbit-dot"></span></div>
+            <div class="cc-jarvis-orbit cc-jarvis-orbit-b"><span class="cc-jarvis-orbit-dot"></span></div>
             <svg class="cc-jarvis-core-svg" viewBox="0 0 100 100">
               <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" class="cc-jarvis-facet cc-jarvis-facet-outer"></polygon>
               <polygon points="50,28 70,40 70,60 50,72 30,60 30,40" class="cc-jarvis-facet cc-jarvis-facet-inner"></polygon>
+              <polygon points="50,41 59,46 59,54 50,59 41,54 41,46" class="cc-jarvis-facet cc-jarvis-facet-core"></polygon>
               <line x1="50" y1="8" x2="50" y2="28" class="cc-jarvis-facet-line"></line>
               <line x1="88" y1="30" x2="70" y2="40" class="cc-jarvis-facet-line"></line>
               <line x1="88" y1="70" x2="70" y2="60" class="cc-jarvis-facet-line"></line>
               <line x1="50" y1="92" x2="50" y2="72" class="cc-jarvis-facet-line"></line>
               <line x1="12" y1="70" x2="30" y2="60" class="cc-jarvis-facet-line"></line>
               <line x1="12" y1="30" x2="30" y2="40" class="cc-jarvis-facet-line"></line>
+              <circle cx="50" cy="50" r="3.4" class="cc-jarvis-core-dot"></circle>
             </svg>
           </div>
           <div class="cc-jarvis-status-row">

@@ -55,22 +55,35 @@
     );
     globeGroup.add(solid);
 
+    // A denser lat/long wireframe than before — reads as a real instrument
+    // grid rather than a handful of visible seams.
     const wireframe = new THREE.Mesh(
-      new THREE.SphereGeometry(1.001, 24, 16),
-      new THREE.MeshBasicMaterial({ color: hudCyan, wireframe: true, transparent: true, opacity: 0.28 })
+      new THREE.SphereGeometry(1.001, 36, 24),
+      new THREE.MeshBasicMaterial({ color: hudCyan, wireframe: true, transparent: true, opacity: 0.3 })
     );
     globeGroup.add(wireframe);
 
-    // "City lights" — a scattered point cloud biased toward a handful of
-    // dense clusters so it reads as populated regions, not uniform noise.
-    const LIGHT_COUNT = 260;
+    // A soft outer rim shell (back-face only) approximates an atmospheric
+    // glow without needing a custom Fresnel shader — cheap and reads well
+    // at this scale.
+    const atmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(1.09, 32, 24),
+      new THREE.MeshBasicMaterial({ color: hudCyan, transparent: true, opacity: 0.1, side: THREE.BackSide })
+    );
+    globeGroup.add(atmosphere);
+
+    // "City lights" — a scattered point cloud biased toward several dense
+    // clusters so it reads as populated regions, not uniform noise. More
+    // clusters + more points than the first pass for a noticeably richer
+    // surface at a glance.
+    const LIGHT_COUNT = 420;
     const lightPositions = new Float32Array(LIGHT_COUNT * 3);
-    const clusters = 6;
+    const clusters = 9;
     const clusterCenters = Array.from({ length: clusters }, () => randomOnSphere());
     for (let i = 0; i < LIGHT_COUNT; i++) {
       const center = clusterCenters[i % clusters];
       const jitter = randomOnSphere();
-      const blend = 0.82;
+      const blend = 0.85;
       const v = new THREE.Vector3(
         center.x * blend + jitter.x * (1 - blend),
         center.y * blend + jitter.y * (1 - blend),
@@ -80,7 +93,7 @@
     }
     const lightsGeo = new THREE.BufferGeometry();
     lightsGeo.setAttribute('position', new THREE.BufferAttribute(lightPositions, 3));
-    const lights = new THREE.Points(lightsGeo, new THREE.PointsMaterial({ color: hudCyan, size: 0.018, transparent: true, opacity: 0.9 }));
+    const lights = new THREE.Points(lightsGeo, new THREE.PointsMaterial({ color: hudCyan, size: 0.016, transparent: true, opacity: 0.95 }));
     globeGroup.add(lights);
 
     // One amber marker — a stand-in "priority signal" node. Its intensity
@@ -110,6 +123,13 @@
     }
     const ringA = orbitalRing(1.45, 0.35, 0.1, 0.22);
     const ringB = orbitalRing(1.7, -0.22, 0.5, 0.14);
+
+    // A real axial tilt (~23.5°, matching Earth's) plus a very slow, small
+    // wobble — a level, perfectly steady spin read as mechanical rather
+    // than planetary. This is the "different motion feel" the flat 26s
+    // rotation on its own didn't quite have.
+    const AXIAL_TILT = -0.41;
+    globeGroup.rotation.x = AXIAL_TILT;
 
     function randomOnSphere() {
       const u = Math.random(), v = Math.random();
@@ -147,6 +167,7 @@
       const elapsed = clock.getElapsedTime();
 
       globeGroup.rotation.y = (elapsed / ROTATE_PERIOD) * Math.PI * 2;
+      globeGroup.rotation.x = AXIAL_TILT + Math.sin(elapsed * 0.12) * 0.02;
 
       ringA.group.rotation.y = (elapsed / RING_PERIOD_A) * Math.PI * 2;
       ringB.group.rotation.y = -(elapsed / RING_PERIOD_B) * Math.PI * 2;

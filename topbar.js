@@ -276,6 +276,10 @@ body.topbar-modal-open {
     if (isEmbedded()) return;
     loadSharedModule('time-theme.js', 'data-time-theme-loader');
     loadSharedModule('command-bar.js', 'data-command-bar-loader');
+    // The ambient Canvas background used to be Command-Center-only; now
+    // loaded everywhere the same way time-theme.js/command-bar.js already
+    // are, so every page gets it without editing ~50 individual files.
+    loadSharedModule('jarvis-background.js', 'data-jarvis-bg-loader');
   }
   function currentPageKey() {
     const p = (window.location.pathname || '').toLowerCase();
