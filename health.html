@@ -469,9 +469,39 @@ main {
 }
 .cal-mode-tab.active { background: rgba(34,211,245,0.08); color: var(--text-primary); border-color: rgba(34,211,245,0.24); }
 
+/* Sub-selector inside Photo mode: what kind of photo, so Meal/Label/Receipt
+   share one camera pipeline instead of three near-identical tab bodies. */
+.cal-photo-kind-row { display: flex; gap: 6px; margin-bottom: 12px; }
+.cal-photo-kind-btn {
+  flex: 1; padding: 7px; border-radius: 9px; border: 1px solid var(--border-strong);
+  background: transparent; color: var(--text-tertiary); font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.cal-photo-kind-btn.active { background: rgba(124,92,255,0.1); color: var(--text-primary); border-color: rgba(124,92,255,0.3); }
+
 .cal-photo-actions { display: flex; gap: 8px; margin-bottom: 12px; }
 .cal-photo-preview { width: 100%; max-height: 220px; object-fit: cover; border-radius: 12px; margin-bottom: 12px; display: none; }
 .cal-analyze-btn { width: 100%; margin-bottom: 12px; }
+
+/* Barcode scan mode */
+.cal-barcode-video { width: 100%; max-height: 260px; border-radius: 12px; margin-bottom: 12px; background: #000; object-fit: cover; display: none; }
+.cal-barcode-status { font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px; min-height: 16px; }
+
+/* AI-estimate badge on Today's meals — shown only for genuinely uncertain
+   sources (photo/text/receipt guesses), never for barcode/label/manual
+   entries, which carry real numbers rather than a model's guess. */
+.cal-source-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-tertiary); border: 1px solid var(--border-strong); vertical-align: middle;
+}
+
+/* Goal suggestion box */
+.cal-goal-suggest-btn { margin-top: 8px; width: 100%; background: transparent; color: var(--text-primary); border: 1px solid var(--border-strong); }
+.cal-goal-preview { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg-secondary); border: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); display: none; }
+.cal-goal-preview b { color: var(--text-primary); }
+.cal-goal-preview-actions { display: flex; gap: 8px; margin-top: 8px; }
+.cal-goal-preview-actions button { flex: 1; }
 
 .cal-item-headers, .cal-item-row { display: grid; grid-template-columns: 1.6fr 0.8fr 0.8fr 0.8fr 0.8fr auto; gap: 6px; align-items: center; }
 .cal-item-headers { font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); margin-bottom: 6px; }
@@ -1143,6 +1173,14 @@ main { position: relative; }
       </div>
     </div>
     <button class="stack-add-btn cal-goals-btn" id="calGoalsBtn" type="button">🎯 Set / Adjust Goals with Nova</button>
+    <button class="stack-add-btn cal-goal-suggest-btn" id="calGoalSuggestBtn" type="button">📐 Suggest from my profile</button>
+    <div class="cal-goal-preview" id="calGoalPreview">
+      <div id="calGoalPreviewText"></div>
+      <div class="cal-goal-preview-actions">
+        <button class="stack-add-btn" id="calGoalPreviewApply" type="button" style="flex:1">Use this</button>
+        <button class="stack-add-btn" id="calGoalPreviewDismiss" type="button" style="flex:1;background:transparent;color:var(--text-primary);border:1px solid var(--border-strong)">Dismiss</button>
+      </div>
+    </div>
   </div>
 
   <div class="cal-card">
@@ -1150,10 +1188,16 @@ main { position: relative; }
     <div class="cal-mode-tabs">
       <button class="cal-mode-tab active" data-mode="photo" type="button">📷 Photo</button>
       <button class="cal-mode-tab" data-mode="describe" type="button">🔍 Describe</button>
+      <button class="cal-mode-tab" data-mode="barcode" type="button">📊 Barcode</button>
       <button class="cal-mode-tab" data-mode="manual" type="button">✏️ Manual</button>
     </div>
 
     <div id="calPhotoMode">
+      <div class="cal-photo-kind-row">
+        <button class="cal-photo-kind-btn active" data-kind="photo" type="button">🍽️ Meal</button>
+        <button class="cal-photo-kind-btn" data-kind="label" type="button">🏷️ Label</button>
+        <button class="cal-photo-kind-btn" data-kind="receipt" type="button">🧾 Receipt</button>
+      </div>
       <div class="cal-photo-actions">
         <button class="stack-add-btn" id="calTakePhotoBtn" type="button" style="flex:1">Take Photo</button>
         <button class="stack-add-btn" id="calLibraryBtn" type="button" style="flex:1;background:transparent;color:var(--text-primary);border:1px solid var(--border-strong)">From Library</button>
@@ -1170,6 +1214,12 @@ main { position: relative; }
       <textarea class="stack-input" id="calDescribeText" rows="3" placeholder="Describe what you ate — e.g. 2 scrambled eggs, a slice of sourdough toast with butter, black coffee" style="width:100%;margin-bottom:12px;box-sizing:border-box;resize:vertical;font-family:inherit"></textarea>
       <button class="stack-add-btn cal-analyze-btn" id="calAnalyzeTextBtn" type="button">🔍 Analyze with AI</button>
       <div id="calAnalyzeTextStatus" class="cal-note" style="display:none"></div>
+    </div>
+
+    <div id="calBarcodeMode" style="display:none">
+      <button class="stack-add-btn" id="calBarcodeStartBtn" type="button" style="width:100%;margin-bottom:10px">📷 Start Scanning</button>
+      <video id="calBarcodeVideo" class="cal-barcode-video" muted playsinline></video>
+      <div id="calBarcodeStatus" class="cal-barcode-status"></div>
     </div>
 
     <div id="calManualMode" style="display:none">
@@ -1870,6 +1920,16 @@ main { position: relative; }
       const name = document.createElement('div');
       name.className = 'cal-today-name';
       name.textContent = items.length ? (items[0].name + (items.length > 1 ? ' + ' + (items.length - 1) + ' more' : '')) : 'Meal';
+      // Only genuine AI guesses (photo/text/receipt) get flagged — barcode,
+      // label transcription, and manual entry are real numbers, not a
+      // model's estimate, so they stay unbadged rather than implying doubt
+      // that isn't there.
+      if (e.source === 'photo' || e.source === 'describe' || e.source === 'receipt') {
+        const badge = document.createElement('span');
+        badge.className = 'cal-source-badge';
+        badge.textContent = 'AI est.';
+        name.appendChild(badge);
+      }
       const macro = document.createElement('div');
       macro.className = 'cal-today-macro';
       macro.textContent = Math.round(e.protein || 0) + 'p · ' + Math.round(e.carbs || 0) + 'c · ' + Math.round(e.fat || 0) + 'f';
@@ -1912,8 +1972,24 @@ main { position: relative; }
       document.querySelectorAll('.cal-mode-tab').forEach(t => t.classList.toggle('active', t === tab));
       $('calPhotoMode').style.display = tab.dataset.mode === 'photo' ? 'block' : 'none';
       $('calDescribeMode').style.display = tab.dataset.mode === 'describe' ? 'block' : 'none';
+      $('calBarcodeMode').style.display = tab.dataset.mode === 'barcode' ? 'block' : 'none';
       $('calManualMode').style.display = tab.dataset.mode === 'manual' ? 'block' : 'none';
       $('calEditWrap').style.display = 'none';
+      // The camera stream is only meaningful while the Barcode tab is
+      // actually open — leaving it running in the background on another
+      // tab would be a silent camera-on surprise.
+      if (tab.dataset.mode !== 'barcode') stopBarcodeScan();
+    });
+  });
+
+  // ---------- Photo kind (Meal / Label / Receipt share one camera pipeline) ----------
+  let photoAnalysisKind = 'photo'; // 'photo' | 'label' | 'receipt' — also doubles as the entry's source tag
+  document.querySelectorAll('.cal-photo-kind-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cal-photo-kind-btn').forEach(b => b.classList.toggle('active', b === btn));
+      photoAnalysisKind = btn.dataset.kind;
+      const labels = { photo: '🔍 Analyze with AI', label: '🔍 Read Label', receipt: '🔍 Read Receipt' };
+      $('calAnalyzeBtn').textContent = labels[photoAnalysisKind] || labels.photo;
     });
   });
 
@@ -1978,12 +2054,36 @@ main { position: relative; }
     + '{"items":[{"name":string,"calories":number,"protein":number,"carbs":number,"fat":number}],"note":string}. '
     + '"note" is one short sentence flagging this is a rough visual estimate the user should adjust if it looks off.';
 
+  // Transcription, not estimation: read the printed numbers off a real
+  // nutrition-facts panel rather than guessing — the whole reason a
+  // label-sourced entry gets no "AI est." badge later is that this system
+  // prompt explicitly forbids visual guessing for anything printed.
+  const LABEL_SYS = "You are transcribing a printed nutrition-facts label from a photo — you are reading, not estimating. "
+    + "Use the exact printed serving size as the one item, with its exact printed calories/protein/carbs/fat. Do not visually estimate "
+    + "a portion or adjust the printed numbers in any way. If a value is missing, unreadable, or the photo doesn't show a real nutrition "
+    + "label at all, say so plainly in the note and use 0 for that field rather than guessing a plausible number. "
+    + 'Respond with ONLY valid JSON (no markdown, no code fences, no extra text) matching exactly this schema: '
+    + '{"items":[{"name":string,"calories":number,"protein":number,"carbs":number,"fat":number}],"note":string}. '
+    + '"note" is one short sentence — confirm what was transcribed, or flag what was unreadable.';
+
+  const RECEIPT_SYS = "You are reading line items from a photo of a grocery or restaurant receipt. Extract each distinct FOOD item "
+    + "(ignore tax, tip, totals, non-food purchases). For each, estimate calories, protein (g), carbs (g), and fat (g) for a typical "
+    + "serving of that item based on its name and, if visible, the merchant/restaurant it's from — you don't have exact package weights, "
+    + "so estimate reasonably like a careful nutrition-label estimator, the same way you would from a text description. "
+    + 'Respond with ONLY valid JSON (no markdown, no code fences, no extra text) matching exactly this schema: '
+    + '{"items":[{"name":string,"calories":number,"protein":number,"carbs":number,"fat":number}],"note":string}. '
+    + '"note" is one short sentence flagging these are estimates for the named items, not transcribed facts.';
+
   function parsePossiblyFencedJson(text) {
     let t = (text || '').trim();
     const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fence) t = fence[1].trim();
     return JSON.parse(t);
   }
+
+  // Set right before every openEditor() call, and saved onto the entry
+  // when it's logged — drives the "AI est." badge in Today's list.
+  let pendingSource = 'photo';
 
   async function analyzePhoto() {
     if (!pendingPhotoDataUrl) return;
@@ -2002,12 +2102,18 @@ main { position: relative; }
       const b64 = pendingPhotoDataUrl.slice(comma + 1);
       const userContext = $('calPhotoContext').value.trim();
       const content = [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } }];
-      content.push({ type: 'text', text: userContext ? ('Analyze this meal. Extra context from the user: ' + userContext) : 'Analyze this meal.' });
+      const prompts = {
+        photo: userContext ? ('Analyze this meal. Extra context from the user: ' + userContext) : 'Analyze this meal.',
+        label: userContext ? ('Transcribe this nutrition label. Extra context from the user: ' + userContext) : 'Transcribe this nutrition label.',
+        receipt: userContext ? ('Read the food line items on this receipt. Extra context from the user: ' + userContext) : 'Read the food line items on this receipt.',
+      };
+      const systemPrompts = { photo: ANALYZE_SYS, label: LABEL_SYS, receipt: RECEIPT_SYS };
+      content.push({ type: 'text', text: prompts[photoAnalysisKind] || prompts.photo });
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({
-          model: 'claude-opus-4-8', max_tokens: 900, system: ANALYZE_SYS,
+          model: 'claude-opus-4-8', max_tokens: 900, system: systemPrompts[photoAnalysisKind] || ANALYZE_SYS,
           messages: [{ role: 'user', content: content }]
         }),
       });
@@ -2017,6 +2123,7 @@ main { position: relative; }
       let parsed;
       try { parsed = parsePossiblyFencedJson(raw); }
       catch (e) { $('calAnalyzeStatus').textContent = "Couldn't parse the AI's response — try again or log manually."; $('calAnalyzeBtn').disabled = false; return; }
+      pendingSource = photoAnalysisKind;
       openEditor((parsed.items || []).map(it => ({
         name: String(it.name || 'Item'),
         calories: Number(it.calories) || 0, protein: Number(it.protein) || 0,
@@ -2066,6 +2173,7 @@ main { position: relative; }
       let parsed;
       try { parsed = parsePossiblyFencedJson(raw); }
       catch (e) { $('calAnalyzeTextStatus').textContent = "Couldn't parse the AI's response — try again or log manually."; $('calAnalyzeTextBtn').disabled = false; return; }
+      pendingSource = 'describe';
       openEditor((parsed.items || []).map(it => ({
         name: String(it.name || 'Item'),
         calories: Number(it.calories) || 0, protein: Number(it.protein) || 0,
@@ -2078,6 +2186,85 @@ main { position: relative; }
     $('calAnalyzeTextBtn').disabled = false;
   }
   $('calAnalyzeTextBtn').addEventListener('click', analyzeDescription);
+
+  // ---------- Barcode scan (Open Food Facts — free, no key, real database
+  // rows rather than an AI guess, so these entries never get the "AI est."
+  // badge). ZXing is loaded from a CDN on first use, same pattern this
+  // dashboard already uses for Supabase/Three.js — if it can't load or the
+  // camera is unavailable/denied, this fails visibly with a message
+  // pointing at Manual entry rather than silently doing nothing. ----------
+  let zxingLibPromise = null;
+  function loadZXing() {
+    if (window.ZXing) return Promise.resolve(window.ZXing);
+    if (zxingLibPromise) return zxingLibPromise;
+    zxingLibPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js';
+      s.onload = () => window.ZXing ? resolve(window.ZXing) : reject(new Error('ZXing did not initialize'));
+      s.onerror = () => reject(new Error('Could not load the barcode scanner library'));
+      document.head.appendChild(s);
+    });
+    return zxingLibPromise;
+  }
+
+  let barcodeControls = null;
+  function stopBarcodeScan() {
+    if (barcodeControls) { try { barcodeControls.stop(); } catch (e) {} barcodeControls = null; }
+    $('calBarcodeVideo').style.display = 'none';
+  }
+
+  function round(n) { return Math.round(Number(n) || 0); }
+  // Prefers Open Food Facts' own per-serving figures when the product has
+  // them; falls back to per-100g (named accordingly) rather than guessing
+  // a portion — the existing editable item-row fields let the user correct
+  // the quantity before saving either way.
+  function extractBarcodeItem(product) {
+    const n = product.nutriments || {};
+    const name = product.product_name || product.brands || 'Scanned item';
+    if (n['energy-kcal_serving'] != null) {
+      return { name: name + ' (1 serving)', calories: round(n['energy-kcal_serving']), protein: round(n['proteins_serving']), carbs: round(n['carbohydrates_serving']), fat: round(n['fat_serving']) };
+    }
+    if (n['energy-kcal_100g'] != null) {
+      return { name: name + ' (100g)', calories: round(n['energy-kcal_100g']), protein: round(n['proteins_100g']), carbs: round(n['carbohydrates_100g']), fat: round(n['fat_100g']) };
+    }
+    return null;
+  }
+
+  async function handleBarcodeResult(code) {
+    stopBarcodeScan();
+    $('calBarcodeStatus').textContent = 'Looking up ' + code + '…';
+    try {
+      const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json?fields=product_name,brands,nutriments,serving_size,serving_quantity');
+      const json = await res.json();
+      if (json.status !== 1 || !json.product) { $('calBarcodeStatus').textContent = 'No match for that barcode (' + code + ') on Open Food Facts — try Manual entry.'; return; }
+      const item = extractBarcodeItem(json.product);
+      if (!item) { $('calBarcodeStatus').textContent = 'Found the product but no calorie data — try Manual entry.'; return; }
+      $('calBarcodeStatus').textContent = '';
+      pendingSource = 'barcode';
+      openEditor([item], 'From Open Food Facts — check the portion matches what you actually had, then adjust the numbers if needed.');
+    } catch (e) {
+      $('calBarcodeStatus').textContent = 'Could not reach Open Food Facts — check your connection.';
+    }
+  }
+
+  async function startBarcodeScan() {
+    $('calBarcodeStatus').textContent = 'Loading scanner…';
+    let ZXingLib;
+    try { ZXingLib = await loadZXing(); }
+    catch (e) { $('calBarcodeStatus').textContent = 'Could not load the barcode scanner — try Manual entry instead.'; return; }
+    const codeReader = new ZXingLib.BrowserMultiFormatReader();
+    $('calBarcodeVideo').style.display = 'block';
+    $('calBarcodeStatus').textContent = 'Point your camera at a barcode…';
+    try {
+      barcodeControls = await codeReader.decodeFromVideoDevice(undefined, 'calBarcodeVideo', (result) => {
+        if (result) handleBarcodeResult(result.getText());
+      });
+    } catch (e) {
+      $('calBarcodeStatus').textContent = 'Camera access denied or unavailable — try Manual entry instead.';
+      $('calBarcodeVideo').style.display = 'none';
+    }
+  }
+  $('calBarcodeStartBtn').addEventListener('click', startBarcodeScan);
 
   // ---------- Editable item rows ----------
   let editItems = [];
@@ -2148,6 +2335,7 @@ main { position: relative; }
       photo: pendingPhotoDataUrl || null,
       items: editItems.map(it => ({ name: it.name, calories: it.calories, protein: it.protein, carbs: it.carbs, fat: it.fat })),
       calories: t.calories, protein: t.protein, carbs: t.carbs, fat: t.fat,
+      source: pendingSource,
       ts: Date.now()
     };
     const arr = getEntries(); arr.push(entry); setEntries(arr);
@@ -2171,7 +2359,7 @@ main { position: relative; }
       id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       dateKey: calDateKey(), photo: null,
       items: [{ name, calories: cals, protein, carbs, fat }],
-      calories: cals, protein, carbs, fat, ts: Date.now()
+      calories: cals, protein, carbs, fat, source: 'manual', ts: Date.now()
     });
     setEntries(arr);
     $('calManualName').value = ''; $('calManualCals').value = ''; $('calManualProtein').value = ''; $('calManualCarbs').value = ''; $('calManualFat').value = '';
@@ -2181,6 +2369,65 @@ main { position: relative; }
   $('calGoalsBtn').addEventListener('click', () => {
     if (window.__novaOpenPanel) window.__novaOpenPanel();
   });
+
+  // ---------- Deterministic goal suggestion (Mifflin-St Jeor BMR × activity,
+  // a real formula instead of only ever asking Nova to free-form a number).
+  // Reads the same profile (weight/height/age/sex/activity) Settings and
+  // the water tracker already collect — no new inputs, no new storage key.
+  // Never overwrites cal:targets on its own: shows a preview, only writes
+  // on an explicit "Use this" click, matching the "nothing is forced on"
+  // pattern the rest of this dashboard already follows for optional
+  // suggestions. ----------
+  function computeSuggestedGoals() {
+    const water = storeGet('po_water_v1');
+    const p = water && water.profile;
+    if (!p || !p.weightKg || !p.heightCm || !p.age) return null;
+    const bmr = p.sex === 'f'
+      ? 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age - 161
+      : 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age + 5;
+    // Hours/week is what this dashboard already collects (not a named
+    // activity-level dropdown) — bucketed into the standard TDEE
+    // multipliers rather than inventing a finer-grained formula.
+    const hrs = p.activityHrsPerWeek || 0;
+    const multiplier = hrs >= 12 ? 1.9 : hrs >= 8 ? 1.725 : hrs >= 5 ? 1.55 : hrs >= 2 ? 1.375 : 1.2;
+    const calories = Math.round(bmr * multiplier);
+    // A standard balanced split (30% protein / 40% carbs / 30% fat by
+    // calories) — a reasonable general default, not a personalized
+    // recommendation; Nova remains available for anyone who wants to
+    // negotiate something more specific to their goal.
+    return {
+      calories,
+      protein: Math.round((calories * 0.30) / 4),
+      carbs: Math.round((calories * 0.40) / 4),
+      fat: Math.round((calories * 0.30) / 9),
+    };
+  }
+
+  $('calGoalSuggestBtn').addEventListener('click', () => {
+    const suggestion = computeSuggestedGoals();
+    const preview = $('calGoalPreview');
+    if (!suggestion) {
+      $('calGoalPreviewText').textContent = 'Add your weight, height, and age in Settings (⚙ on the home screen) first — needed to compute a real BMR/TDEE estimate.';
+      $('calGoalPreviewApply').style.display = 'none';
+      preview.style.display = 'block';
+      return;
+    }
+    $('calGoalPreviewApply').style.display = '';
+    $('calGoalPreviewText').innerHTML = 'Suggested from your profile (Mifflin-St Jeor BMR × activity, standard 30/40/30 split): '
+      + '<b>' + suggestion.calories + ' cal</b> · ' + suggestion.protein + 'p / ' + suggestion.carbs + 'c / ' + suggestion.fat + 'f';
+    preview.dataset.suggestion = JSON.stringify(suggestion);
+    preview.style.display = 'block';
+  });
+  $('calGoalPreviewApply').addEventListener('click', () => {
+    const preview = $('calGoalPreview');
+    let suggestion;
+    try { suggestion = JSON.parse(preview.dataset.suggestion); } catch (e) { return; }
+    if (!suggestion) return;
+    storeSet(TARGETS_KEY, Object.assign({}, suggestion, { updatedAt: Date.now() }));
+    preview.style.display = 'none';
+    renderAll();
+  });
+  $('calGoalPreviewDismiss').addEventListener('click', () => { $('calGoalPreview').style.display = 'none'; });
 
   renderAll();
   window.__calRenderAll = renderAll;
