@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd job that runs ring_sync.py every 10 minutes. macOS's launchd (not
+  cron) is used here because it correctly re-fires after the Mac wakes from
+  sleep, which is exactly the "closed lid, no updates" gap this feature has
+  to live with anyway — no point missing wake-ups on top of that.
+
+  Before loading this: replace BOTH "/REPLACE/WITH/..." paths below with
+  real absolute paths on your Mac (see SETUP.md's Ring section for exact
+  commands to find them), then:
+
+    cp com.fern.ringsync.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.fern.ringsync.plist
+
+  To stop it:
+    launchctl unload ~/Library/LaunchAgents/com.fern.ringsync.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fern.ringsync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/REPLACE/WITH/OUTPUT/OF/which-python3</string>
+    <string>/REPLACE/WITH/ABSOLUTE/PATH/TO/ring_sync.py</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>600</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/ring_sync.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/ring_sync.stderr.log</string>
+</dict>
+</plist>

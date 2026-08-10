@@ -1,32 +1,44 @@
 // ============================================================
-// POST /api/apple-health-ingest
-// Authorization: Bearer <APPLE_HEALTH_SECRET>
+// POST /api/apple-health-ingest         (Authorization: Bearer <APPLE_HEALTH_SECRET>)
+// POST /api/ring-ingest                 (Authorization: Bearer <RING_INGEST_SECRET>)
+//   — /api/ring-ingest is a vercel.json rewrite to this same file with
+//     ?device=ring appended. Both external URLs are stable; only the
+//     underlying function is shared, the same way /api/whoop-callback,
+//     /api/whoop-refresh, and /api/whoop-data already all rewrite into
+//     api/whoop.js. This keeps the project under Vercel Hobby's 12
+//     serverless-function cap instead of adding a 13th file.
 //
 // Apple doesn't expose a public web API for HealthKit the way WHOOP does
-// OAuth — there's no "connect" flow a website can hook into at all. The
-// only way to get this data out is an iOS Shortcuts automation running on
-// the phone itself: a Shortcut reads whatever HealthKit metrics it's set
-// up to grab and POSTs them here on a schedule. This writes them straight
-// into the same Supabase app_state table everything else uses (under the
-// 'apple_health' key), so health.html can just read it like any other
+// OAuth, and cheap BLE rings like the Colmi R02 have no cloud API at all —
+// there's no "connect" flow a website can hook into for either. The only
+// way to get this data out is something that runs near the device itself:
+// an iOS Shortcuts automation for Apple Health, a background script on a
+// nearby computer for the ring (see scripts/ring-sync/). Both POST here on
+// a schedule; this writes straight into the same Supabase app_state table
+// everything else uses (under the 'apple_health' or 'ring_health' key,
+// depending on device), so health.html can just read it like any other
 // synced row — this endpoint never talks to the browser, only to Supabase.
 //
-// Body: any subset of these fields, all optional numbers —
-//   steps, activeEnergyKcal, exerciseMinutes, standHours,
-//   restingHeartRate, sleepHours, weightKg
-// Optional: date (YYYY-MM-DD) — defaults to "today" in APPLE_HEALTH_TIMEZONE.
-// Unrecognized fields are ignored rather than rejected, so the Shortcut
-// can send a superset without breaking.
+// Body (device=apple_health, the default): any subset of these fields, all
+// optional numbers — steps, activeEnergyKcal, exerciseMinutes, standHours,
+// restingHeartRate, sleepHours, weightKg
+// Body (device=ring): any subset of — heartRate, steps, spo2, sleepHours,
+// stress, battery
+// Optional either way: date (YYYY-MM-DD) — defaults to "today" in the
+// device's configured timezone. Unrecognized fields are ignored rather
+// than rejected, so the sender can POST a superset without breaking.
 //
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
-//   APPLE_HEALTH_SECRET               shared secret — set this in the
-//                                     Shortcut's Authorization header too
+//   APPLE_HEALTH_SECRET               shared secret for device=apple_health
+//   RING_INGEST_SECRET                shared secret for device=ring
 // Optional:
 //   APPLE_HEALTH_TIMEZONE             IANA tz, default 'America/New_York'
+//   RING_TIMEZONE                     IANA tz, default 'America/New_York'
 // ============================================================
 
 const FIELDS = ['steps', 'activeEnergyKcal', 'exerciseMinutes', 'standHours', 'restingHeartRate', 'sleepHours', 'weightKg'];
+const RING_FIELDS = ['heartRate', 'steps', 'spo2', 'sleepHours', 'stress', 'battery'];
 const HISTORY_MAX_DAYS = 60;
 
 function todayInTz(tz) {
@@ -87,6 +99,18 @@ export function extractSnapshot(body) {
   return snapshot;
 }
 
+// Same shape as extractSnapshot, kept as its own export (rather than
+// generalizing extractSnapshot to take a fields list) so the existing
+// apple-health tests/call sites are untouched — this is purely additive.
+export function extractRingSnapshot(body) {
+  const snapshot = {};
+  for (const f of RING_FIELDS) {
+    const v = body && body[f];
+    if (typeof v === 'number' && !isNaN(v)) snapshot[f] = v;
+  }
+  return snapshot;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -95,8 +119,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
 
   try {
-    const secret = process.env.APPLE_HEALTH_SECRET;
-    if (!secret) return res.status(500).json({ error: 'server not configured (missing APPLE_HEALTH_SECRET)' });
+    const isRing = req.query && req.query.device === 'ring';
+    const secretEnvVar = isRing ? 'RING_INGEST_SECRET' : 'APPLE_HEALTH_SECRET';
+    const secret = process.env[secretEnvVar];
+    if (!secret) return res.status(500).json({ error: 'server not configured (missing ' + secretEnvVar + ')' });
     const auth = req.headers.authorization || '';
     if (auth !== 'Bearer ' + secret) return res.status(401).json({ error: 'unauthorized' });
 
@@ -108,17 +134,19 @@ export default async function handler(req, res) {
     if (typeof body === 'string') { try { body = JSON.parse(body || '{}'); } catch (e) { body = {}; } }
     if (!body || typeof body !== 'object') body = {};
 
-    const snapshot = extractSnapshot(body);
+    const fields = isRing ? RING_FIELDS : FIELDS;
+    const snapshot = isRing ? extractRingSnapshot(body) : extractSnapshot(body);
     if (!Object.keys(snapshot).length) {
-      return res.status(400).json({ error: 'no recognized numeric fields in body', accepted: FIELDS });
+      return res.status(400).json({ error: 'no recognized numeric fields in body', accepted: fields });
     }
 
-    const tz = process.env.APPLE_HEALTH_TIMEZONE || 'America/New_York';
+    const tz = process.env[isRing ? 'RING_TIMEZONE' : 'APPLE_HEALTH_TIMEZONE'] || 'America/New_York';
     const date = (typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) ? body.date : todayInTz(tz);
 
-    const existing = await fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'apple_health');
+    const stateKey = isRing ? 'ring_health' : 'apple_health';
+    const existing = await fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, stateKey);
     const nextState = buildNextState(existing, snapshot, date);
-    await writeRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'apple_health', nextState);
+    await writeRow(SUPABASE_URL, SUPABASE_ANON_KEY, stateKey, nextState);
 
     return res.status(200).json({ ok: true, date, fields: Object.keys(snapshot) });
   } catch (e) {

@@ -1,0 +1,5 @@
+{
+  "address": "PASTE-your-ring-BLE-address-here-from---scan",
+  "api_url": "https://your-app.vercel.app/api/ring-ingest",
+  "secret": "PASTE-your-RING_INGEST_SECRET-here-must-match-the-Vercel-env-var"
+}

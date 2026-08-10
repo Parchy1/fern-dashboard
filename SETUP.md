@@ -156,6 +156,56 @@ that reads your Health data and pushes it here on a schedule.
 
 ---
 
+## 4a. Smart Ring — Colmi R02 & similar (optional)
+
+Cheap BLE rings like the Colmi R02 have **no cloud service of their own** — not WHOOP's
+OAuth, not even Apple's phone-native Shortcuts path. The only way in is a reverse-engineered
+Bluetooth protocol ([tahnok/colmi_r02_client](https://github.com/tahnok/colmi_r02_client)),
+readable only by something physically near the ring. This means updates are **not constant
+the way WHOOP is** — WHOOP gets that from a native iOS app with a background-Bluetooth
+entitlement Apple doesn't grant to websites or PWAs, on any platform. What you actually get:
+near-continuous updates whenever your Mac is awake and the ring's in Bluetooth range (~30ft),
+nothing while you're out with just your phone.
+
+1. On your Mac, install the ring's CLI:
+   ```
+   pipx install git+https://github.com/tahnok/colmi_r02_client
+   ```
+2. In Vercel → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|---|---|
+| `RING_INGEST_SECRET` | any long random string — this is your shared secret |
+| `RING_TIMEZONE` | optional, IANA tz name, default `America/New_York` |
+
+   Redeploy after adding it.
+
+3. Set up the sync script in [`scripts/ring-sync/`](scripts/ring-sync/):
+   - `cd scripts/ring-sync && python3 ring_sync.py --scan` — finds your ring's BLE address.
+   - `cp config.example.json config.json`, then fill in the `address` from the scan, your
+     `api_url` (`https://your-app.vercel.app/api/ring-ingest`), and the `RING_INGEST_SECRET`
+     from step 2.
+   - **Run `python3 ring_sync.py --dry-run --verbose` and read the output.** This prints
+     exactly which database tables/columns it matched to heart rate, steps, SpO2, sleep,
+     stress, and battery, plus the values it would send — check those against the numbers
+     in Colmi's own app before trusting anything further. The column-matching is
+     best-effort discovery, not a verified schema (the client's docs site wasn't reachable
+     while building this), so this check matters.
+   - Once the dry-run output looks right, edit `com.fern.ringsync.plist` (fill in the two
+     `/REPLACE/WITH/...` paths — `which python3` and the absolute path to `ring_sync.py`),
+     then:
+     ```
+     cp com.fern.ringsync.plist ~/Library/LaunchAgents/
+     launchctl load ~/Library/LaunchAgents/com.fern.ringsync.plist
+     ```
+     This polls the ring every 10 minutes whenever the Mac is awake and back after sleep/wake.
+4. Check the **Health** page — a Ring stat card should appear once the first successful sync lands.
+
+> To stop it: `launchctl unload ~/Library/LaunchAgents/com.fern.ringsync.plist`. Logs land in
+> `/tmp/ring_sync.stdout.log` / `.stderr.log` and `scripts/ring-sync/ring_sync.log`.
+
+---
+
 ## 5. Google — Calendar / Gmail / Drive (optional)
 
 One connection covers all three (today's Calendar events, unread Gmail, recent Drive files)
@@ -1300,6 +1350,7 @@ indefinitely until you say "resume reminders" or ask on the dashboard).
    `topbar.js`, `gym.html`.
 3. (Optional) WHOOP: Client ID in `health.html` + the two env vars in Vercel.
 4. (Optional) Apple Health: `APPLE_HEALTH_SECRET` env var + an iOS Shortcut, see step 4 above.
+4a. (Optional) Smart Ring: `RING_INGEST_SECRET` env var + the Mac sync script in `scripts/ring-sync/`, see step 4a above.
 5. (Optional) Google: Client ID in `google.html` + the two env vars in Vercel, see step 5 above.
 6. (Optional) Text reminders: Resend (free) or Twilio (paid) + the env vars in step 7 above —
    skip if using the Telegram Assistant, which covers this too.
