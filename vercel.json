@@ -8,6 +8,7 @@
     { "source": "/api/google-token-sync", "destination": "/api/google?action=token-sync" },
     { "source": "/api/plaid-link-token", "destination": "/api/plaid?action=link-token" },
     { "source": "/api/plaid-exchange-token", "destination": "/api/plaid?action=exchange-token" },
-    { "source": "/api/plaid-sync-transactions", "destination": "/api/plaid?action=sync-transactions" }
+    { "source": "/api/plaid-sync-transactions", "destination": "/api/plaid?action=sync-transactions" },
+    { "source": "/api/ring-ingest", "destination": "/api/apple-health-ingest?device=ring" }
   ]
 }

@@ -1,4 +1,8 @@
-import { extractSnapshot, buildNextState } from '../api/ring-ingest.js';
+// Ring ingest is served by api/apple-health-ingest.js via a vercel.json
+// rewrite (/api/ring-ingest -> /api/apple-health-ingest?device=ring), which
+// keeps the project under Vercel Hobby's 12 serverless-function cap instead
+// of shipping this as its own file — see that file's header comment.
+import { extractRingSnapshot, buildNextState } from '../api/apple-health-ingest.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -8,18 +12,18 @@ function assertEq(actual, expected, label) {
 }
 function assertTrue(cond, label) { if (cond) { pass++; console.log('PASS:', label); } else { fail++; console.log('FAIL:', label); } }
 
-// ---- extractSnapshot ----
+// ---- extractRingSnapshot ----
 assertEq(
-  extractSnapshot({ heartRate: 62, steps: 4200, notARealField: 99, stress: 'not a number' }),
+  extractRingSnapshot({ heartRate: 62, steps: 4200, notARealField: 99, stress: 'not a number' }),
   { heartRate: 62, steps: 4200 },
-  'extractSnapshot keeps only recognized numeric fields, drops unknown keys and non-numbers'
+  'extractRingSnapshot keeps only recognized numeric fields, drops unknown keys and non-numbers'
 );
-assertEq(extractSnapshot({}), {}, 'extractSnapshot on an empty body returns an empty snapshot');
-assertEq(extractSnapshot(null), {}, 'extractSnapshot tolerates a null body');
+assertEq(extractRingSnapshot({}), {}, 'extractRingSnapshot on an empty body returns an empty snapshot');
+assertEq(extractRingSnapshot(null), {}, 'extractRingSnapshot tolerates a null body');
 assertEq(
-  extractSnapshot({ heartRate: 58, steps: 100, spo2: 97, sleepHours: 7.2, stress: 34, battery: 81 }),
+  extractRingSnapshot({ heartRate: 58, steps: 100, spo2: 97, sleepHours: 7.2, stress: 34, battery: 81 }),
   { heartRate: 58, steps: 100, spo2: 97, sleepHours: 7.2, stress: 34, battery: 81 },
-  'extractSnapshot accepts all six ring fields (heartRate/steps/spo2/sleepHours/stress/battery)'
+  'extractRingSnapshot accepts all six ring fields (heartRate/steps/spo2/sleepHours/stress/battery)'
 );
 
 // ---- buildNextState: fresh state (no existing row) ----
