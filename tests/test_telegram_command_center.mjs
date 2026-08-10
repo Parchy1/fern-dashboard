@@ -97,7 +97,7 @@ function makeHarness(seed, anthropicReplies) {
   // ==================== destructive actions require a real button confirmation ====================
   {
     const harness = makeHarness(
-      { finance: { subs: [{ name: 'Netflix', amount: 20 }] } },
+      { finance: { subs: [{ name: 'Netflix', amount: 20 }] }, telegram_session: { dateKey: plainDateKey() } },
       [{
         stop_reason: 'tool_use', usage: { input_tokens: 10, output_tokens: 5 },
         content: [{ type: 'tool_use', id: 'tool-1', name: 'cancel_subscription', input: { name: 'net' } }],
@@ -134,7 +134,7 @@ function makeHarness(seed, anthropicReplies) {
 
   // ==================== concurrent duplicate Telegram updates are atomically ignored ====================
   {
-    const harness = makeHarness({});
+    const harness = makeHarness({ telegram_session: { dateKey: plainDateKey() } });
     global.fetch = harness.fetchStub;
     const update = { update_id: 2002, message: { chat: { id: 555 }, text: '/help' } };
     const firstRes = mockRes(), duplicateRes = mockRes();
@@ -152,7 +152,7 @@ function makeHarness(seed, anthropicReplies) {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
     process.env.GOOGLE_CLIENT_ID = 'google-client';
     process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
-    const harness = makeHarness({}, [{
+    const harness = makeHarness({ telegram_session: { dateKey: plainDateKey() } }, [{
       stop_reason: 'tool_use', usage: { input_tokens: 10, output_tokens: 5 },
       content: [{ type: 'tool_use', id: 'tool-calendar', name: 'delete_calendar_event', input: { event_id: 'event-123' } }],
     }]);
@@ -176,6 +176,7 @@ function makeHarness(seed, anthropicReplies) {
         'habits:log': { h1: { [activeDateKey()]: Date.now() } },
       },
       health: { po_water_v1: { unit: 'bottles', logs: { [plainDateKey()]: 3 } } },
+      telegram_session: { dateKey: plainDateKey() },
     });
     global.fetch = harness.fetchStub;
     await handler({ method: 'POST', headers, body: { update_id: 3003, message: { chat: { id: 555 }, text: '/today' } } }, mockRes());

@@ -1,4 +1,4 @@
-import handler, { callClaude } from '../api/telegram-webhook.js';
+import handler, { callClaude, plainDateKey } from '../api/telegram-webhook.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -122,7 +122,7 @@ function mockRes() {
     process.env.TELEGRAM_WEBHOOK_SECRET = 'shh-secret';
     process.env.TELEGRAM_CHAT_ID = '555';
     process.env.ANTHROPIC_API_KEY = 'sk-test';
-    const rows = { goals: {} };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() } };
     let anthropicCalls = 0;
     let sentText = null;
     global.fetch = async (url, opts) => {
@@ -200,7 +200,7 @@ function mockRes() {
       longHistory.push({ role: 'user', content: 'old message ' + i });
       longHistory.push({ role: 'assistant', content: 'old reply ' + i });
     }
-    const rows = { goals: {}, 'telegram-memory': { history: longHistory } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, 'telegram-memory': { history: longHistory } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {

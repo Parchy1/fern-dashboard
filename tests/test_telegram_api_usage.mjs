@@ -62,7 +62,7 @@ function makeFakeSupabase(seed) {
 
   // ==================== a real exchange persists usage, buildContext then reports it ====================
   {
-    const rows = { goals: {} };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -108,7 +108,7 @@ function makeFakeSupabase(seed) {
 
   // ==================== a second exchange accumulates on top of the first, doesn't overwrite ====================
   {
-    const rows = { goals: {}, 'telegram-usage': { byDate: { [plainDateKey()]: { inputTokens: 2_000_000, outputTokens: 100_000, calls: 1 } }, totalInputTokens: 2_000_000, totalOutputTokens: 100_000, totalCalls: 1 } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, 'telegram-usage': { byDate: { [plainDateKey()]: { inputTokens: 2_000_000, outputTokens: 100_000, calls: 1 } }, totalInputTokens: 2_000_000, totalOutputTokens: 100_000, totalCalls: 1 } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -138,7 +138,7 @@ function makeFakeSupabase(seed) {
   // ==================== old day buckets are pruned so this doesn't grow forever ====================
   {
     const oldDate = '2020-01-01'; // far more than 90 days ago relative to any real test run date
-    const rows = { goals: {}, 'telegram-usage': { byDate: { [oldDate]: { inputTokens: 1000, outputTokens: 100, calls: 1 } }, totalInputTokens: 1000, totalOutputTokens: 100, totalCalls: 1 } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, 'telegram-usage': { byDate: { [oldDate]: { inputTokens: 1000, outputTokens: 100, calls: 1 } }, totalInputTokens: 1000, totalOutputTokens: 100, totalCalls: 1 } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -168,7 +168,7 @@ function makeFakeSupabase(seed) {
 
   // ==================== a failed Anthropic call never reaches recordApiUsage (no usage to record) ====================
   {
-    const rows = { goals: {} };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -193,7 +193,7 @@ function makeFakeSupabase(seed) {
   {
     process.env.ANTHROPIC_INPUT_PRICE_PER_MTOK = '1';
     process.env.ANTHROPIC_OUTPUT_PRICE_PER_MTOK = '5';
-    const rows = { goals: {}, 'telegram-usage': { byDate: { [plainDateKey()]: { inputTokens: 1_000_000, outputTokens: 1_000_000, calls: 1 } }, totalInputTokens: 1_000_000, totalOutputTokens: 1_000_000, totalCalls: 1 } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, 'telegram-usage': { byDate: { [plainDateKey()]: { inputTokens: 1_000_000, outputTokens: 1_000_000, calls: 1 } }, totalInputTokens: 1_000_000, totalOutputTokens: 1_000_000, totalCalls: 1 } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -213,7 +213,7 @@ function makeFakeSupabase(seed) {
 
   // ==================== prompt-cache tokens are tracked and priced separately from plain input tokens ====================
   {
-    const rows = { goals: {} };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
@@ -258,7 +258,7 @@ function makeFakeSupabase(seed) {
 
   // ==================== a warm cache read is billed at a steep discount, not the full input rate ====================
   {
-    const rows = { goals: {}, 'telegram-usage': { byDate: {}, totalInputTokens: 0, totalOutputTokens: 0, totalCacheWriteTokens: 0, totalCacheReadTokens: 0, totalCalls: 0 } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, 'telegram-usage': { byDate: {}, totalInputTokens: 0, totalOutputTokens: 0, totalCacheWriteTokens: 0, totalCacheReadTokens: 0, totalCalls: 0 } };
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('/rest/v1/app_state')) {
