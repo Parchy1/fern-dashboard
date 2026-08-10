@@ -31,6 +31,21 @@
 //                           for the same 6am-boundary / plain-date keys the
 //                           dashboard itself uses, so writes land under the
 //                           date the browser would compute.
+//
+// Daily activation gate: the bot does nothing at all — no reply, no Claude
+// call, no data read — for any message until you send a wake phrase
+// ("good morning", "gm", or "morning") that calendar day (REMINDER_TIMEZONE,
+// resets at midnight). This is a deliberate cost/accuracy tradeoff: every
+// message otherwise reaches Claude, so an idle "activated" bot means every
+// stray message gets billed and can pollute conversation context. The wake
+// phrase itself is matched with a plain string check (no API call) and then
+// falls through to normal processing, so it also gets a real reply — only
+// messages sent BEFORE that day's wake phrase are silently dropped. This
+// only gates the plain-message path (chat, commands, tool actions); it does
+// NOT gate callback_query button taps (e.g. schedule reminder buttons) or
+// the separate scheduled-reminder sender (api/send-reminders.js), since
+// those are proactive/already-in-flight rather than something you're
+// initiating.
 //   SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 //                           if all three are set (alongside a connected
 //                           Google account — see google.html / SETUP.md),
@@ -91,6 +106,15 @@ function nowHM() { const d = tzNow(); return pad2(d.getHours()) + ':' + pad2(d.g
 function plainDateKey() {
   const d = tzNow();
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+// The daily activation gate's wake phrase — a plain string check (no API
+// call) so detecting it costs nothing. Anchored to the START of the message
+// (\b word boundary, not a bare substring check) so an unrelated message
+// like "remind me tomorrow morning about the meeting" doesn't accidentally
+// activate the day, while still accepting anything trailing the phrase
+// itself ("good morning!", "good morning, let's go", "gm bro").
+function isWakePhrase(text) {
+  return /^(good morning|gm|morning)\b/.test(String(text || '').trim().toLowerCase());
 }
 // 6am-boundary date — used by main.html (goals:<key>, habits:log) and health.html (stack:taken:<key>).
 function activeDateKey() {
@@ -3030,6 +3054,21 @@ export default async function handler(req, res) {
     }
     if (!(await claimTelegramUpdate(update.update_id))) {
       return res.status(200).json({ ok: true, duplicate: true });
+    }
+
+    // Daily activation gate — see the file header comment for the full
+    // reasoning. Checked before commands/Claude so a dormant day costs
+    // nothing beyond this one lightweight Supabase read.
+    const today = plainDateKey();
+    const session = await readRow('telegram_session').catch(() => ({}));
+    if (session.dateKey !== today) {
+      const text = !hasPhoto && !hasVoice && typeof message.text === 'string' ? message.text : '';
+      if (!isWakePhrase(text)) {
+        return res.status(200).json({ ok: true, dormant: true });
+      }
+      await writeRow('telegram_session', { dateKey: today, activatedAt: Date.now() });
+      // Falls through — the wake phrase itself is processed normally below,
+      // so saying "good morning" gets a real reply, not silence.
     }
 
     const command = !hasPhoto && !hasVoice ? commandName(message.text) : '';

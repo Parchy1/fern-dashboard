@@ -1,4 +1,4 @@
-import handler from '../api/telegram-webhook.js';
+import handler, { plainDateKey } from '../api/telegram-webhook.js';
 
 let pass = 0, fail = 0;
 function assertEq(actual, expected, label) {
@@ -33,7 +33,7 @@ const FAKE_AUDIO_BYTES = new TextEncoder().encode('totally-an-ogg-file').buffer;
 
   // ==================== a voice message: download -> transcribe -> logged via Claude ====================
   {
-    const rows = { goals: {}, finance: { purchases: [] } };
+    const rows = { goals: {}, telegram_session: { dateKey: plainDateKey() }, finance: { purchases: [] } };
     let anthropicReq = null;
     let sentText = null;
     let getFileCalledWith = null;
@@ -92,6 +92,7 @@ const FAKE_AUDIO_BYTES = new TextEncoder().encode('totally-an-ogg-file').buffer;
     let anthropicCalled = false;
     global.fetch = async (url, opts) => {
       const u = String(url);
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [{ data: { dateKey: plainDateKey() } }] };
       if (u.includes('api.anthropic.com')) { anthropicCalled = true; return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'should not get here' }] }) }; }
       if (u.includes('sendMessage')) { sentText = JSON.parse(opts.body).text; return { ok: true, json: async () => ({ ok: true }) }; }
       throw new Error('unexpected fetch: ' + u);
@@ -113,6 +114,7 @@ const FAKE_AUDIO_BYTES = new TextEncoder().encode('totally-an-ogg-file').buffer;
     let transcriptionCalled = false;
     global.fetch = async (url, opts) => {
       const u = String(url);
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [{ data: { dateKey: plainDateKey() } }] };
       if (u.includes('/getFile')) return { ok: true, json: async () => ({ ok: false, description: 'file not found' }) };
       if (u.includes('api.openai.com')) { transcriptionCalled = true; return { ok: true, json: async () => ({ text: 'should not get here' }) }; }
       if (u.includes('sendMessage')) { sentText = JSON.parse(opts.body).text; return { ok: true, json: async () => ({ ok: true }) }; }
@@ -133,6 +135,7 @@ const FAKE_AUDIO_BYTES = new TextEncoder().encode('totally-an-ogg-file').buffer;
     let sentText = null;
     global.fetch = async (url, opts) => {
       const u = String(url);
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [{ data: { dateKey: plainDateKey() } }] };
       if (u.includes('/getFile')) return { ok: true, json: async () => ({ ok: true, result: { file_path: 'voice/file_2.oga' } }) };
       if (u.includes('/file/bot')) return { ok: true, arrayBuffer: async () => FAKE_AUDIO_BYTES };
       if (u.includes('api.openai.com')) return { ok: false, status: 500, text: async () => 'server error' };
@@ -154,6 +157,7 @@ const FAKE_AUDIO_BYTES = new TextEncoder().encode('totally-an-ogg-file').buffer;
     let anthropicCalled = false;
     global.fetch = async (url, opts) => {
       const u = String(url);
+      if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [{ data: { dateKey: plainDateKey() } }] };
       if (u.includes('/getFile')) return { ok: true, json: async () => ({ ok: true, result: { file_path: 'voice/file_3.oga' } }) };
       if (u.includes('/file/bot')) return { ok: true, arrayBuffer: async () => FAKE_AUDIO_BYTES };
       if (u.includes('api.openai.com')) return { ok: true, json: async () => ({ text: '   ' }) };
