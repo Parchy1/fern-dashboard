@@ -111,8 +111,14 @@
 .cc-jarvis-orb.is-alert .cc-jarvis-orbit-dot { background:var(--warning);box-shadow:0 0 8px rgba(255,184,77,.6); }
 
 .cc-jarvis-status-row { display:flex;align-items:center;gap:7px;margin-bottom:12px;font:700 10px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--text-tertiary); }
-.cc-jarvis-status-dot { width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success);animation:ccJarvisStatusPulse 2.4s ease-in-out infinite; }
-@keyframes ccJarvisStatusPulse { 0%,100% { opacity:.6; } 50% { opacity:1; } }
+/* Same expanding-ring "live" language as .hud-pulse-dot (design-system.css)
+   and the Live Status widget's dot below — one pulse animation used
+   everywhere something is signaling "active/synced," instead of three
+   independently-tuned pulses. Dot color still swaps per jarvis state via
+   the existing sibling selectors below; only the ring's mechanism (and its
+   ::after position) is shared. */
+.cc-jarvis-status-dot { position:relative;width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success); }
+.cc-jarvis-status-dot::after { content:'';position:absolute;inset:-5px;border-radius:50%;border:1px solid var(--hud-dim);animation:hud-pulse 2.2s ease-out infinite; }
 .cc-jarvis-orb[data-state="listening"] ~ .cc-jarvis-status-row .cc-jarvis-status-dot,
 .cc-jarvis-orb[data-state="thinking"] ~ .cc-jarvis-status-row .cc-jarvis-status-dot { background:var(--hud);box-shadow:0 0 6px var(--hud-glow); }
 
@@ -163,7 +169,7 @@
   .cc-trace-bar,
   .cc-jarvis-ring,
   .cc-jarvis-core-svg,
-  .cc-jarvis-status-dot,
+  .cc-jarvis-status-dot::after,
   .cc-jarvis-facet-line,
   .cc-jarvis-node,
   .cc-jarvis-waveform span,
@@ -174,7 +180,7 @@
   .cc-core-tab.is-active,
   .cc-alert.is-new,
   .cc-signal.is-refreshed,
-  .cc-live-pulse,
+  .cc-live-pulse::after,
   .cc-live-stat.is-refreshed { animation: none; }
 }
 .cc-ai-core .score-num { font-size:clamp(48px,8vw,72px); }
@@ -337,12 +343,11 @@
 .cc-live-status::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse 420px 220px at 92% -20%, rgba(var(--hud-rgb),.10), transparent 65%); pointer-events:none; }
 .cc-live-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; position:relative; }
 .cc-live-who { display:flex; align-items:center; gap:9px; font:700 11px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text-primary); }
-.cc-live-pulse { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 0 rgba(63,224,168,.5); animation:ccLivePulse 2.2s ease-out infinite; }
-@keyframes ccLivePulse {
-  0%   { box-shadow:0 0 0 0 rgba(63,224,168,.45); }
-  70%  { box-shadow:0 0 0 7px rgba(63,224,168,0); }
-  100% { box-shadow:0 0 0 0 rgba(63,224,168,0); }
-}
+/* Same shared hud-pulse ring mechanism as .cc-jarvis-status-dot above and
+   .hud-pulse-dot (design-system.css) — one "this is live" language site-wide
+   instead of a bespoke box-shadow ping just for this widget. */
+.cc-live-pulse { position:relative; width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 8px rgba(63,224,168,.7); }
+.cc-live-pulse::after { content:''; position:absolute; inset:-5px; border-radius:50%; border:1px solid var(--hud-dim); animation:hud-pulse 2.2s ease-out infinite; }
 .cc-live-updated { font:400 10.5px var(--font-mono); color:var(--text-tertiary); }
 .cc-live-brief { margin:0 0 16px; font-size:13.5px; line-height:1.55; color:var(--text-secondary); max-width:70ch; position:relative; }
 .cc-live-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:10px; position:relative; }
