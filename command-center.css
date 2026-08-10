@@ -173,7 +173,9 @@
   .cc-jarvis-core-dot,
   .cc-core-tab.is-active,
   .cc-alert.is-new,
-  .cc-signal.is-refreshed { animation: none; }
+  .cc-signal.is-refreshed,
+  .cc-live-pulse,
+  .cc-live-stat.is-refreshed { animation: none; }
 }
 .cc-ai-core .score-num { font-size:clamp(48px,8vw,72px); }
 .cc-ai-core .score-max { margin-top:4px; }
@@ -326,6 +328,40 @@
   0%   { background-color:rgba(var(--hud-rgb),.14); }
   100% { background-color:transparent; }
 }
+
+/* ---- Live Status: pinned strip at the top of the page, glanceable
+   without opening any panel — see docs/COMMAND_CENTER_PLAN.md context.
+   Same real-data-only rule as the Signals rail above: every stat reads an
+   existing storage key, nothing here is decorative or invented. ---- */
+.cc-live-status { padding:var(--space-4) var(--space-5); margin-bottom:var(--space-4); position:relative; overflow:hidden; }
+.cc-live-status::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse 420px 220px at 92% -20%, rgba(var(--hud-rgb),.10), transparent 65%); pointer-events:none; }
+.cc-live-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; position:relative; }
+.cc-live-who { display:flex; align-items:center; gap:9px; font:700 11px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text-primary); }
+.cc-live-pulse { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 0 rgba(63,224,168,.5); animation:ccLivePulse 2.2s ease-out infinite; }
+@keyframes ccLivePulse {
+  0%   { box-shadow:0 0 0 0 rgba(63,224,168,.45); }
+  70%  { box-shadow:0 0 0 7px rgba(63,224,168,0); }
+  100% { box-shadow:0 0 0 0 rgba(63,224,168,0); }
+}
+.cc-live-updated { font:400 10.5px var(--font-mono); color:var(--text-tertiary); }
+.cc-live-brief { margin:0 0 16px; font-size:13.5px; line-height:1.55; color:var(--text-secondary); max-width:70ch; position:relative; }
+.cc-live-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:10px; position:relative; }
+.cc-live-stat { border:1px solid var(--hud-line-soft); border-radius:var(--radius-sm); background:rgba(3,6,10,.35); padding:11px 12px; min-width:0; }
+.cc-live-stat-top { margin-bottom:8px; }
+.cc-live-stat-label { display:flex; align-items:center; gap:6px; font:700 9.5px var(--font-mono); letter-spacing:.07em; text-transform:uppercase; color:var(--text-tertiary); }
+.cc-live-stat-icon { font-size:11px; line-height:1; }
+.cc-live-stat-val { font:700 18px var(--font-mono); color:var(--text-primary); letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.cc-live-stat-unit { font-size:10.5px; font-weight:500; color:var(--text-tertiary); margin-left:3px; }
+.cc-live-stat-sub { margin-top:4px; font-size:10.5px; line-height:1.4; color:var(--text-tertiary); }
+.cc-live-stat.is-good .cc-live-stat-val { color:var(--success); }
+.cc-live-stat.is-warn .cc-live-stat-val { color:var(--warning); }
+.cc-live-stat.is-warn .cc-live-stat-sub { color:var(--warning); }
+.cc-live-stat.is-critical .cc-live-stat-val { color:var(--danger); }
+.cc-live-stat.is-critical .cc-live-stat-sub { color:var(--danger); }
+/* Same traveling-highlight idea as .cc-signal.is-refreshed, scoped to
+   whichever single stat actually changed rather than the whole grid. */
+.cc-live-stat.is-refreshed { animation:ccSignalRefresh 1.1s ease-out both; }
+@media (max-width:620px) { .cc-live-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
 .cc-insight { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;padding:14px 16px;border:1px solid rgba(255,184,77,.22);border-radius:var(--radius-md);background:rgba(255,184,77,.05);color:var(--text-secondary);font-size:12.5px;line-height:1.55; }
 .cc-insight-icon { color:var(--warning);font-size:15px;line-height:1.1;flex-shrink:0; }
