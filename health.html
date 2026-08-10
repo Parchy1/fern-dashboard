@@ -1008,6 +1008,24 @@ main { position: relative; }
     .ah-stat-val { font-size: 19px; font-weight: 700; color: var(--text-primary); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
     .ah-stat-sub { font-size: 10px; color: var(--text-tertiary); margin-top: 5px; }
     @media (max-width: 480px) { .ah-stats { grid-template-columns: repeat(2, 1fr); } }
+    .ah-setup-btn { margin-top: 10px; padding: 8px 16px; border: 1px solid var(--hud-line); border-radius: var(--radius-full); background: rgba(var(--hud-rgb),0.06); color: var(--text-secondary); font: 700 11.5px var(--font); cursor: pointer; }
+    .ah-setup-btn:hover { color: var(--hud); border-color: var(--hud-dim); background: rgba(var(--hud-rgb),0.12); }
+    /* Setup modal — reuses the site-wide .modal-bg/.modal shell (design-system.css,
+       same one Settings uses) so this doesn't invent a second modal component. */
+    .setup-modal { max-width: 520px; }
+    .setup-intro { font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 16px; }
+    .setup-steps-list { margin: 0 0 14px; padding-left: 22px; display: flex; flex-direction: column; gap: 12px; }
+    .setup-steps-list li { font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+    .setup-steps-list li b { color: var(--text-primary); }
+    .setup-steps-list code, .setup-intro code, .setup-note code { background: rgba(var(--hud-rgb),0.08); color: var(--hud); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+    .setup-steps-list pre { margin: 8px 0 0; padding: 10px 12px; background: rgba(0,0,0,0.35); border: 1px solid var(--hud-line); border-radius: 8px; overflow-x: auto; }
+    .setup-steps-list pre code { background: none; padding: 0; color: var(--text-primary); }
+    .setup-env-table { width: 100%; border-collapse: collapse; margin: 8px 0 0; font-size: 12px; }
+    .setup-env-table th, .setup-env-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hud-line-soft); }
+    .setup-env-table th { color: var(--text-tertiary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+    .setup-note { font-size: 12px; line-height: 1.6; color: var(--text-tertiary); margin: 4px 0 0; padding: 10px 12px; border-left: 2px solid var(--hud-dim); background: rgba(var(--hud-rgb),0.04); border-radius: 0 8px 8px 0; }
+    .setup-doc-link { display: inline-block; margin-top: 4px; font-size: 12px; color: var(--text-tertiary); }
+    .setup-doc-link a { color: var(--hud); }
   </style>
   <div class="ah-section">
     <div class="section-title">Apple Health</div>
@@ -1018,8 +1036,8 @@ main { position: relative; }
       </div>
       <div id="ahDisc" class="ah-disc">
         Not connected — Apple doesn't offer a "connect" flow like WHOOP, but an
-        iOS Shortcut can push your Health data here on a schedule. See
-        <code>SETUP.md</code> for the walkthrough.
+        iOS Shortcut can push your Health data here on a schedule.
+        <div><button class="ah-setup-btn" id="ahSetupBtn" type="button">View setup steps</button></div>
       </div>
       <div id="ahStats" class="ah-stats" style="display:none"></div>
     </div>
@@ -1035,10 +1053,20 @@ main { position: relative; }
       <div id="ringDisc" class="ah-disc">
         Not connected — the ring has no cloud service of its own, so there's no
         "connect" flow. A background script on a nearby computer reads it over
-        Bluetooth and pushes readings here on a schedule. See
-        <code>SETUP.md</code> for the walkthrough.
+        Bluetooth and pushes readings here on a schedule.
+        <div><button class="ah-setup-btn" id="ringSetupBtn" type="button">View setup steps</button></div>
       </div>
       <div id="ringStats" class="ah-stats" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="setupModalBg">
+    <div class="modal setup-modal" role="dialog" aria-label="Connection setup">
+      <div class="modal-head">
+        <span class="modal-title" id="setupModalTitle">Setup</span>
+        <button class="modal-close" id="setupModalClose" type="button" aria-label="Close">×</button>
+      </div>
+      <div id="setupModalBody"></div>
     </div>
   </div>
   <script>
@@ -1121,6 +1149,62 @@ main { position: relative; }
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') pullLatest();
     });
+  })();
+  </script>
+
+  <script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    // Real steps condensed from SETUP.md's "4. Apple Health" / "4a. Smart
+    // Ring" sections — kept as the actual actionable content (env vars,
+    // exact URLs/commands), not just a pointer at the markdown file.
+    const SETUP_CONTENT = {
+      'apple-health': {
+        title: 'Connect Apple Health',
+        html: '<p class="setup-intro">Apple doesn\'t offer a "connect" flow — the only way in is an iOS Shortcut that reads your Health data and pushes it here on a schedule.</p>'
+          + '<ol class="setup-steps-list">'
+          + '<li><b>Add environment variables</b> in Vercel → Settings → Environment Variables, then redeploy:'
+          + '<table class="setup-env-table"><tr><th>Variable</th><th>Value</th></tr>'
+          + '<tr><td><code>APPLE_HEALTH_SECRET</code></td><td>any long random string — your shared secret</td></tr>'
+          + '<tr><td><code>APPLE_HEALTH_TIMEZONE</code></td><td>optional, default <code>America/New_York</code></td></tr></table></li>'
+          + '<li><b>Build a Shortcut</b> on your iPhone (Shortcuts app → +): add <b>Get Health Sample</b> for whichever metrics you want (Steps, Active Energy, Exercise Minutes, Stand Hours, Resting Heart Rate, Sleep Analysis, Weight), then <b>Calculate Statistics</b> on each to get a single number.</li>'
+          + '<li><b>Send it here</b> — add a <b>Text</b> action building JSON by hand, e.g.<pre><code>{"steps": [Steps result], "sleepHours": [Sleep result]}</code></pre>only include fields you wired up, then <b>Get Contents of URL</b>:'
+          + '<pre><code>POST https://your-app.vercel.app/api/apple-health-ingest\nAuthorization: Bearer &lt;your APPLE_HEALTH_SECRET&gt;\nContent-Type: application/json</code></pre></li>'
+          + '<li><b>Test it</b> — tap the shortcut once, then check this page for a stat card.</li>'
+          + '<li><b>Automate it</b> — Automation tab → + → Personal Automation → Time of Day (pick a few times a day) → Run Shortcut → turn off "Ask Before Running".</li>'
+          + '</ol>'
+          + '<div class="setup-note">Each POST only needs the fields that changed — a same-day resend merges in rather than overwriting, so an evening sleep-only run won\'t erase a morning steps run.</div>',
+      },
+      ring: {
+        title: 'Connect your smart ring',
+        html: '<p class="setup-intro">Cheap BLE rings (Colmi R02 and similar) have no cloud service of their own — a background script on a nearby Mac reads it over Bluetooth and pushes readings here. Updates happen whenever that Mac is awake and the ring\'s in range (~30ft), not truly 24/7.</p>'
+          + '<ol class="setup-steps-list">'
+          + '<li><b>Install the ring\'s CLI</b> on your Mac:<pre><code>pipx install git+https://github.com/tahnok/colmi_r02_client</code></pre></li>'
+          + '<li><b>Add environment variables</b> in Vercel → Settings → Environment Variables, then redeploy:'
+          + '<table class="setup-env-table"><tr><th>Variable</th><th>Value</th></tr>'
+          + '<tr><td><code>RING_INGEST_SECRET</code></td><td>any long random string — your shared secret</td></tr>'
+          + '<tr><td><code>RING_TIMEZONE</code></td><td>optional, default <code>America/New_York</code></td></tr></table></li>'
+          + '<li><b>Set up the sync script</b> in <code>scripts/ring-sync/</code>: run <code>python3 ring_sync.py --scan</code> to find your ring\'s address, copy <code>config.example.json</code> to <code>config.json</code> and fill in the address, your API URL, and the secret from step 2.</li>'
+          + '<li><b>Run a dry run first</b> — <code>python3 ring_sync.py --dry-run --verbose</code> — and check the printed values against the ring\'s own app before trusting it unattended.</li>'
+          + '<li><b>Schedule it</b> — edit <code>com.fern.ringsync.plist</code> with your Python/script paths, then:<pre><code>cp com.fern.ringsync.plist ~/Library/LaunchAgents/\nlaunchctl load ~/Library/LaunchAgents/com.fern.ringsync.plist</code></pre>polls every 10 minutes while your Mac is awake.</li>'
+          + '</ol>',
+      },
+    };
+
+    function openSetupModal(kind) {
+      const content = SETUP_CONTENT[kind];
+      if (!content) return;
+      $('setupModalTitle').textContent = content.title;
+      $('setupModalBody').innerHTML = content.html;
+      $('setupModalBg').classList.add('show');
+    }
+    function closeSetupModal() { $('setupModalBg').classList.remove('show'); }
+
+    if ($('ahSetupBtn')) $('ahSetupBtn').addEventListener('click', () => openSetupModal('apple-health'));
+    if ($('ringSetupBtn')) $('ringSetupBtn').addEventListener('click', () => openSetupModal('ring'));
+    $('setupModalClose').addEventListener('click', closeSetupModal);
+    $('setupModalBg').addEventListener('click', (e) => { if (e.target === $('setupModalBg')) closeSetupModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSetupModal(); });
   })();
   </script>
 
