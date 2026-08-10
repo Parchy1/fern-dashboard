@@ -528,6 +528,18 @@ main {
 .cal-chart-line { fill: none; stroke: var(--accent); stroke-width: 2; }
 .cal-chart-fill { fill: rgba(29,158,117,0.14); stroke: none; }
 
+/* Weekly AI-estimated vs. real-source calorie mix — same photo/describe/
+   receipt = AI-est. convention already used for the Today list badge. */
+.cal-source-mix-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(34,211,245,0.06); margin: 4px 0 10px; }
+.cal-source-mix-seg { height: 100%; transition: width 0.4s; }
+.cal-source-mix-seg.ai { background: #7C5CFF; }
+.cal-source-mix-seg.real { background: var(--success); }
+.cal-source-mix-legend { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--text-tertiary); }
+.cal-source-mix-legend b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.cal-source-mix-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.cal-source-mix-dot.ai { background: #7C5CFF; }
+.cal-source-mix-dot.real { background: var(--success); }
+
 @media (max-width: 600px) {
   .cal-item-headers, .cal-item-row { grid-template-columns: 1.3fr 0.7fr 0.7fr 0.7fr 0.7fr auto; }
   .cal-item-row input { font-size: 11px; padding: 6px; }
@@ -1358,6 +1370,19 @@ main { position: relative; }
     <div class="stack-window-empty" id="calChartEmpty">Log meals on a couple different days to see your trend.</div>
   </div>
 
+  <div class="cal-card">
+    <div class="sf-eyebrow">This Week: AI Est. vs. Real Source</div>
+    <div class="cal-source-mix-bar" id="calSourceMixBar">
+      <div class="cal-source-mix-seg ai" id="calSourceMixAiSeg"></div>
+      <div class="cal-source-mix-seg real" id="calSourceMixRealSeg"></div>
+    </div>
+    <div class="cal-source-mix-legend" id="calSourceMixLegend">
+      <span><i class="cal-source-mix-dot ai"></i>AI-estimated <b id="calSourceMixAiPct">0%</b></span>
+      <span><i class="cal-source-mix-dot real"></i>Real source <b id="calSourceMixRealPct">0%</b></span>
+    </div>
+    <div class="stack-window-empty" id="calSourceMixEmpty">Log meals this week to see the mix.</div>
+  </div>
+
   <section id="water" class="water-embed">
     <div class="section-title">Water Tracker</div>
     <iframe src="po-water.html" class="water-iframe" loading="lazy" title="Water Tracker"></iframe>
@@ -2064,7 +2089,42 @@ main { position: relative; }
     svg.innerHTML = '<path class="cal-chart-fill" d="' + fillPath + '"/><path class="cal-chart-line" d="' + linePath + '"/>';
   }
 
-  function renderAll() { renderSummary(); renderTodayList(); renderChart(); }
+  // Last 7 calendar days (today included), split by the same photo/describe/
+  // receipt = AI-estimated convention as the Today list's "AI est." badge —
+  // everything else (barcode/label/manual, or a legacy entry with no source
+  // tag) counts as a real source rather than implying doubt that isn't there.
+  function computeSourceMix(list) {
+    let aiCal = 0, realCal = 0;
+    list.forEach(e => {
+      const cals = Number(e.calories) || 0;
+      if (e.source === 'photo' || e.source === 'describe' || e.source === 'receipt') aiCal += cals;
+      else realCal += cals;
+    });
+    const total = aiCal + realCal;
+    const aiPct = total > 0 ? Math.round((aiCal / total) * 100) : 0;
+    const realPct = total > 0 ? 100 - aiPct : 0;
+    return { aiCal, realCal, aiPct, realPct };
+  }
+
+  function renderSourceMix() {
+    const now = new Date();
+    const cutoffKey = calDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
+    const todayKey = calDateKey(now);
+    const week = getEntries().filter(e => e.dateKey >= cutoffKey && e.dateKey <= todayKey);
+    const bar = $('calSourceMixBar'), legend = $('calSourceMixLegend'), empty = $('calSourceMixEmpty');
+    if (!week.length) {
+      bar.style.display = 'none'; legend.style.display = 'none'; empty.style.display = 'block';
+      return;
+    }
+    bar.style.display = 'flex'; legend.style.display = 'flex'; empty.style.display = 'none';
+    const mix = computeSourceMix(week);
+    $('calSourceMixAiSeg').style.width = mix.aiPct + '%';
+    $('calSourceMixRealSeg').style.width = mix.realPct + '%';
+    $('calSourceMixAiPct').textContent = mix.aiPct + '%';
+    $('calSourceMixRealPct').textContent = mix.realPct + '%';
+  }
+
+  function renderAll() { renderSummary(); renderTodayList(); renderChart(); renderSourceMix(); }
 
   // ---------- Mode tabs ----------
   document.querySelectorAll('.cal-mode-tab').forEach(tab => {
