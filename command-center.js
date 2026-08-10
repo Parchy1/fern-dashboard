@@ -1,6 +1,7 @@
 import { completeRecommendedAction, formatClock, selectRecommendedAction, timeToMinutes } from './next-action.js';
 import { ALERT_STATE_KEY, dismissAlert, normalizeAlertState, reconcileAlertState, visibleAlerts } from './alert-state.js';
 import { buildDailyBrief } from './daily-brief.js';
+import { computeNightScore } from './correlation-lab.js';
 
 const DAY_MS = 86400000;
 
@@ -53,6 +54,19 @@ export function computeBestStreak(habitDefs, habitLog, workoutDays, now) {
   const workouts = streakFor(key => !!(workoutDays && workoutDays[key]));
   if (workouts > best.days) best = { days: workouts, label: 'Workouts' };
   return best;
+}
+
+// The same forgiving consecutive-days rule computeBestStreak uses
+// internally for workouts, isolated here so the Live Status widget can show
+// a gym-specific streak rather than "whichever habit or workout streak
+// happens to be longest right now."
+export function computeWorkoutStreak(workoutDays, now) {
+  let streak = 0;
+  const cursor = new Date(now == null ? Date.now() : now);
+  const isDone = key => !!(workoutDays && workoutDays[key]);
+  if (!isDone(dateKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while (isDone(dateKey(cursor)) && streak < 3660) { streak++; cursor.setDate(cursor.getDate() - 1); }
+  return streak;
 }
 
 export function computeNetWorthTrend(history, now) {
@@ -192,6 +206,109 @@ export function buildProactiveInsight(data) {
   return 'Systems are ready. Add a goal or check-in and the Command Center will start prioritizing your day.';
 }
 
+// The Live Status widget's 9 stat modules — every value is read from data
+// the dashboard already stores (see each module's comment for the exact
+// key), never invented. Two modules (ring/telegram) come from Supabase-only
+// rows with no localStorage mirror, so they start as 'pending' here and are
+// filled in asynchronously by refreshLiveStatusExternal() — this function
+// stays fully synchronous so it can run on every render() tick.
+export function buildLiveStatus(data, now) {
+  const nowMs = now == null ? Date.now() : now;
+  const stats = [];
+
+  // Tasks left today — goals:<activeDateKey>, same list the Today panel uses.
+  const openTasks = (data.goals || []).filter(g => g && !g.done).length;
+  stats.push({
+    id: 'tasks', icon: '✓', label: 'TASKS',
+    value: data.goals.length ? String(openTasks) : '—',
+    unit: data.goals.length ? 'left' : '',
+    sub: data.goals.length ? (data.goals.length - openTasks) + ' of ' + data.goals.length + ' done' : 'Nothing added yet',
+    status: !data.goals.length ? 'neutral' : openTasks === 0 ? 'good' : 'neutral',
+  });
+
+  // Gym streak — po_coach_workout_done. "at risk" is real, not fabricated:
+  // the streak counts yesterday when today isn't logged yet, so a nonzero
+  // streak with today still open means it lapses at midnight if not logged.
+  const workoutStreak = computeWorkoutStreak(data.workoutDays, nowMs);
+  const workoutDoneToday = !!(data.workoutDays && data.workoutDays[dateKey(new Date(nowMs))]);
+  stats.push({
+    id: 'streak', icon: '🔥', label: 'GYM STREAK',
+    value: String(workoutStreak), unit: 'days',
+    sub: workoutStreak > 0 && !workoutDoneToday ? 'Log today before it resets' : workoutStreak > 0 ? 'Logged today' : 'No active streak',
+    status: workoutStreak > 0 && !workoutDoneToday ? 'warn' : workoutStreak > 0 ? 'good' : 'neutral',
+  });
+
+  // Soonest subscription renewal — subs, via the same nextRenewal() buildAlerts uses.
+  const renewals = (data.subscriptions || [])
+    .map(sub => ({ sub, renewal: nextRenewal(sub, nowMs) }))
+    .filter(item => item.renewal)
+    .sort((a, b) => a.renewal.days - b.renewal.days);
+  const soonest = renewals[0];
+  stats.push({
+    id: 'renewal', icon: '↻', label: 'NEXT RENEWAL',
+    value: soonest ? (soonest.renewal.days === 0 ? 'Today' : soonest.renewal.days + 'd') : '—',
+    unit: '',
+    sub: soonest ? (soonest.sub.name || 'Subscription') : 'No subscriptions tracked',
+    status: soonest && soonest.renewal.days <= 2 ? 'warn' : 'neutral',
+  });
+
+  // Next scheduled item — the same buildSchedule() list the Schedule strip renders.
+  const next = (data.schedule || []).find(item => item.isNext);
+  stats.push({
+    id: 'nextup', icon: '◷', label: 'NEXT UP',
+    value: next ? escapeText(next.time) : '—',
+    unit: '',
+    sub: next ? next.title : 'Nothing timed today',
+    status: 'neutral',
+  });
+
+  // Sleep score — sleep:nights, same computeNightScore correlation-lab.js
+  // and insights-recovery.html both use, so this number always matches
+  // what the Sleep page itself would show for the same night. Caffeine
+  // isn't factored in here (kept to sleepHours/quality only) to avoid a
+  // second storage read just for one widget stat.
+  const sleepEntries = Object.entries(data.sleepNights || {}).filter(([, v]) => v).sort(([a], [b]) => a < b ? -1 : 1);
+  const latestSleep = sleepEntries.length ? sleepEntries[sleepEntries.length - 1][1] : null;
+  const nightScore = latestSleep ? computeNightScore(latestSleep, false) : null;
+  stats.push({
+    id: 'sleep', icon: '☾', label: 'SLEEP',
+    value: nightScore != null ? String(nightScore) : '—', unit: nightScore != null ? '/100' : '',
+    sub: nightScore == null ? 'Not logged' : nightScore >= 85 ? 'Restorative' : nightScore >= 65 ? 'Solid' : nightScore >= 45 ? 'Rough' : 'Wrecked',
+    status: nightScore == null ? 'neutral' : nightScore >= 85 ? 'good' : nightScore >= 65 ? 'neutral' : nightScore >= 45 ? 'warn' : 'critical',
+  });
+
+  // Hydration — po_water_v1, same computeWaterProgress() the Hydration signal card uses.
+  const wp = data.waterProgress;
+  stats.push({
+    id: 'water', icon: '◍', label: 'HYDRATION',
+    value: wp ? String(wp.done) : '—', unit: wp ? '/' + wp.total : '',
+    sub: wp ? Math.round(wp.ratio * 100) + '% of today\'s goal' : 'Add your profile to track',
+    status: !wp ? 'neutral' : wp.ratio >= 1 ? 'good' : 'neutral',
+  });
+
+  // Calories remaining — cal:targets minus today's cal:entries, same
+  // fields health.html's nutrition tracker itself sums and displays.
+  const todayCalKey = dateKey(new Date(nowMs));
+  const consumedToday = (data.calEntries || []).filter(e => e && e.dateKey === todayCalKey).reduce((sum, e) => sum + (Number(e.calories) || 0), 0);
+  const calorieTarget = data.calTargets && Number(data.calTargets.calories);
+  const remaining = calorieTarget ? calorieTarget - consumedToday : null;
+  stats.push({
+    id: 'calories', icon: '◎', label: 'CALORIES',
+    value: remaining != null ? String(Math.max(0, Math.round(remaining))) : '—', unit: remaining != null ? 'left' : '',
+    sub: calorieTarget ? consumedToday + ' of ' + calorieTarget + ' logged' : 'No goal set',
+    status: remaining == null ? 'neutral' : remaining < 0 ? 'warn' : 'neutral',
+  });
+
+  // Ring vitals and Telegram assistant status live in Supabase-only rows
+  // (external writers: the Mac ring-sync script, the Telegram bot) with no
+  // localStorage mirror, so they can't be computed synchronously here —
+  // refreshLiveStatusExternal() fills these two in after an async read.
+  stats.push({ id: 'ring', icon: '♥', label: 'RING', value: '—', unit: '', sub: 'Loading…', status: 'neutral', pending: true });
+  stats.push({ id: 'telegram', icon: '☀', label: 'ASSISTANT', value: '—', unit: '', sub: 'Loading…', status: 'neutral', pending: true });
+
+  return stats;
+}
+
 function storeGet(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
 }
@@ -206,6 +323,8 @@ let previousAlertIds = new Set();
 // Tracks each Signals-rail value by label so a real change (not just a
 // re-render) gets a brief highlight. null means "no render yet."
 let previousSignalValues = null;
+// Same idea, scoped to the Live Status widget's own stat grid.
+let previousLiveStatusValues = null;
 export function readAppearance() {
   const a = storeGet(APPEARANCE_KEY) || {};
   // Defaults match the design handoff's own defaults (tone: callsign,
@@ -307,6 +426,8 @@ function readModel() {
     notes: storeGet('notes:items') || [],
     reading: storeGet('reading:items') || [],
     financeActivity: storeGet('nw:activity') || [],
+    calTargets: storeGet('cal:targets'),
+    calEntries: storeGet('cal:entries') || [],
   };
   const rawAlerts = buildAlerts(model, now.getTime());
   const reconciled = reconcileAlertState(storeGet(ALERT_STATE_KEY), rawAlerts.map(alert => alert.id));
@@ -339,6 +460,89 @@ function fmtCurrency(n) {
 // from the same localStorage keys other pages already own. Nothing here
 // is a fabricated number: a card that lacks enough real data to show a
 // ring or sparkline just says so honestly instead of inventing a shape.
+function liveStatusStatHtml(stat, changed) {
+  return '<div class="cc-live-stat is-' + stat.status + (changed ? ' is-refreshed' : '') + '" data-live-stat="' + stat.id + '">'
+    + '<div class="cc-live-stat-top"><span class="cc-live-stat-label"><span class="cc-live-stat-icon">' + stat.icon + '</span>' + stat.label + '</span></div>'
+    + '<div class="cc-live-stat-val">' + escapeText(stat.value) + (stat.unit ? '<span class="cc-live-stat-unit">' + escapeText(stat.unit) + '</span>' : '') + '</div>'
+    + '<div class="cc-live-stat-sub">' + escapeText(stat.sub) + '</div>'
+    + '</div>';
+}
+
+function renderLiveStatus(model) {
+  const stats = buildLiveStatus(model, model.now.getTime());
+  const isFirstRender = previousLiveStatusValues === null;
+  const nextValues = {};
+  const html = stats.map(stat => {
+    nextValues[stat.id] = stat.value + '|' + stat.sub;
+    // A stat still waiting on its async external fetch never counts as
+    // "changed" — otherwise every render() tick would flash it since its
+    // placeholder value never settles until refreshLiveStatusExternal()
+    // patches the real DOM node directly (see below).
+    const changed = !stat.pending && !isFirstRender && previousLiveStatusValues[stat.id] !== undefined && previousLiveStatusValues[stat.id] !== nextValues[stat.id];
+    return liveStatusStatHtml(stat, changed);
+  }).join('');
+  previousLiveStatusValues = nextValues;
+  return html;
+}
+
+// Ring vitals and Telegram assistant status live in Supabase's app_state
+// table only (written by the Mac ring-sync script and the Telegram bot
+// respectively) — there's no localStorage mirror to read synchronously the
+// way every other Live Status module has, so this does the same "paint
+// from cache, refresh from Supabase in the background" pull health.html's
+// Apple Health / Ring cards already use, then patches just those two DOM
+// nodes directly rather than re-rendering the whole widget.
+const LIVE_STATUS_CACHE_KEY = 'cc_live_status_external_cache';
+export async function refreshLiveStatusExternal() {
+  const ringEl = document.querySelector('[data-live-stat="ring"]');
+  const tgEl = document.querySelector('[data-live-stat="telegram"]');
+  if (!ringEl && !tgEl) return;
+  const SUPABASE_URL = window.DASH_SUPABASE_URL || 'https://srajryooffirbroltjmg.supabase.co';
+  const SUPABASE_KEY = window.DASH_SUPABASE_KEY || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  if (SUPABASE_URL.indexOf('PASTE-') === 0 || SUPABASE_KEY.indexOf('PASTE-') === 0) return;
+
+  async function pull(key) {
+    try {
+      const r = await fetch(SUPABASE_URL + '/rest/v1/app_state?key=eq.' + key + '&select=data', {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+      });
+      if (!r.ok) return null;
+      const rows = await r.json();
+      return (rows && rows[0] && rows[0].data) || null;
+    } catch (e) { return null; }
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return '';
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0 || isNaN(ms)) return '';
+    const mins = Math.round(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    return Math.round(mins / 60) + 'h ago';
+  }
+
+  const [ringData, tgData] = await Promise.all([pull('ring_health'), pull('telegram_session')]);
+  try { localStorage.setItem(LIVE_STATUS_CACHE_KEY, JSON.stringify({ ringData, tgData })); } catch (e) {}
+
+  if (ringEl) {
+    const latest = ringData && ringData.latest;
+    const hr = latest && typeof latest.heartRate === 'number';
+    ringEl.classList.remove('is-neutral', 'is-good', 'is-warn', 'is-critical');
+    ringEl.classList.add(hr ? 'is-good' : 'is-neutral');
+    ringEl.querySelector('.cc-live-stat-val').innerHTML = hr ? escapeText(String(Math.round(latest.heartRate))) + '<span class="cc-live-stat-unit">bpm</span>' : '—';
+    ringEl.querySelector('.cc-live-stat-sub').textContent = hr ? 'Synced ' + timeAgo(latest.receivedAt) : 'Not connected';
+  }
+  if (tgEl) {
+    const today = dateKey(new Date());
+    const active = tgData && tgData.dateKey === today;
+    tgEl.classList.remove('is-neutral', 'is-good', 'is-warn', 'is-critical');
+    tgEl.classList.add(active ? 'is-good' : 'is-neutral');
+    tgEl.querySelector('.cc-live-stat-val').innerHTML = active ? 'Active' : 'Dormant';
+    tgEl.querySelector('.cc-live-stat-sub').textContent = active ? 'Say "good morning" tomorrow' : 'Say "good morning" to activate';
+  }
+}
+
 function renderSignalCards(model) {
   const cards = [];
 
@@ -447,6 +651,13 @@ function render() {
   document.getElementById('scoreCard').classList.toggle('has-alerts', model.alertCount > 0);
   if (typeof window.__jarvisGlobeSetAlertLevel === 'function') window.__jarvisGlobeSetAlertLevel(model.alertCount);
   updateJarvisAlertState(model.alertCount);
+
+  document.getElementById('ccLiveBrief').textContent = model.dailyBrief.summary;
+  document.getElementById('ccLiveGrid').innerHTML = renderLiveStatus(model);
+  document.getElementById('ccLiveUpdated').textContent = 'synced just now';
+  // Fire-and-forget — patches the ring/telegram cells directly once it
+  // resolves, doesn't block the rest of this (synchronous) render.
+  refreshLiveStatusExternal();
 
   const brief = model.dailyBrief;
   document.getElementById('ccBriefPeriod').textContent = brief.eyebrow;
