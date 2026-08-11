@@ -54,6 +54,16 @@ FIELD_KEYWORDS = {
 }
 TIMESTAMP_COLUMN_HINTS = ['timestamp', 'time', 'date', 'ts', 'created_at', 'recorded_at']
 
+
+def is_id_column(name):
+    """True for a primary/foreign-key column (e.g. 'heart_rate_id', 'id',
+    'ring_id') — these should never be picked as a sensor value even when
+    their name happens to contain a field's keyword (a 'heart_rates' table's
+    own 'heart_rate_id' primary key is exactly this trap: it contains
+    'heart_rate' as a substring but holds a row number, not a BPM reading)."""
+    n = name.lower()
+    return n == 'id' or n.endswith('_id')
+
 # Common locations the CLI's `sync` command might write its SQLite database
 # to — this list is a best-effort search, not a verified default, since the
 # docs site with the confirmed default path was unreachable. --db-path
@@ -190,6 +200,8 @@ def discover_fields_from_db(db_path, verbose):
                 value_col = None
                 for kw in keywords:
                     for c, cl in zip(columns, columns_l):
+                        if is_id_column(c):
+                            continue  # never the actual sensor value, even on a keyword match
                         if kw in cl:
                             value_col = c
                             break
@@ -199,7 +211,7 @@ def discover_fields_from_db(db_path, verbose):
                 # value column is still worth trying if it has exactly one
                 # numeric-looking non-id, non-timestamp column.
                 if not value_col and any(kw in table_l for kw in keywords):
-                    plain_cols = [c for c in columns if c.lower() not in ('id',) and
+                    plain_cols = [c for c in columns if not is_id_column(c) and
                                   not any(h in c.lower() for h in TIMESTAMP_COLUMN_HINTS)]
                     if len(plain_cols) == 1:
                         value_col = plain_cols[0]
