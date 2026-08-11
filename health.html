@@ -759,15 +759,15 @@ main { position: relative; }
           </div>
         </div>
         <div class="wh-stats">
-          <div class="wh-stat"><span class="wh-zone" id="whZoneSleep"></span><div class="wh-stat-label">Sleep</div><div class="wh-stat-val" id="whSleep">—</div><div class="wh-stat-sub" id="whSleepSub">—</div></div>
-          <div class="wh-stat"><span class="wh-zone" id="whZoneStrain"></span><div class="wh-stat-label">Strain</div><div class="wh-stat-val" id="whStrain">—</div><div class="wh-stat-sub" id="whStrainSub">today</div></div>
-          <div class="wh-stat"><span class="wh-zone" id="whZoneHrv"></span><div class="wh-stat-label">HRV</div><div class="wh-stat-val" id="whHrv">—</div><div class="wh-stat-sub">ms</div></div>
-          <div class="wh-stat"><span class="wh-zone" id="whZoneRhr"></span><div class="wh-stat-label">RHR</div><div class="wh-stat-val" id="whRhr">—</div><div class="wh-stat-sub">bpm</div></div>
+          <div class="wh-stat"><span class="wh-zone" id="whZoneSleep" role="img" aria-hidden="true"></span><div class="wh-stat-label">Sleep</div><div class="wh-stat-val" id="whSleep">—</div><div class="wh-stat-sub" id="whSleepSub">—</div></div>
+          <div class="wh-stat"><span class="wh-zone" id="whZoneStrain" role="img" aria-hidden="true"></span><div class="wh-stat-label">Strain</div><div class="wh-stat-val" id="whStrain">—</div><div class="wh-stat-sub" id="whStrainSub">today</div></div>
+          <div class="wh-stat"><span class="wh-zone" id="whZoneHrv" role="img" aria-hidden="true"></span><div class="wh-stat-label">HRV</div><div class="wh-stat-val" id="whHrv">—</div><div class="wh-stat-sub">ms</div></div>
+          <div class="wh-stat"><span class="wh-zone" id="whZoneRhr" role="img" aria-hidden="true"></span><div class="wh-stat-label">RHR</div><div class="wh-stat-val" id="whRhr">—</div><div class="wh-stat-sub">bpm</div></div>
         </div>
         <div id="whBio" class="wh-bio" style="display:none">
-          <div class="wh-bio-item"><span class="wh-zone" id="whZoneSkin"></span><span class="wh-bio-label">Skin temp</span><span class="wh-bio-val" id="whSkin">—</span></div>
-          <div class="wh-bio-item"><span class="wh-zone" id="whZoneSpo2"></span><span class="wh-bio-label">Blood O₂</span><span class="wh-bio-val" id="whSpo2">—</span></div>
-          <div class="wh-bio-item"><span class="wh-zone" id="whZoneResp"></span><span class="wh-bio-label">Resp rate</span><span class="wh-bio-val" id="whResp">—</span></div>
+          <div class="wh-bio-item"><span class="wh-zone" id="whZoneSkin" role="img" aria-hidden="true"></span><span class="wh-bio-label">Skin temp</span><span class="wh-bio-val" id="whSkin">—</span></div>
+          <div class="wh-bio-item"><span class="wh-zone" id="whZoneSpo2" role="img" aria-hidden="true"></span><span class="wh-bio-label">Blood O₂</span><span class="wh-bio-val" id="whSpo2">—</span></div>
+          <div class="wh-bio-item"><span class="wh-zone" id="whZoneResp" role="img" aria-hidden="true"></span><span class="wh-bio-label">Resp rate</span><span class="wh-bio-val" id="whResp">—</span></div>
         </div>
         <div class="wh-legend">
           <span class="wh-leg-item"><span class="wh-zone z-good"></span>Good</span>
@@ -844,7 +844,17 @@ main { position: relative; }
 
     function fmtMins(ms) { const m = Math.round(ms/60000); const h = Math.floor(m/60); return h + 'h ' + String(m%60).padStart(2,'0') + 'm'; }
     function fmtMinsShort(ms) { const m = Math.round(ms/60000); const h = Math.floor(m/60); return (h>0?h+'h ':'') + (m%60)+'m'; }
-    function zone(el, c) { el.className = 'wh-zone'; if (c) el.classList.add('z-' + c); }
+    // The zone dot next to each vital (Sleep/Strain/HRV/RHR/Skin temp/Blood
+    // O2/Resp rate) used to be color-only — good/normal/watch/high-low all
+    // looked the same to a screen reader (empty span, no text) and relied on
+    // hue alone for sighted users. An aria-label makes the same info
+    // available without changing how it looks.
+    const ZONE_LABELS = { good: 'Good', norm: 'Normal', warn: 'Watch', bad: 'High or low' };
+    function zone(el, c) {
+      el.className = 'wh-zone';
+      if (c) { el.classList.add('z-' + c); el.setAttribute('aria-label', 'Zone: ' + (ZONE_LABELS[c] || c)); el.removeAttribute('aria-hidden'); }
+      else { el.removeAttribute('aria-label'); el.setAttribute('aria-hidden', 'true'); }
+    }
     function recoveryZone(v) { if (v == null) return null; if (v >= 67) return 'good'; if (v >= 34) return 'warn'; return 'bad'; }
     function sleepZone(p) { if (p == null) return null; if (p >= 85) return 'good'; if (p >= 70) return 'norm'; return 'warn'; }
     function strainZone(s) { if (s == null) return null; if (s < 6) return 'norm'; if (s < 14) return 'good'; if (s < 18) return 'warn'; return 'bad'; }
@@ -1717,15 +1727,15 @@ main { position: relative; }
         else if (item.tag === 'not-ordered') tagHtml = '<span class="stack-item-tag tag-not-ordered">not ordered</span>';
 
         row.innerHTML = `
-          <button class="stack-check ${isTaken ? 'checked' : ''}" data-action="toggle" data-id="${item.id}" aria-label="Mark taken">${isTaken ? '✓' : ''}</button>
+          <button class="stack-check ${isTaken ? 'checked' : ''}" data-action="toggle" data-id="${item.id}" aria-pressed="${isTaken}" aria-label="${escapeHtml((isTaken ? 'Taken: ' : 'Mark taken: ') + item.name)}">${isTaken ? '✓' : ''}</button>
           <div class="stack-item-body">
             <div class="stack-item-name" data-edit="name" data-id="${item.id}">
               <span class="stack-item-name-text">${escapeHtml(item.name)}</span>${tagHtml}
             </div>
             <div class="stack-item-meta" data-edit="meta" data-id="${item.id}">${escapeHtml(metaText(item))}</div>
           </div>
-          <button class="stack-low-btn ${isLow ? 'is-low' : ''}" data-action="low" data-id="${item.id}">↓ Running low</button>
-          <button class="stack-item-del" data-action="del" data-id="${item.id}" aria-label="Delete">×</button>`;
+          <button class="stack-low-btn ${isLow ? 'is-low' : ''}" data-action="low" data-id="${item.id}" aria-pressed="${isLow}">↓ Running low</button>
+          <button class="stack-item-del" data-action="del" data-id="${item.id}" aria-label="Delete ${escapeHtml(item.name)}">×</button>`;
 
         group.appendChild(row);
       });
@@ -2126,9 +2136,10 @@ main { position: relative; }
       const bodyEl = document.createElement('div');
       bodyEl.className = 'cal-today-body';
       const items = Array.isArray(e.items) ? e.items : [];
+      const mealName = items.length ? (items[0].name + (items.length > 1 ? ' + ' + (items.length - 1) + ' more' : '')) : 'Meal';
       const name = document.createElement('div');
       name.className = 'cal-today-name';
-      name.textContent = items.length ? (items[0].name + (items.length > 1 ? ' + ' + (items.length - 1) + ' more' : '')) : 'Meal';
+      name.textContent = mealName;
       // Only genuine AI guesses (photo/text/receipt) get flagged — barcode,
       // label transcription, and manual entry are real numbers, not a
       // model's estimate, so they stay unbadged rather than implying doubt
@@ -2150,6 +2161,7 @@ main { position: relative; }
       del.className = 'cal-today-del';
       del.type = 'button';
       del.textContent = '×';
+      del.setAttribute('aria-label', 'Delete ' + mealName);
       del.addEventListener('click', () => { setEntries(getEntries().filter(x => x.id !== e.id)); renderAll(); });
       row.append(thumb, bodyEl, cals, del);
       wrap.appendChild(row);
@@ -2525,7 +2537,7 @@ main { position: relative; }
         '<input type="number" value="' + item.protein + '" data-f="protein" data-i="' + i + '">' +
         '<input type="number" value="' + item.carbs + '" data-f="carbs" data-i="' + i + '">' +
         '<input type="number" value="' + item.fat + '" data-f="fat" data-i="' + i + '">' +
-        '<button class="cal-item-del" type="button" data-del="' + i + '">×</button>';
+        '<button class="cal-item-del" type="button" data-del="' + i + '" aria-label="' + escapeAttr('Remove ' + (item.name || 'item')) + '">×</button>';
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('input').forEach(inp => {

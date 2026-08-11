@@ -26,7 +26,10 @@
   /* ---- text ---- */
   --text-primary: #F2FBFF;
   --text-secondary: #A9C4D6;
-  --text-tertiary: #5E7A8C;
+  /* Was #5E7A8C — ~4.48:1 against --surface-page, just under the 4.5:1 AA
+     floor for normal-size text (this variable labels a lot of it: meta
+     lines, timestamps, sub-labels). Lightened to keep ~5:1 with margin. */
+  --text-tertiary: #6B8CA0;
 
   /* ---- status ---- */
   --success: #3FE0A8;
