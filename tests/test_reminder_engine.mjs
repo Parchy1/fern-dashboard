@@ -1,7 +1,7 @@
 import handler, {
   effectiveTimeMinutes, shouldSendNow, composeSingleMessage, computeOneOffTimedUndone,
   computeUntimedGoalsUndone, computeHabitsUndone,
-  shouldSendFeelingCheckin, computeUndone,
+  shouldSendFeelingCheckin, computeUndone, isActivatedToday,
 } from '../api/send-reminders.js';
 
 let pass = 0, fail = 0;
@@ -206,10 +206,22 @@ function nowMinUtc() {
   // whatever single message each test is actually checking for.
   process.env.MORNING_BRIEFING_TIME = '23:59';
 
+  // Every "full handler" scenario below needs today's activation gate
+  // satisfied (see api/send-reminders.js's isActivatedToday) or nothing
+  // sends at all regardless of what else is set up — this mirrors exactly
+  // what a real "good morning" earlier today would have written.
+  function todayPlainInTz(tzName) {
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: tzName }));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function telegramSessionActivatedResponse() {
+    return { ok: true, json: async () => [{ data: { dateKey: todayPlainInTz('UTC'), activatedAt: Date.now() } }] };
+  }
+
   // peakData defaults to a just-now check-in so the independent periodic
   // feeling-check-in reminder (tested separately below) never fires inside
   // tests that are really about something else.
-  function fakeSupabase({ recurDefs = [], oneOffGoals = [], goalsExtra = {}, stateRow = null, peakData = { 'peak:checkins': [{ ts: Date.now() }] } } = {}) {
+  function fakeSupabase({ recurDefs = [], oneOffGoals = [], goalsExtra = {}, stateRow = null, peakData = { 'peak:checkins': [{ ts: Date.now() }] }, activated = true } = {}) {
     let writtenState = null;
     const sentPayloads = [];
     // Upserts (POST /rest/v1/app_state?on_conflict=key) carry the row key
@@ -222,6 +234,9 @@ function nowMinUtc() {
         if (body.key === 'reminder_state') writtenState = body.data;
         return { ok: true, json: async () => ({}) };
       }
+      if (u.includes('key=eq.telegram_session')) {
+        return activated ? telegramSessionActivatedResponse() : { ok: true, json: async () => [] };
+      }
       if (u.includes('key=eq.goals')) {
         return { ok: true, json: async () => [{ data: Object.assign({ 'recur:defs': recurDefs, ['goals:' + '__ignored__']: [] }, goalsExtra) }] };
       }
@@ -231,6 +246,7 @@ function nowMinUtc() {
       if (u.includes('key=eq.peak')) {
         return { ok: true, json: async () => (peakData ? [{ data: peakData }] : []) };
       }
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) {
         sentPayloads.push(JSON.parse(opts.body));
@@ -294,6 +310,7 @@ function nowMinUtc() {
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
       if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] };
       if (u.includes('key=eq.sleep')) return { ok: true, json: async () => [{ data: { 'sleep:nights': { [todayPlainNow]: { sleepQuality: 1 } } } }] };
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
       throw new Error('unexpected fetch: ' + u);
@@ -307,6 +324,7 @@ function nowMinUtc() {
       const u = String(url);
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: '13:00' }] } }] };
       if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] }; // no sleep logged
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
       throw new Error('unexpected fetch: ' + u);
@@ -329,6 +347,7 @@ function nowMinUtc() {
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }] } }] };
       if (u.includes('key=eq.reminder_state')) return { ok: true, json: async () => [{ data: stateRow }] };
       if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: { 'peak:checkins': [{ ts: Date.now() }] } }] };
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       throw new Error('unexpected fetch: ' + u);
     };
@@ -343,6 +362,7 @@ function nowMinUtc() {
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }] } }] };
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       throw new Error('unexpected fetch: ' + u);
     };
@@ -562,6 +582,7 @@ function nowMinUtc() {
       if (u.includes('key=eq.peak')) return { ok: true, json: async () => [{ data: {} }] }; // no check-ins logged at all today
       if (u.includes('key=eq.reminder_state')) return { ok: true, json: async () => [] };
       if (opts && opts.method === 'POST' && u.includes('/rest/v1/app_state')) return { ok: true, json: async () => ({}) };
+      if (u.includes('key=eq.telegram_session')) return telegramSessionActivatedResponse();
       if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
       if (u.includes('sendMessage')) { sentBody = JSON.parse(opts.body).text; return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) }; }
       throw new Error('unexpected fetch: ' + u);
@@ -574,6 +595,98 @@ function nowMinUtc() {
     assertEq(res._body.sent, true, 'a feeling check-in prompt sends when nothing has been logged today and it is past 9am');
     assertTrue(!!sentBody && sentBody.length > 0, 'the feeling check-in message actually has content');
     assertTrue(res._body.results.some(r => r.name === '__feeling_checkin__'), 'the result is tagged distinctly as the feeling check-in');
+  }
+
+  // ============================================================
+  // isActivatedToday — pure, no clock involved
+  // ============================================================
+  {
+    assertEq(isActivatedToday(null, '2026-08-11'), false, 'no session row at all is not activated');
+    assertEq(isActivatedToday({ dateKey: '2026-08-10', activatedAt: 1 }, '2026-08-11'), false, 'a session from a previous day is not activated today');
+    assertEq(isActivatedToday({ dateKey: '2026-08-11', activatedAt: 1 }, '2026-08-11'), true, 'a session dated today is activated');
+  }
+
+  // ============================================================
+  // Full handler: daily activation gate
+  // ============================================================
+  {
+    process.env.CRON_SECRET && delete process.env.CRON_SECRET;
+    process.env.BEDTIME_LOCAL = bedtimeFuture;
+
+    // ---- never activated today (no telegram_session row at all): nothing sends, even with a clearly overdue item ----
+    {
+      const { fetchStub, getSentPayloads } = fakeSupabase({
+        recurDefs: [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }],
+        activated: false,
+      });
+      global.fetch = fetchStub;
+      const res = mockRes();
+      await handler({ headers: {} }, res);
+      assertEq(res._body.sent, false, 'an overdue item does not send before "good morning" has been said today');
+      assertTrue(res._body.reason.toLowerCase().includes('good morning'), 'the response explains why, mentioning the wake phrase');
+      assertEq(getSentPayloads().length, 0, 'no Telegram message is sent at all while dormant');
+      assertEq(res._body.results, undefined, 'the handler exits before computing anything to send, not just before sending it');
+    }
+
+    // ---- session exists but is from a previous day: still not activated ----
+    {
+      global.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('key=eq.telegram_session')) return { ok: true, json: async () => [{ data: { dateKey: '2000-01-01', activatedAt: 1 } }] };
+        if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }] } }] };
+        if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
+        throw new Error('unexpected fetch: ' + u);
+      };
+      const res = mockRes();
+      await handler({ headers: {} }, res);
+      assertEq(res._body.sent, false, "yesterday's activation does not carry over to today");
+    }
+
+    // ---- activated today: the same overdue item now sends normally ----
+    {
+      const { fetchStub } = fakeSupabase({
+        recurDefs: [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }],
+        activated: true,
+      });
+      global.fetch = fetchStub;
+      const res = mockRes();
+      await handler({ headers: {} }, res);
+      assertEq(res._body.sent, true, 'the same overdue item sends once today is activated');
+    }
+
+    // ---- Telegram not configured (Twilio delivery instead): the gate does not apply at all ----
+    {
+      const savedToken = process.env.TELEGRAM_BOT_TOKEN, savedChat = process.env.TELEGRAM_CHAT_ID;
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_CHAT_ID;
+      process.env.TWILIO_ACCOUNT_SID = 'sid'; process.env.TWILIO_AUTH_TOKEN = 'tok';
+      process.env.TWILIO_FROM_NUMBER = '+15550000000'; process.env.TWILIO_TO_NUMBER = '+15551111111';
+      global.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('key=eq.telegram_session')) throw new Error('the gate must not even be checked when Telegram is not the configured delivery channel');
+        if (u.includes('key=eq.goals')) return { ok: true, json: async () => [{ data: { 'recur:defs': [{ id: 'r1', name: 'Gym', freq: 'daily', days: null, autoSource: null, time: pastTime }] } }] };
+        if (u.includes('api.twilio.com')) return { ok: true, json: async () => ({ sid: 'SM123' }) };
+        if (u.includes('/rest/v1/app_state')) return { ok: true, json: async () => [] };
+        throw new Error('unexpected fetch: ' + u);
+      };
+      const res = mockRes();
+      await handler({ headers: {} }, res);
+      assertEq(res._body.sent, true, 'a Twilio-delivered reminder sends with no activation gate, since there is no inbound channel to ever satisfy it');
+      delete process.env.TWILIO_ACCOUNT_SID; delete process.env.TWILIO_AUTH_TOKEN; delete process.env.TWILIO_FROM_NUMBER; delete process.env.TWILIO_TO_NUMBER;
+      process.env.TELEGRAM_BOT_TOKEN = savedToken; process.env.TELEGRAM_CHAT_ID = savedChat;
+    }
+
+    // ---- not activated: the once-daily morning briefing is gated too, not exempt ----
+    {
+      process.env.MORNING_BRIEFING_TIME = pastTime; // force it to be due right now
+      const { fetchStub, getSentPayloads } = fakeSupabase({ activated: false });
+      global.fetch = fetchStub;
+      const res = mockRes();
+      await handler({ headers: {} }, res);
+      assertEq(res._body.sent, false, 'the morning briefing itself does not go out before "good morning" either');
+      assertEq(getSentPayloads().length, 0, 'no briefing message sent while dormant');
+      process.env.MORNING_BRIEFING_TIME = '23:59';
+    }
   }
 
   unfreeze();

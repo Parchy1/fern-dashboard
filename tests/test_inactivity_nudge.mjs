@@ -99,6 +99,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
       // The most recent genuine activity was 10 days ago -> well past the
       // 3-day threshold, and no inactivity_nudge row yet -> due.
       notes: { 'notes:items': [] },
+      // Activation gate satisfied for today — otherwise nothing sends at
+      // all. See isActivatedToday.
+      telegram_session: { dateKey: new Date(now).toISOString().slice(0, 10), activatedAt: now },
     };
     const rowMeta = [
       { key: 'notes', updated_at: new Date(now - 10 * DAY_MS).toISOString() },
