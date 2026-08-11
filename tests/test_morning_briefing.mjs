@@ -291,6 +291,9 @@ function freezeClockAt(hour, minute) {
         // briefing, and 8am with no caffeine logged is exactly the kind of
         // moment the reactive low-energy nudge is designed to fire in.
         reminder_state: { [new Date().toISOString().slice(0, 10)]: { __energy_nudge__: { lastMinutes: 8 * 60 } } },
+        // Activation gate satisfied for today — otherwise nothing sends at
+        // all, including the briefing itself. See isActivatedToday.
+        telegram_session: { dateKey: new Date().toISOString().slice(0, 10), activatedAt: Date.now() },
       };
       global.fetch = async (url, opts) => {
         const u = String(url);

@@ -64,6 +64,15 @@ import { resolveScheduleForDate, currentAndNextForDate, normalizeScheduleModel, 
 // coming up. One-shot per day (unlike the individual per-item reminders
 // above, which repeat), tracked in the same reminder_state bucket.
 //
+// Daily activation gate: when Telegram is the configured delivery channel,
+// this whole file sends NOTHING — not one message, including the morning
+// briefing — until you've said "good morning" (or "gm"/"morning") to the
+// bot that calendar day. Reads the exact same 'telegram_session' row
+// api/telegram-webhook.js's own gate writes, so the two can never
+// disagree about whether today is "awake" yet. Does not apply when
+// Twilio/email-gateway is the delivery method instead, since those have
+// no inbound channel that could ever say "good morning" back.
+//
 // Required env vars:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   (same ones the dashboard already uses)
 //
@@ -1032,6 +1041,13 @@ export async function runScheduleReminder(supabaseUrl, supabaseKey) {
   return { name: '__schedule_reminder__', message };
 }
 
+// Pure check for the daily activation gate — same shape as
+// api/telegram-webhook.js's own `session.dateKey !== today` check, reused
+// here (not re-derived) so both gates can never quietly drift apart.
+export function isActivatedToday(session, todayPlain) {
+  return !!session && session.dateKey === todayPlain;
+}
+
 export default async function handler(req, res) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -1049,6 +1065,32 @@ export default async function handler(req, res) {
     const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res.status(500).json({ error: 'Supabase env vars not configured' });
 
+    const { key: todayPlain } = dateKeyInTz(tz, false);
+
+    // Daily activation gate — mirrors api/telegram-webhook.js's own gate
+    // exactly (same 'telegram_session' row, same REMINDER_TIMEZONE plain-
+    // date key), so this file no longer sends ANYTHING — not even the
+    // once-daily morning briefing — until "good morning" (or "gm"/
+    // "morning") has been said to the bot that calendar day. Checked first,
+    // before any of the other Supabase reads below, so a dormant day costs
+    // nothing beyond this one lightweight read.
+    //
+    // Only meaningful when Telegram is the configured delivery channel —
+    // "good morning" is something you type back to the bot, and Twilio/
+    // email-gateway delivery (see sendReminder below) has no inbound
+    // channel that could ever satisfy this gate. Gating those too would
+    // silently stop all reminders forever for anyone using them instead of
+    // Telegram, so this only applies when TELEGRAM_BOT_TOKEN + CHAT_ID are
+    // actually set — same config check sendReminder itself uses to prefer
+    // Telegram.
+    const tgConfigured = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+    if (tgConfigured) {
+      const session = await fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'telegram_session');
+      if (!isActivatedToday(session, todayPlain)) {
+        return res.status(200).json({ sent: false, reason: 'not activated yet today — say "good morning" to the bot first' });
+      }
+    }
+
     const [goalsData, healthData, gymData, businessData, readingData, peakData, sleepData, financeData, stateRow, subsRemindedRow, caffeineData] = await Promise.all([
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'goals'),
       fetchRow(SUPABASE_URL, SUPABASE_ANON_KEY, 'health'),
@@ -1064,7 +1106,6 @@ export default async function handler(req, res) {
     ]);
 
     const { key: todayKey6am, dow } = dateKeyInTz(tz, true);
-    const { key: todayPlain } = dateKeyInTz(tz, false);
     const utcToday = new Date().toISOString().slice(0, 10);
 
     const defs = (goalsData && goalsData['recur:defs']) || [];

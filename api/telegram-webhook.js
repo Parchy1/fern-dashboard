@@ -42,10 +42,14 @@
 // falls through to normal processing, so it also gets a real reply — only
 // messages sent BEFORE that day's wake phrase are silently dropped. This
 // only gates the plain-message path (chat, commands, tool actions); it does
-// NOT gate callback_query button taps (e.g. schedule reminder buttons) or
-// the separate scheduled-reminder sender (api/send-reminders.js), since
-// those are proactive/already-in-flight rather than something you're
-// initiating.
+// NOT gate callback_query button taps (e.g. schedule reminder buttons),
+// since those are already-in-flight from a message that itself got past
+// this gate (or was sent by the reminder engine after ITS OWN activation
+// check passed — see below). api/send-reminders.js reads this same
+// 'telegram_session' row and gates its entire run on it too (when Telegram
+// is the configured delivery channel), so nothing proactive — reminders,
+// check-ins, the morning briefing — goes out before you've said good
+// morning either.
 //   SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 //                           if all three are set (alongside a connected
 //                           Google account — see google.html / SETUP.md),

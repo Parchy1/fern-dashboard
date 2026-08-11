@@ -97,6 +97,9 @@ function mockRes() {
     let sentText = null;
     const rows = {
       finance: { subs: [{ name: 'Netflix', entered_amount: 15.99, entered_currency: 'USD', renewal: renewalKey }] },
+      // Activation gate satisfied for today — otherwise nothing sends at
+      // all. See isActivatedToday.
+      telegram_session: { dateKey: todayPlain, activatedAt: Date.now() },
     };
     global.fetch = async (url, opts) => {
       const u = String(url);
