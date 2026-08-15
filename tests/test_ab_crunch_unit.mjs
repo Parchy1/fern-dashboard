@@ -57,12 +57,18 @@ vm.runInContext(
 const { __normalize: normalize, __CONFIG: CONFIG, __CONFIG_VERSION: CONFIG_VERSION, __buildDefaultExercises: buildDefaultExercises, __exerciseLogKey: exerciseLogKey } = sandbox;
 
 // ---- Scenario 1: brand-new user (empty state) ----
+// The v3 full-program rewrite (2026-08) intentionally dropped "Ab crunch
+// machine" from the default seed — it was the same machine duplicated
+// identically across 3 different days (a side effect of this patch having
+// been folded into the seed directly), replaced by 5 distinct core
+// movements, one per day (see test_core_expansion_unit.mjs). A fresh
+// install no longer gets it at all; the patch below still exists purely to
+// correctly handle the legacy case in Scenario 2.
 {
   const s = normalize({});
   const ab = s.exercises.filter(e => e.name === 'Ab crunch machine');
-  assertEq(ab.length, 3, 'fresh install: exactly 3 "Ab crunch machine" entries (default seed + patch don\'t double up)');
-  assertEq(ab.map(e => e.day).sort(), ['legs', 'lower', 'push'], 'fresh install: assigned to push/legs/lower');
-  assertTrue(s.patchesApplied.indexOf('ab_crunch_machine_2026_07') !== -1, 'fresh install: patch pre-marked as applied');
+  assertEq(ab.length, 0, 'fresh install: "Ab crunch machine" is no longer seeded (replaced by 5 distinct core movements, one per day)');
+  assertTrue(s.patchesApplied.indexOf('ab_crunch_machine_2026_07') !== -1, 'fresh install: patch still pre-marked as applied, so it can never re-add the dropped exercise');
 }
 
 // ---- Scenario 2: existing user, already configVersion 2, predates this patch (no patchesApplied field at all) ----
@@ -102,21 +108,31 @@ const { __normalize: normalize, __CONFIG: CONFIG, __CONFIG_VERSION: CONFIG_VERSI
   assertEq(ab3.length, 0, 'deleting the exercise on purpose sticks across a subsequent normalize() call');
 }
 
-// ---- Scenario 3: correctly absent from pull/upper (the alternating placement) ----
+// ---- Scenario 3: a returning user whose exercises array genuinely predates this patch (independent of configVersion) still gets it added, once ----
 {
-  const s = normalize({});
-  const pullHasIt = s.exercises.some(e => e.name === 'Ab crunch machine' && (e.day === 'pull' || e.day === 'upper'));
-  assertTrue(!pullHasIt, 'Ab crunch machine correctly absent from pull/upper days');
-  const allComm = s.exercises.filter(e => e.name === 'Ab crunch machine').every(e => e.gym === 'comm');
-  assertTrue(allComm, 'all 3 entries use gym:"comm", matching every other default exercise');
+  const priorExercises = buildDefaultExercises().filter(e => e.name !== 'Ab crunch machine');
+  const priorState = {
+    configVersion: CONFIG_VERSION,
+    days: CONFIG.days.slice(),
+    exercises: priorExercises,
+    logs: {},
+    gyms: CONFIG.gyms.slice(),
+    patchesApplied: [], // simulates a save from before ab_crunch_machine_2026_07 existed
+  };
+  const s = normalize(JSON.parse(JSON.stringify(priorState)));
+  const ab = s.exercises.filter(e => e.name === 'Ab crunch machine');
+  const pullOrUpperHasIt = ab.some(e => e.day === 'pull' || e.day === 'upper');
+  assertTrue(!pullOrUpperHasIt, 'Ab crunch machine (when added via the legacy patch) is correctly absent from pull/upper days');
+  const allComm = ab.every(e => e.gym === 'comm');
+  assertTrue(allComm, 'entries added by the legacy patch use gym:"comm", matching every other default exercise');
 }
 
-// ---- Scenario 4: an OLD user on a stale configVersion goes through the full reset path, still ends up with exactly 3 (not 6) ----
+// ---- Scenario 4: an OLD user on a stale configVersion goes through the full reset path -> the current (v3) seed, with no "Ab crunch machine" and no double-adding ----
 {
   const staleState = { configVersion: 1, days: [{ id: 'push', name: 'Push' }], exercises: [{ id: 'old1', name: 'Old thing', gym: 'comm', day: 'push' }], logs: {} };
   const s = normalize(staleState);
   const ab = s.exercises.filter(e => e.name === 'Ab crunch machine');
-  assertEq(ab.length, 3, 'a full CONFIG_VERSION reset (old stale state) also ends up with exactly 3, not 6');
+  assertEq(ab.length, 0, 'a full CONFIG_VERSION reset (old stale state) lands on the current seed, which no longer includes "Ab crunch machine"');
 }
 
 console.log('\n---', pass, 'passed,', fail, 'failed ---');
