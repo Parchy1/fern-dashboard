@@ -83,50 +83,69 @@ const CONFIG = {
   //
   // First-run defaults. Once a user logs anything, they edit through
   // the in-app + / gear buttons; this block stays as the seed.
+  //
+  // Full rewrite (v3, 2026-08): a complete 5-day PPL/Upper/Lower program,
+  // not an incrementally-patched one. Every exercise below is deliberately
+  // categorized into one of four roles, applied consistently across all
+  // five days:
+  //   - heavy compound   (4-8 reps)  — one true barbell lift per day,
+  //                                    every day: bench / row / squat /
+  //                                    deadlift. Pull previously had none.
+  //   - secondary compound (8-12)    — a second, lighter compound movement
+  //                                    hitting the same pattern from a
+  //                                    different angle/grip.
+  //   - isolation          (10-15)   — single-joint accessory work.
+  //   - core                (8-20)   — one distinct ab/oblique movement
+  //                                    per day (dropped the old duplicate
+  //                                    "Ab crunch machine" on 3 different
+  //                                    days in favor of 5 distinct core
+  //                                    movements, one per day).
+  // Every major muscle group gets one heavy hit + one lighter hit across
+  // the 5-day rotation (Push+Upper for chest/shoulders/triceps, Pull+Upper
+  // for back/biceps, Legs+Lower for quads/hamstrings/glutes/calves) —
+  // matching the evidence that 2x/week frequency outperforms 1x/week at
+  // equal volume. See PR description for sources.
   defaultExercises: [
-    // Day 1: Push
+    // Day 1: Push (chest / shoulders / triceps)
     { name: "Barbell bench press",         gym: "comm", day: "push", repMin: 5,  repMax: 8,  step: 2.5,  startWeight: 60 },
-    { name: "Chest press machine",         gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
-    { name: "Shoulder press machine",      gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 30 },
-    { name: "Cable tricep pushdown",       gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
-    { name: "Lateral raise (dumbbell)",    gym: "comm", day: "push", repMin: 10, repMax: 15, step: 1.25, startWeight: 8  },
-    { name: "Ab crunch machine",           gym: "comm", day: "push", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
+    { name: "Incline dumbbell press",      gym: "comm", day: "push", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
+    { name: "Seated shoulder press machine", gym: "comm", day: "push", repMin: 8, repMax: 12, step: 2.5, startWeight: 30 },
+    { name: "Cable tricep pushdown",       gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 20 },
+    { name: "Lateral raise (dumbbell)",    gym: "comm", day: "push", repMin: 12, repMax: 15, step: 1.25, startWeight: 8  },
     { name: "Cable woodchopper",           gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
 
-    // Day 2: Pull
+    // Day 2: Pull (back / biceps / rear delts)
     { name: "Barbell row",                 gym: "comm", day: "pull", repMin: 5,  repMax: 8,  step: 2.5,  startWeight: 40 },
-    { name: "Lat pulldown",                gym: "comm", day: "pull", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 45 },
+    { name: "Lat pulldown",                gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 45 },
     { name: "Seated cable row",            gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
-    { name: "Assisted pull-up machine",    gym: "comm", day: "pull", repMin: 5,  repMax: 10, step: 1,    startWeight: 0, bw: true },
-    { name: "Dumbbell bicep curl",         gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 1.25, startWeight: 12 },
-    { name: "Face pull (cable)",           gym: "comm", day: "pull", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
+    { name: "Face pull (cable)",           gym: "comm", day: "pull", repMin: 12, repMax: 15, step: 2.5,  startWeight: 15 },
+    { name: "Dumbbell bicep curl",         gym: "comm", day: "pull", repMin: 10, repMax: 12, step: 1.25, startWeight: 12 },
     { name: "Hanging leg raise",           gym: "comm", day: "pull", repMin: 8,  repMax: 15, step: 1,    startWeight: 0, bw: true },
 
-    // Day 3: Legs
+    // Day 3: Legs (quads / hamstrings / glutes, heavy emphasis)
     { name: "Back squat",                  gym: "comm", day: "legs", repMin: 5,  repMax: 8,  step: 5,    startWeight: 80 },
+    { name: "Romanian deadlift",           gym: "comm", day: "legs", repMin: 8,  repMax: 10, step: 5,    startWeight: 60 },
     { name: "Leg press",                   gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 5,    startWeight: 100 },
-    { name: "Leg curl machine",            gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 30 },
-    { name: "Leg extension machine",       gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 35 },
-    { name: "Calf raise",                  gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 40 },
-    { name: "Ab crunch machine",           gym: "comm", day: "legs", repMin: 12, repMax: 20, step: 2.5,  startWeight: 20 },
+    { name: "Leg curl machine",            gym: "comm", day: "legs", repMin: 10, repMax: 12, step: 2.5,  startWeight: 30 },
+    { name: "Leg extension machine",       gym: "comm", day: "legs", repMin: 10, repMax: 12, step: 2.5,  startWeight: 35 },
+    { name: "Calf raise",                  gym: "comm", day: "legs", repMin: 12, repMax: 15, step: 2.5,  startWeight: 40 },
     { name: "Weighted decline sit-up",     gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 5  },
 
-    // Day 4: Upper
-    { name: "Incline dumbbell press",      gym: "comm", day: "upper", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 20 },
-    { name: "Lat pulldown (wide grip)",    gym: "comm", day: "upper", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 45 },
-    { name: "Seated shoulder press machine", gym: "comm", day: "upper", repMin: 8, repMax: 12, step: 2.5, startWeight: 30 },
+    // Day 4: Upper (2nd weekly hit on chest / back / shoulders / arms)
+    { name: "Overhead press (dumbbell)",   gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
+    { name: "Chest press machine",         gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
+    { name: "Lat pulldown (wide grip)",    gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 45 },
     { name: "Cable row (close grip)",      gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
-    { name: "Bicep curl (superset)",       gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 1.25, startWeight: 12 },
-    { name: "Tricep pushdown (superset)",  gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
+    { name: "Bicep curl (superset)",       gym: "comm", day: "upper", repMin: 10, repMax: 12, step: 1.25, startWeight: 12 },
+    { name: "Tricep pushdown (superset)",  gym: "comm", day: "upper", repMin: 10, repMax: 12, step: 2.5,  startWeight: 20 },
     { name: "Russian twist (dumbbell)",    gym: "comm", day: "upper", repMin: 12, repMax: 20, step: 1.25, startWeight: 8  },
 
-    // Day 5: Lower
+    // Day 5: Lower (2nd weekly leg hit, hip-hinge emphasis)
     { name: "Deadlift",                    gym: "comm", day: "lower", repMin: 4,  repMax: 6,  step: 5,   startWeight: 100 },
-    { name: "Hip thrust",                  gym: "comm", day: "lower", repMin: 6,  repMax: 10, step: 5,   startWeight: 60 },
-    { name: "Leg curl",                    gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 30 },
-    { name: "Leg extension",               gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 2.5, startWeight: 35 },
-    { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 40 },
-    { name: "Ab crunch machine",           gym: "comm", day: "lower", repMin: 12, repMax: 20, step: 2.5, startWeight: 20 },
+    { name: "Hip thrust",                  gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 5,   startWeight: 60 },
+    { name: "Leg curl",                    gym: "comm", day: "lower", repMin: 10, repMax: 12, step: 2.5, startWeight: 30 },
+    { name: "Leg extension",               gym: "comm", day: "lower", repMin: 10, repMax: 12, step: 2.5, startWeight: 35 },
+    { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 12, repMax: 15, step: 2.5, startWeight: 40 },
     { name: "Cable crunch",                gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 20 }
   ]
 };
@@ -1875,7 +1894,16 @@ img, video, canvas, svg { max-width: 100%; }
   // Bump this whenever CONFIG.days / splitRotation / defaultExercises change
   // so returning visitors' saved state picks up the new program instead of
   // silently keeping whatever was seeded on their first visit.
-  const CONFIG_VERSION = 2;
+  // v3 (2026-08): full rewrite of defaultExercises — see the comment above
+  // that block for what changed and why. A version bump replaces the whole
+  // exercise LIST, but since logs are keyed by normalized exercise name
+  // (exerciseLogKey, not id — see name_keyed_logs_2026_08 below), any
+  // exercise that keeps the same name across the rewrite keeps its logged
+  // history too. Exercises a user personally added beyond the seed, or
+  // renamed, do NOT survive a version bump — only additive patches (below)
+  // preserve those; this is the tradeoff for a genuine full-program reset
+  // instead of an incremental patch.
+  const CONFIG_VERSION = 3;
 
   function buildDefaultExercises() {
     return CONFIG.defaultExercises.map((e, i) => Object.assign({
@@ -1895,12 +1923,15 @@ img, video, canvas, svg { max-width: 100%; }
     s.gyms  = (Array.isArray(s.gyms)  && s.gyms.length)  ? s.gyms  : CONFIG.gyms.slice();
     // One-off additive patches (see below) for returning users whose state
     // already has `exercises` populated. Tracked separately from
-    // configVersion so a patch can just append to existing data instead of
-    // forcing a whole-program rewrite through the block below — that reset
-    // regenerates every exercise id, which orphans s.logs (keyed by id) and
-    // silently loses all progression history. Whenever fresh defaults get
-    // built (either path below), they already contain anything patched in
-    // below, so this is pre-marked as satisfied to avoid double-adding it.
+    // configVersion so a small addition can just append to existing data
+    // instead of forcing a whole-program rewrite through the block below —
+    // that reset now preserves logged history for anything whose name is
+    // unchanged (logs are keyed by exerciseLogKey, a normalized name, not
+    // id — see name_keyed_logs_2026_08 below), but it still discards any
+    // exercise a user personally added or renamed outside the seed, which
+    // an additive patch does not. Whenever fresh defaults get built (either
+    // path below), they already contain anything patched in below, so this
+    // is pre-marked as satisfied to avoid double-adding it.
     s.patchesApplied = Array.isArray(s.patchesApplied) ? s.patchesApplied : [];
 
     if (s.configVersion !== CONFIG_VERSION) {
