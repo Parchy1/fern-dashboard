@@ -94,6 +94,7 @@ const CONFIG = {
     { name: "Cable woodchopper",           gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
 
     // Day 2: Pull
+    { name: "Barbell row",                 gym: "comm", day: "pull", repMin: 5,  repMax: 8,  step: 2.5,  startWeight: 40 },
     { name: "Lat pulldown",                gym: "comm", day: "pull", repMin: 6,  repMax: 10, step: 2.5,  startWeight: 45 },
     { name: "Seated cable row",            gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 40 },
     { name: "Assisted pull-up machine",    gym: "comm", day: "pull", repMin: 5,  repMax: 10, step: 1,    startWeight: 0, bw: true },
@@ -1910,6 +1911,7 @@ img, video, canvas, svg { max-width: 100%; }
       s.configVersion = CONFIG_VERSION;
       if (s.patchesApplied.indexOf('ab_crunch_machine_2026_07') === -1) s.patchesApplied.push('ab_crunch_machine_2026_07');
       if (s.patchesApplied.indexOf('core_expansion_2026_08') === -1) s.patchesApplied.push('core_expansion_2026_08');
+      if (s.patchesApplied.indexOf('pull_barbell_row_2026_08') === -1) s.patchesApplied.push('pull_barbell_row_2026_08');
     }
 
     s.days  = (Array.isArray(s.days)  && s.days.length)  ? s.days  : CONFIG.days.slice();
@@ -1920,6 +1922,9 @@ img, video, canvas, svg { max-width: 100%; }
     }
     if (exercisesWereMissing && s.patchesApplied.indexOf('core_expansion_2026_08') === -1) {
       s.patchesApplied.push('core_expansion_2026_08');
+    }
+    if (exercisesWereMissing && s.patchesApplied.indexOf('pull_barbell_row_2026_08') === -1) {
+      s.patchesApplied.push('pull_barbell_row_2026_08');
     }
 
     // The actual additive patch: only reaches here (flag not yet set) for a
@@ -1979,6 +1984,21 @@ img, video, canvas, svg { max-width: 100%; }
         }, ex));
       });
       s.patchesApplied.push('core_expansion_2026_08');
+    }
+    // The actual additive patch: Pull day was the only split day without a
+    // true heavy-compound opener in the 5-8 rep range — Push has Barbell
+    // bench press, Legs has Back squat, Lower has Deadlift, but Pull's
+    // heaviest movement was Lat pulldown at 6-10 reps on a machine. A
+    // barbell row fills that gap the same way a bench press or squat does
+    // for their day — every evidence-based PPL template pairs a heavy
+    // free-weight row with the heavy press/squat/hinge on the other days.
+    // Same guarded, additive shape as the patches above.
+    if (s.patchesApplied.indexOf('pull_barbell_row_2026_08') === -1) {
+      s.exercises.push({
+        id: 'ex_pull_row_patch', name: 'Barbell row', gym: 'comm', day: 'pull',
+        repMin: 5, repMax: 8, step: 2.5, startWeight: 40,
+      });
+      s.patchesApplied.push('pull_barbell_row_2026_08');
     }
     s.filterGym = s.filterGym || s.gyms[0].id;
     s.filterDay = s.filterDay || s.days[0].id;
