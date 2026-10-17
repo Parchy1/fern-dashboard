@@ -1,0 +1,30 @@
+{
+ "log": {},
+ "money": {
+  "goal": 1000,
+  "deadline": "Nov 16",
+  "clients": [
+   {
+    "name": "itzspontaneous",
+    "monthly": 100,
+    "label": "$100/mo"
+   },
+   {
+    "name": "theRBGshow",
+    "monthly": 217,
+    "label": "$50/wk"
+   },
+   {
+    "name": "Mes_ttv",
+    "monthly": 0,
+    "note": "active, no price yet"
+   },
+   {
+    "name": "Wavvy2Lit",
+    "monthly": 0,
+    "note": "trial ended, lock in"
+   }
+  ]
+ },
+ "updated": "Oct 17, 1:26 PM"
+}
