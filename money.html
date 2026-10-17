@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0b">
+<title>Money</title>
+<script src="lock.js"></script>
+<link rel="stylesheet" href="simple.css">
+</head>
+<body>
+<main>
+  <h1>Money</h1>
+  <div class="sub" id="sub">Clip Desk monthly recurring</div>
+
+  <div class="card">
+    <div class="label">Monthly recurring</div>
+    <div class="big"><span id="mrr">$0</span> <span style="font-size:16px;color:var(--mut)" id="goal">/ $1,000</span></div>
+    <div class="bar"><i id="bar" style="width:0%"></i></div>
+    <p class="rule" id="gap"></p>
+  </div>
+
+  <div class="card">
+    <div class="label">Paying clients</div>
+    <ul class="list" id="paying"></ul>
+  </div>
+
+  <div class="card">
+    <div class="label">Easiest money: no price yet</div>
+    <ul class="list" id="unpriced"></ul>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</main>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const usd = n => '$' + Math.round(n).toLocaleString('en-US');
+  fetch('data.json', { cache: 'no-store' }).then(r => r.json()).then(d => {
+    const m = d.money || {};
+    const clients = m.clients || [];
+    const goal = m.goal || 1000;
+    const paying = clients.filter(c => c.monthly > 0);
+    const mrr = paying.reduce((s, c) => s + c.monthly, 0);
+    $('mrr').textContent = usd(mrr);
+    $('goal').textContent = '/ ' + usd(goal);
+    $('bar').style.width = Math.min(100, mrr / goal * 100) + '%';
+    const gap = Math.max(0, goal - mrr);
+    $('gap').textContent = gap ? `Gap ${usd(gap)} = ${Math.ceil(gap / 150)} to ${Math.ceil(gap / 100)} clients at $100-150.` : 'Goal hit.';
+    const li = (name, right) => `<li><span>${name}</span><span style="margin-left:auto;color:var(--mut)">${right}</span></li>`;
+    $('paying').innerHTML = paying.map(c => li(c.name, c.label)).join('') || '<li>None yet</li>';
+    $('unpriced').innerHTML = clients.filter(c => !(c.monthly > 0)).map(c => li(c.name, c.note || 'set a price')).join('') || '<li>None</li>';
+    if (m.deadline) $('sub').textContent = 'Goal ' + usd(goal) + '/mo by ' + m.deadline;
+    $('foot').textContent = d.updated ? 'Updated ' + d.updated : '';
+  }).catch(() => { $('gap').textContent = 'No data yet.'; });
+})();
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

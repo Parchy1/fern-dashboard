@@ -1,964 +1,159 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script src="lock.js"></script>
-<script src="/api/config"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#050506">
-<title>Command Center · Dashboard</title>
-
-<link rel="stylesheet" href="design-system.css">
-<link rel="stylesheet" href="command-center.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="sync.js" defer></script>
-<script src="topbar.js" defer></script>
-<script type="module" src="command-center.js"></script>
-<script type="module" src="jarvis-globe.js"></script>
-
-<style>
-/* Page-specific only — shared tokens/components now live in design-system.css. */
-.hub-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-.hub-head .dash-title { margin: 0; }
-.gear-btn {
-  width: 42px; height: 42px; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 12px; border: 1px solid var(--hud-line);
-  background: rgba(var(--hud-rgb), 0.05); color: var(--text-secondary);
-  cursor: pointer; transition: background 0.15s, color 0.15s, transform 0.1s, border-color 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.gear-btn:hover { background: rgba(var(--hud-rgb), 0.12); color: var(--hud); border-color: var(--hud-dim); }
-.gear-btn:active { transform: scale(0.94) rotate(35deg); }
-.gear-btn svg { width: 22px; height: 22px; }
-
-/* ===== Today Score ===== */
-.score-card {
-  display: none; margin: 0 0 18px; padding: 22px 24px;
-  border-radius: 16px; background: rgba(10, 22, 30, 0.55);
-  border: 1px solid var(--hud-line-soft);
-  backdrop-filter: blur(24px) saturate(1.3); -webkit-backdrop-filter: blur(24px) saturate(1.3);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  align-items: center; gap: 22px;
-}
-.score-card.show { display: flex; }
-/* The Today Score gets the "arc reactor" ring treatment — the single
-   most Jarvis-coded number on the dashboard. */
-.score-card .hud-ring { width: 108px; height: 108px; }
-.score-num {
-  display: block;
-  font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
-  font-variant-numeric: tabular-nums; font-family: var(--font-mono);
-  background: linear-gradient(180deg, #FFFFFF 0%, var(--hud) 140%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
-  text-shadow: 0 0 24px rgba(var(--hud-rgb), 0.25);
-}
-.score-max { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--text-tertiary); }
-.score-body { min-width: 0; flex: 1; }
-.score-tier { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
-@media (max-width: 560px) {
-  .score-card { flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 18px; }
-}
-
-/* ===== Player Card strip =====
-   Reads the small cached summary player.html writes on each render, so the
-   home screen shows a live OVR/level without duplicating that whole
-   rating engine here. */
-.player-strip {
-  display: flex; align-items: center; gap: 16px; margin: 0 0 18px; padding: 14px 18px;
-  border-radius: 16px; text-decoration: none;
-  background: linear-gradient(135deg, rgba(232,200,122,0.13) 0%, rgba(232,200,122,0.04) 100%);
-  border: 1px solid rgba(232,200,122,0.28);
-  transition: border-color 0.2s, transform 0.1s;
-}
-.player-strip:hover { border-color: rgba(232,200,122,0.5); transform: translateY(-1px); }
-.ps-ovr {
-  font-size: 30px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: #E8C87A;
-  font-variant-numeric: tabular-nums; min-width: 46px;
-}
-.ps-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ps-title { font-size: 14px; font-weight: 700; color: var(--text-primary); }
-.ps-sub { font-size: 11.5px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ps-lvl { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.ps-lvl-k { font-size: 8.5px; font-weight: 800; letter-spacing: 0.14em; color: rgba(232,200,122,0.75); }
-.ps-lvl-v { font-size: 18px; font-weight: 800; color: var(--text-primary); line-height: 1; font-variant-numeric: tabular-nums; }
-.ps-arrow { color: var(--text-tertiary); font-size: 15px; }
-
-.whoop-box { margin-top: 8px; padding: 16px; border-radius: 12px; background: rgba(var(--hud-rgb), 0.035); border: 1px solid var(--hud-line-soft); }
-.whoop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.whoop-status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.whoop-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); }
-.whoop-status.on .dot { background: var(--success); box-shadow: 0 0 8px rgba(63,224,168,0.7); }
-.whoop-sync { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); text-align: right; }
-.whoop-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 14px; }
-.whoop-stat { text-align: center; }
-.whoop-stat .v { font-size: 20px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); line-height: 1; }
-.whoop-stat .l { font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); margin-top: 5px; }
-.whoop-btn { width: 100%; margin-top: 14px; padding: 11px; border: 1px solid var(--hud-line); border-radius: 10px; background: transparent; color: var(--text-secondary); font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: background 0.15s, color 0.15s; }
-.whoop-btn:hover { background: rgba(var(--hud-rgb), 0.08); color: var(--hud); }
-</style>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0b">
+<title>Today</title>
+<script src="lock.js"></script>
+<link rel="stylesheet" href="simple.css">
 </head>
 <body>
-<main class="page cc-page">
-  <header class="cc-header">
-    <div>
-      <div class="cc-kicker" id="ccKicker">Command Center · Online</div>
-      <h1 class="cc-greeting" id="ccGreeting">Good day, Fernando</h1>
-      <div class="cc-status"><span class="hud-pulse-dot"></span><span id="ccSystemText" aria-live="polite">Reading your systems…</span></div>
-    </div>
-    <div class="cc-header-right">
-      <div class="cc-syncinfo"><span class="cc-sync-label">Last sync</span><span class="cc-sync-value" id="ccLastSync">—</span></div>
-      <div class="cc-header-actions">
-        <button class="cc-icon-btn" id="ccCommandOpen" data-command-open type="button" aria-label="Open command bar" title="Search · ⌘K">⌘K</button>
-        <button class="cc-focus-btn" data-focus-open type="button" aria-label="Enter Focus Mode"><span>◎</span><span>Focus</span></button>
-        <button class="gear-btn" id="settingsOpen" type="button" aria-label="Settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  </header>
+<main>
+  <h1 id="hello">Today</h1>
+  <div class="sub" id="date"></div>
 
-  <div class="cc-page-flow">
-    <div class="cc-live-status gm-card" id="ccLiveStatus">
-      <div class="cc-live-head">
-        <div class="cc-live-who"><span class="cc-live-pulse" aria-hidden="true"></span>Live Status</div>
-        <span class="cc-live-updated" id="ccLiveUpdated"></span>
-      </div>
-      <p class="cc-live-brief" id="ccLiveBrief"></p>
-      <div class="cc-live-grid" id="ccLiveGrid"></div>
-    </div>
-
-    <div class="cc-top-row">
-      <div class="score-card cc-ai-core gm-card" id="scoreCard">
-        <div class="cc-core-tabs" role="tablist" aria-label="AI Core view">
-          <button type="button" class="cc-core-tab is-active" id="coreTabToday" role="tab" aria-selected="true" aria-controls="coreTodayPanel">Today</button>
-          <button type="button" class="cc-core-tab" id="coreTabJarvis" role="tab" aria-selected="false" aria-controls="coreJarvisPanel">Jarvis</button>
-        </div>
-        <div class="cc-core-panel cc-core-panel-enter" id="coreTodayPanel" role="tabpanel" aria-labelledby="coreTabToday">
-          <div class="cc-core-label">AI Core</div>
-          <div class="cc-core-today-row">
-            <div class="hud-ring" id="scoreRing" style="--ring-pct:0">
-              <div class="hud-ring-track"></div>
-              <div class="cc-core-globe" aria-hidden="true"></div>
-              <div class="hud-ring-value"><span class="score-num" id="scoreNum">—</span><span class="score-max">/100</span></div>
-            </div>
-            <div class="cc-core-today-body">
-              <div class="score-body"><div class="score-tier" id="scoreTier">Systems ready</div></div>
-              <div class="cc-core-stats" id="scoreStats"></div>
-              <div class="cc-core-trace" id="scoreTrace"></div>
-            </div>
-          </div>
-        </div>
-        <div class="cc-core-panel" id="coreJarvisPanel" role="tabpanel" aria-labelledby="coreTabJarvis" hidden>
-          <div class="cc-core-label">AI Core · Jarvis</div>
-          <div class="cc-jarvis-orb" id="jarvisOrb" data-state="idle" aria-hidden="true">
-            <div class="cc-jarvis-glow"></div>
-            <div class="cc-jarvis-ring cc-jarvis-ring-1"></div>
-            <div class="cc-jarvis-ring cc-jarvis-ring-2"></div>
-            <div class="cc-jarvis-ring cc-jarvis-ring-3"></div>
-            <div class="cc-jarvis-orbit cc-jarvis-orbit-a"><span class="cc-jarvis-orbit-dot"></span></div>
-            <div class="cc-jarvis-orbit cc-jarvis-orbit-b"><span class="cc-jarvis-orbit-dot"></span></div>
-            <svg class="cc-jarvis-core-svg" viewBox="0 0 100 100">
-              <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" class="cc-jarvis-facet cc-jarvis-facet-outer"></polygon>
-              <polygon points="50,28 70,40 70,60 50,72 30,60 30,40" class="cc-jarvis-facet cc-jarvis-facet-inner"></polygon>
-              <polygon points="50,41 59,46 59,54 50,59 41,54 41,46" class="cc-jarvis-facet cc-jarvis-facet-core"></polygon>
-              <line x1="50" y1="8" x2="50" y2="28" class="cc-jarvis-facet-line"></line>
-              <line x1="88" y1="30" x2="70" y2="40" class="cc-jarvis-facet-line"></line>
-              <line x1="88" y1="70" x2="70" y2="60" class="cc-jarvis-facet-line"></line>
-              <line x1="50" y1="92" x2="50" y2="72" class="cc-jarvis-facet-line"></line>
-              <line x1="12" y1="70" x2="30" y2="60" class="cc-jarvis-facet-line"></line>
-              <line x1="12" y1="30" x2="30" y2="40" class="cc-jarvis-facet-line"></line>
-              <circle cx="50" cy="50" r="3.4" class="cc-jarvis-core-dot"></circle>
-            </svg>
-          </div>
-          <div class="cc-jarvis-status-row">
-            <span class="cc-jarvis-status-dot" id="jarvisStatusDot"></span>
-            <span class="cc-jarvis-status-text" id="jarvisStatusText">ONLINE</span>
-          </div>
-          <div class="cc-jarvis-nodes" id="jarvisNodes"></div>
-          <div class="cc-jarvis-waveform" id="jarvisWaveform" aria-hidden="true">
-            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-          </div>
-          <button type="button" class="cc-jarvis-prompt-btn" id="jarvisPromptBtn">
-            <span class="cc-jarvis-prompt-icon">◌</span>
-            <span id="jarvisPromptText">What needs attention?</span>
-          </button>
-          <div class="cc-jarvis-response" id="jarvisResponse" hidden>
-            <div class="cc-jarvis-response-head">
-              <span id="jarvisResponseLabel">RESPONSE READY</span>
-              <span class="cc-jarvis-response-check">✓</span>
-            </div>
-            <p class="cc-jarvis-response-body" id="jarvisResponseBody"></p>
-            <div class="cc-jarvis-response-foot">
-              <span id="jarvisResponseSource">Built from data already on this dashboard</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <article class="gm-card cc-action" id="ccAction" aria-live="polite">
-        <div class="cc-action-top"><span class="cc-action-eyebrow" id="ccActionEyebrow">Recommended next action</span><span class="cc-action-badge">One priority</span></div>
-        <div class="cc-action-body">
-          <svg class="cc-action-icon" viewBox="0 0 100 100" aria-hidden="true">
-            <polygon points="50,6 90,28 90,72 50,94 10,72 10,28" class="cc-action-icon-outer"></polygon>
-            <polygon points="50,30 68,41 68,63 50,74 32,63 32,41" class="cc-action-icon-inner"></polygon>
-            <line x1="50" y1="6" x2="50" y2="30"></line><line x1="90" y1="28" x2="68" y2="41"></line>
-            <line x1="90" y1="72" x2="68" y2="63"></line><line x1="50" y1="94" x2="50" y2="74"></line>
-            <line x1="10" y1="72" x2="32" y2="63"></line><line x1="10" y1="28" x2="32" y2="41"></line>
-            <circle cx="50" cy="52" r="4" class="cc-action-icon-core"></circle>
-          </svg>
-          <div class="cc-action-copy">
-            <h2 class="cc-action-title" id="ccActionTitle">Reading today’s plan…</h2>
-            <p class="cc-action-reason" id="ccActionReason">Finding the clearest next move from your existing goals.</p>
-            <div class="cc-action-buttons"><button class="cc-primary-btn" id="ccActionDone" type="button">Mark complete</button><a class="cc-secondary-btn" href="main.html">Open today</a></div>
-          </div>
-        </div>
-      </article>
-    </div>
-
-      <section class="gm-card cc-brief" id="ccBriefSection" aria-labelledby="ccBriefLabel" aria-live="polite">
-        <div class="cc-brief-top">
-          <div><span class="cc-brief-kicker" id="ccBriefLabel">AI Daily Brief</span><span class="cc-brief-period" id="ccBriefPeriod">Daily briefing</span></div>
-          <div class="cc-brief-top-right">
-            <span class="cc-brief-confidence" id="ccBriefConfidence">Building context</span>
-            <button class="cc-brief-toggle" id="ccBriefToggle" type="button" aria-expanded="false" aria-controls="ccBriefFull">View Full Brief</button>
-          </div>
-        </div>
-        <div class="cc-brief-row" id="ccBriefRow"></div>
-        <div class="cc-brief-full" id="ccBriefFull" hidden>
-          <div class="cc-brief-copy">
-            <h2 id="ccBriefTitle">Connecting today’s signals…</h2>
-            <p id="ccBriefSummary">Your brief will update automatically as your dashboard changes.</p>
-          </div>
-          <div class="cc-brief-items" id="ccBriefItems"></div>
-          <div class="cc-brief-foot"><span class="hud-pulse-dot"></span><span>Built privately from data already in your dashboard</span></div>
-        </div>
-      </section>
-
-      <section class="cc-schedule-strip gm-card" id="ccScheduleSection" aria-labelledby="ccScheduleLabel">
-        <span class="cc-schedule-strip-label" id="ccScheduleLabel">📅 Schedule</span>
-        <div class="cc-schedule-row" id="ccSchedule"></div>
-        <a class="cc-schedule-full-link" href="main.html">View full day <span class="cc-row-arrow">→</span></a>
-      </section>
-
-      <div class="cc-signal-grid" id="ccSignals"></div>
-
-      <aside class="cc-insight"><span class="cc-insight-icon">⭐</span><span class="cc-insight-label">INSIGHT:</span><span id="ccInsightText">Connecting the signals that already exist across your dashboard…</span><a class="cc-insight-link" href="hub-insights.html">See all insights</a></aside>
-
-      <div class="cc-bottom-row" id="ccRailRight">
-        <article class="gm-card cc-panel" id="ccAlertsPanel">
-          <div class="cc-section-head">🔔 Alerts <span class="cc-section-count" id="ccAlertCount">0</span></div>
-          <div class="cc-panel-list" id="ccAlerts"></div>
-        </article>
-        <article class="gm-card cc-panel" id="ccConsolePanel">
-          <div class="cc-section-head">Recent activity</div>
-          <div class="cc-panel-list" id="ccActivity"></div>
-        </article>
-      </div>
-
-      <section class="cc-browse-row" aria-labelledby="ccBrowseLabel" id="ccBrowseSection">
-        <h2 class="cc-browse-row-label" id="ccBrowseLabel">Browse</h2>
-        <div class="cc-browse-cards">
-          <a class="cc-browse-card" href="hub-today.html" style="--accent:#6BE3A4"><span class="cc-browse-card-emoji">🏠</span><b>Today</b><small>Plan and execute</small><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-card" href="hub-body.html" style="--accent:#C4B5FD"><span class="cc-browse-card-emoji">⚡</span><b>Body</b><small>Health and performance</small><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-card" href="hub-money.html" style="--accent:#F2C063"><span class="cc-browse-card-emoji">💰</span><b>Money & Growth</b><small>Wealth and progress</small><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-card" href="hub-reflect.html" style="--accent:#A78BFA"><span class="cc-browse-card-emoji">🪞</span><b>Reflect</b><small>Mindset and habits</small><span class="cc-row-arrow">→</span></a>
-          <a class="cc-browse-card" href="hub-insights.html" style="--accent:#22D3F5"><span class="cc-browse-card-emoji">🧭</span><b>Insights</b><small>Data and learnings</small><span class="cc-row-arrow">→</span></a>
-        </div>
-      </section>
-
-      <a class="player-strip" href="player.html" id="playerStrip">
-        <span class="ps-ovr" id="psOvr">—</span><span class="ps-body"><span class="ps-title">Player Card</span><span class="ps-sub" id="psSub">Tap to build your rating</span></span><span class="ps-lvl"><span class="ps-lvl-k">LVL</span><span class="ps-lvl-v" id="psLvl">1</span></span><span class="ps-arrow">→</span>
-      </a>
+  <div class="card">
+    <div class="label">The 3 checks</div>
+    <div id="checks"></div>
+    <p class="rule">Never miss twice. One miss is normal.</p>
   </div>
 
-  <button class="cc-cmdbar-trigger" type="button" data-command-open id="ccCmdBarBottom" aria-label="Open command bar">
-    <span class="cc-cmdbar-prompt">&gt;</span><span class="cc-cmdbar-placeholder" id="ccCmdBarPlaceholder">Try “open finance”…</span><span class="cc-cmdbar-kbd">⌘K</span>
-  </button>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="label" style="margin:0">This week</div>
+      <span class="pill" id="weekPill"></span>
+    </div>
+    <div class="big" id="weekScore">0/21</div>
+    <div class="bar"><i id="weekBar" style="width:0%"></i></div>
+    <div class="week" id="week"></div>
+  </div>
 
-  <footer class="cc-footer-actions">
-    <button class="cc-secondary-btn" data-focus-open type="button">◎ Focus Mode</button>
-    <button class="cc-secondary-btn cc-ambient-stub" type="button" disabled title="Planned for a later phase">◌ Ambient Mode · Soon</button>
-  </footer>
+  <div class="card">
+    <div class="label">To do (max 3)</div>
+    <ul class="list" id="todos"></ul>
+    <form class="todo" id="todoForm">
+      <input id="todoIn" placeholder="One thing that moves money or body" autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+  </div>
+
+  <div class="foot" id="foot"></div>
 </main>
 
-<div class="focus-mode" id="focusMode" role="dialog" aria-modal="true" aria-label="Focus Mode">
-  <div class="focus-shell">
-    <div class="focus-top"><div class="focus-status"><span class="hud-pulse-dot"></span><span>Focus Mode</span></div><button class="focus-close" id="focusClose" type="button" aria-label="Exit Focus Mode">×</button></div>
-    <div class="focus-label">Current objective</div>
-    <h2 class="focus-objective" id="focusObjective">Plan your next objective</h2>
-    <div class="focus-timer" id="focusTimer">00:00</div>
-    <div class="focus-controls"><button class="cc-primary-btn" id="focusTimerToggle" type="button">Start</button><button class="cc-secondary-btn" id="focusReset" type="button">Reset</button><a class="cc-secondary-btn" href="main.html">Open task</a></div>
-  </div>
-</div>
-
-<!-- ===== Settings / Your Data ===== -->
-<div class="modal-bg" id="settingsBg">
-  <div class="modal" role="dialog" aria-label="Your data">
-    <div class="modal-head">
-      <span class="modal-title">Your Data</span>
-      <button class="modal-close" id="settingsClose" type="button" aria-label="Close">×</button>
-    </div>
-
-    <div class="field">
-      <label class="field-label">Height</label>
-      <div class="field-row">
-        <input class="set-input" id="heightA" type="number" min="0" inputmode="decimal" placeholder="cm">
-        <input class="set-input" id="heightB" type="number" min="0" inputmode="decimal" placeholder="in" style="display:none">
-        <div class="seg" id="heightUnitSeg">
-          <button type="button" data-u="cm" class="on">cm</button>
-          <button type="button" data-u="ft">ft/in</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="field">
-      <label class="field-label">Weight</label>
-      <div class="field-row">
-        <input class="set-input" id="weight" type="number" min="0" inputmode="decimal" placeholder="weight">
-        <div class="seg" id="weightUnitSeg">
-          <button type="button" data-u="kg" class="on">kg</button>
-          <button type="button" data-u="lb">lb</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="field">
-      <label class="field-label">Age</label>
-      <input class="set-input" id="age" type="number" min="0" inputmode="numeric" placeholder="years">
-    </div>
-
-    <div class="field">
-      <label class="field-label">Sex</label>
-      <div class="seg" id="sexSeg" style="width:100%;display:flex">
-        <button type="button" data-s="m" style="flex:1">Male</button>
-        <button type="button" data-s="f" style="flex:1">Female</button>
-      </div>
-    </div>
-
-    <div class="field">
-      <label class="field-label">Active hours / week</label>
-      <input class="set-input" id="activity" type="number" min="0" inputmode="decimal" placeholder="e.g. 5">
-    </div>
-
-    <button class="set-save" id="settingsSave" type="button">Save</button>
-    <div class="set-status" id="settingsStatus"></div>
-
-    <div class="section-divider"></div>
-
-    <label class="field-label">Appearance</label>
-    <div class="field">
-      <label class="field-label">Greeting tone</label>
-      <div class="seg" id="toneSeg" style="width:100%;display:flex">
-        <button type="button" data-tone="friendly" style="flex:1">Friendly</button>
-        <button type="button" data-tone="callsign" style="flex:1">Callsign</button>
-      </div>
-    </div>
-    <div class="field">
-      <label class="field-label">Recent activity style</label>
-      <div class="seg" id="consoleStyleSeg" style="width:100%;display:flex">
-        <button type="button" data-console="cards" style="flex:1">Cards</button>
-        <button type="button" data-console="terminal" style="flex:1">Terminal</button>
-      </div>
-    </div>
-    <div class="section-divider"></div>
-
-    <label class="field-label">WHOOP</label>
-    <div class="whoop-box">
-      <div class="whoop-row">
-        <span class="whoop-status" id="whStatus"><span class="dot"></span><span id="whStatusText">Not connected</span></span>
-        <span class="whoop-sync" id="whSync"></span>
-      </div>
-      <div class="whoop-stats" id="whStats" style="display:none">
-        <div class="whoop-stat"><div class="v" id="whRec">—</div><div class="l">Recovery</div></div>
-        <div class="whoop-stat"><div class="v" id="whSleep">—</div><div class="l">Sleep</div></div>
-        <div class="whoop-stat"><div class="v" id="whRhr">—</div><div class="l">Rest HR</div></div>
-      </div>
-      <button class="whoop-btn" id="whAction" type="button">Sync now</button>
-    </div>
-
-    <div class="section-divider"></div>
-
-    <label class="field-label">Backup</label>
-    <div class="whoop-box">
-      <div class="whoop-row" style="margin-bottom:10px">
-        <span style="font-size:12.5px;color:var(--text-tertiary);line-height:1.5">
-          Downloads everything synced to your account as one JSON file — todos, notes, finance,
-          gym, reading, and the rest. Doesn't include your Google/WHOOP login tokens (those
-          aren't readable this way on purpose) — you'd just reconnect those after a restore.
-        </span>
-      </div>
-      <button class="whoop-btn" id="exportBtn" type="button">⬇️ Export everything (JSON)</button>
-      <div class="set-status" id="exportStatus"></div>
-    </div>
-  </div>
-</div>
-
 <script>
 (function () {
-  'use strict';
-  const $ = (id) => document.getElementById(id);
-  const WATER_KEY = 'po_water_v1';
-  const WHOOP_KEY = 'whoop_tokens_v1';
-  const SYNC_KEY  = 'whoop_last_sync';
-  const APPEARANCE_KEY = 'cc_appearance_v1';
+  const CHECKS = [
+    ['gym', 'Gym', 'or planned rest day'],
+    ['money', '1 hour money work', 'closing, calls, replying to leads. Not editing or building tools'],
+    ['clean', 'Clean day', 'no porn, no motivation content']
+  ];
+  const LS = 'today_v1';
+  const TODO = 'today_todos_v1';
+  const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+  const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
-  function loadJSON(k, f) { try { return JSON.parse(localStorage.getItem(k)) || f; } catch (e) { return f; } }
-  function saveJSON(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
-
-  // Mirror of topbar.js defaultWaterState so we never clobber the water tracker.
-  function defaultWater() {
-    return { unit:'bottle', bottleMl:500, glassMl:250, weightUnit:'kg',
-      profile:{ weightKg:75, age:25, sex:'m', activityHrsPerWeek:5 },
-      caffeineMgPerDay:200, substances:[], logs:{} };
+  // Day rolls over at 4 AM (late nights count for the day before).
+  function dayKey(d) {
+    const x = new Date(d.getTime() - 4 * 3600e3);
+    return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
   }
+  const now = new Date();
+  const today = dayKey(now);
 
-  /* ---------- Appearance (tone / console style / rail content) ----------
-   * Purely a display preference for this device — not part of the synced
-   * profile, so it lives in its own key and applies immediately on click
-   * (no Save button) the way a visual toggle should. command-center.js
-   * reads this same key to render the Command Center itself. */
-  function defaultAppearance() { return { tone: 'callsign', consoleStyle: 'terminal', railContent: 'schedule_signals' }; }
-  function readAppearance() {
-    const a = loadJSON(APPEARANCE_KEY, defaultAppearance());
+  let server = {};   // from data.json (Hermes nightly check-in log)
+  let local = read(LS, {}); // taps on this phone
+
+  // Server log wins for any day Hermes recorded; taps fill the rest.
+  function day(k) {
+    const s = server[k], l = local[k] || {};
     return {
-      tone: a.tone === 'friendly' ? 'friendly' : 'callsign',
-      consoleStyle: a.consoleStyle === 'cards' ? 'cards' : 'terminal',
-      railContent: a.railContent === 'alerts_activity' ? 'alerts_activity' : 'schedule_signals',
+      gym: s ? s.gym : l.gym, money: s ? s.money : l.money, clean: s ? s.clean : l.clean,
+      fromHermes: !!s
     };
   }
-  function paintAppearanceSegs(a) {
-    $('toneSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tone === a.tone));
-    $('consoleStyleSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.console === a.consoleStyle));
-  }
-  function setAppearance(patch) {
-    const next = Object.assign(readAppearance(), patch);
-    saveJSON(APPEARANCE_KEY, next);
-    paintAppearanceSegs(next);
-    window.dispatchEvent(new CustomEvent('appearance-changed'));
-  }
-  $('toneSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setAppearance({ tone: b.dataset.tone })));
-  $('consoleStyleSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setAppearance({ consoleStyle: b.dataset.console })));
 
-  /* ---------- unit state ---------- */
-  let heightUnit = 'cm';   // 'cm' | 'ft'
-  let weightUnit = 'kg';   // 'kg' | 'lb'
-  let sex = 'm';
-
-  function setHeightUnit(u) {
-    heightUnit = u;
-    $('heightUnitSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.u === u));
-    const a = $('heightA'), b = $('heightB');
-    if (u === 'cm') { a.placeholder = 'cm'; b.style.display = 'none'; }
-    else { a.placeholder = 'ft'; b.placeholder = 'in'; b.style.display = ''; }
-  }
-  function setWeightUnit(u) {
-    weightUnit = u;
-    $('weightUnitSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.u === u));
-  }
-  function setSex(s) {
-    sex = s;
-    $('sexSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === s));
-  }
-
-  function getHeightCm() {
-    if (heightUnit === 'cm') { const v = parseFloat($('heightA').value); return v > 0 ? v : null; }
-    const ft = parseFloat($('heightA').value) || 0;
-    const inch = parseFloat($('heightB').value) || 0;
-    const cm = ft * 30.48 + inch * 2.54;
-    return cm > 0 ? Math.round(cm) : null;
-  }
-  function fillHeight(cm) {
-    if (!cm) { $('heightA').value = ''; $('heightB').value = ''; return; }
-    if (heightUnit === 'cm') { $('heightA').value = Math.round(cm); }
-    else { const totalIn = cm / 2.54; $('heightA').value = Math.floor(totalIn / 12); $('heightB').value = Math.round(totalIn % 12); }
-  }
-
-  /* ---------- load existing profile into the form ---------- */
-  function populate() {
-    const w = loadJSON(WATER_KEY, defaultWater());
-    const p = w.profile || {};
-    setWeightUnit(w.weightUnit === 'lb' ? 'lb' : 'kg');
-    setHeightUnit(p.heightUnit === 'ft' ? 'ft' : 'cm');
-    setSex(p.sex === 'f' ? 'f' : 'm');
-    fillHeight(p.heightCm || null);
-    if (p.weightKg) $('weight').value = weightUnit === 'lb' ? Math.round(p.weightKg * 2.20462) : Math.round(p.weightKg);
-    else $('weight').value = '';
-    $('age').value = p.age || '';
-    $('activity').value = (p.activityHrsPerWeek != null ? p.activityHrsPerWeek : '');
-  }
-
-  /* ---------- save back into po_water_v1 (merge, never overwrite logs) ---------- */
-  function save() {
-    const w = loadJSON(WATER_KEY, defaultWater());
-    w.profile = w.profile || {};
-    const cm = getHeightCm();
-    if (cm) { w.profile.heightCm = cm; w.profile.heightUnit = heightUnit; }
-    const wv = parseFloat($('weight').value);
-    if (wv > 0) { w.profile.weightKg = weightUnit === 'lb' ? +(wv / 2.20462).toFixed(1) : wv; w.weightUnit = weightUnit; }
-    const age = parseInt($('age').value, 10); if (age > 0) w.profile.age = age;
-    w.profile.sex = sex;
-    const act = parseFloat($('activity').value); if (act >= 0 && !isNaN(act)) w.profile.activityHrsPerWeek = act;
-    saveJSON(WATER_KEY, w);
-    const s = $('settingsStatus'); s.textContent = 'Saved ✓';
-    setTimeout(() => { s.textContent = ''; }, 1800);
-  }
-
-  /* ---------- open / close ---------- */
-  function open() { populate(); paintAppearanceSegs(readAppearance()); renderWhoop(); $('settingsBg').classList.add('show'); syncWhoop(); }
-  function close() { $('settingsBg').classList.remove('show'); }
-  $('settingsOpen').addEventListener('click', open);
-  $('settingsClose').addEventListener('click', close);
-  $('settingsBg').addEventListener('click', (e) => { if (e.target === $('settingsBg')) close(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-  $('settingsSave').addEventListener('click', save);
-  $('heightUnitSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-    const cm = getHeightCm(); setHeightUnit(b.dataset.u); fillHeight(cm);
-  }));
-  $('weightUnitSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-    const v = parseFloat($('weight').value);
-    const kg = v > 0 ? (weightUnit === 'lb' ? v / 2.20462 : v) : null;
-    setWeightUnit(b.dataset.u);
-    if (kg) $('weight').value = weightUnit === 'lb' ? Math.round(kg * 2.20462) : Math.round(kg);
-  }));
-  $('sexSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setSex(b.dataset.s)));
-
-  /* ---------- WHOOP ---------- */
-  let whStats = null;
-  function relTime(ts) {
-    if (!ts) return 'never';
-    const s = Math.floor((Date.now() - ts) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return Math.floor(s/60) + ' min ago';
-    if (s < 86400) return Math.floor(s/3600) + ' h ago';
-    return Math.floor(s/86400) + ' d ago';
-  }
-  function renderWhoop(err) {
-    const t = loadJSON(WHOOP_KEY, null);
-    const statusEl = $('whStatus'), txt = $('whStatusText'), syncEl = $('whSync'), action = $('whAction');
-    if (!t || !t.access) {
-      statusEl.classList.remove('on'); txt.textContent = 'Not connected';
-      syncEl.textContent = ''; $('whStats').style.display = 'none';
-      action.textContent = 'Connect on Health page';
-      return;
-    }
-    statusEl.classList.add('on'); txt.textContent = err ? 'Connected (sync failed)' : 'Connected';
-    const last = Number(localStorage.getItem(SYNC_KEY)) || 0;
-    syncEl.textContent = 'Last synced ' + relTime(last);
-    action.textContent = 'Sync now';
-    if (whStats) {
-      $('whStats').style.display = '';
-      $('whRec').textContent   = whStats.rec   != null ? whStats.rec + '%'  : '—';
-      $('whSleep').textContent = whStats.sleep != null ? whStats.sleep + '%' : '—';
-      $('whRhr').textContent   = whStats.rhr   != null ? whStats.rhr         : '—';
-    }
-  }
-  async function wRefresh(t) {
-    if (!t.refresh) return null;
-    try {
-      const r = await fetch('/api/whoop-refresh', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ refresh_token: t.refresh }) });
-      const j = await r.json();
-      if (j.access_token) { const n = { access:j.access_token, refresh:j.refresh_token||t.refresh, expires:Date.now()+(j.expires_in||3500)*1000 }; saveJSON(WHOOP_KEY, n); return n; }
-    } catch (e) {}
-    return null;
-  }
-  async function wFetch(path, t) {
-    const [p, qs] = path.split('?');
-    const params = new URLSearchParams(qs || ''); params.set('path', p);
-    const r = await fetch('/api/whoop-data?' + params.toString(), { headers: { 'Authorization': 'Bearer ' + t.access, 'Accept':'application/json' } });
-    if (r.status === 401) { const n = await wRefresh(t); if (n) return wFetch(path, n); throw new Error('unauthorized'); }
-    if (!r.ok) throw new Error('whoop ' + r.status);
-    return r.json();
-  }
-  async function syncWhoop() {
-    let t = loadJSON(WHOOP_KEY, null);
-    if (!t || !t.access) return;
-    if (t.expires && Date.now() > t.expires - 60000) { const n = await wRefresh(t); if (n) t = n; }
-    try {
-      const [rec, sleep] = await Promise.all([
-        wFetch('/recovery?limit=1', t).catch(()=>null),
-        wFetch('/activity/sleep?limit=1', t).catch(()=>null),
-      ]);
-      const r0 = rec && rec.records && rec.records[0];
-      const s0 = sleep && sleep.records && sleep.records[0];
-      whStats = {
-        rec:   r0 && r0.score && r0.score.recovery_score != null ? Math.round(r0.score.recovery_score) : null,
-        rhr:   r0 && r0.score && r0.score.resting_heart_rate != null ? Math.round(r0.score.resting_heart_rate) : null,
-        sleep: s0 && s0.score && s0.score.sleep_performance_percentage != null ? Math.round(s0.score.sleep_performance_percentage) : null,
-      };
-      localStorage.setItem(SYNC_KEY, String(Date.now()));
-      // Cached so the home screen's Signals rail can show a real Recovery %
-      // without this page having to make its own WHOOP API calls.
-      try { localStorage.setItem('whoop_last_stats_v1', JSON.stringify(whStats)); } catch (e) {}
-      renderWhoop();
-    } catch (e) { renderWhoop(e); }
-  }
-  $('whAction').addEventListener('click', () => {
-    const t = loadJSON(WHOOP_KEY, null);
-    if (!t || !t.access) { window.location.href = 'health.html'; return; }
-    $('whAction').textContent = 'Syncing…'; syncWhoop();
-  });
-
-  /* ---------- Export everything ----------
-   * Pulls every row of app_state directly (not just the domains this page
-   * happens to know about for scoring) so the export stays complete as new
-   * features add their own appKey, with nothing to update here when they do.
-   * google_tokens/whoop_tokens_v1 are deliberately out of reach the same way
-   * — see api/config.js's note on google_tokens having no anon-key policies
-   * at all — so a restore just means reconnecting those, not a security gap. */
-  const EXPORT_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
-  const EXPORT_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  async function exportAllData() {
-    const btn = $('exportBtn'), status = $('exportStatus');
-    if (EXPORT_SUPABASE_URL.indexOf('PASTE-') === 0 || EXPORT_SUPABASE_KEY.indexOf('PASTE-') === 0) {
-      status.textContent = 'Cloud sync isn\'t configured on this device.';
-      return;
-    }
-    btn.disabled = true; btn.textContent = 'Gathering…'; status.textContent = '';
-    try {
-      const res = await fetch(EXPORT_SUPABASE_URL + '/rest/v1/app_state?select=key,data,updated_at', {
-        headers: { apikey: EXPORT_SUPABASE_KEY, Authorization: 'Bearer ' + EXPORT_SUPABASE_KEY },
-      });
-      if (!res.ok) throw new Error('fetch failed: ' + res.status);
-      const rows = await res.json();
-      const bundle = { exportedAt: new Date().toISOString(), source: 'fern-dashboard', domains: {} };
-      (Array.isArray(rows) ? rows : []).forEach(r => {
-        if (!r || !r.key) return;
-        bundle.domains[r.key] = { data: r.data, updatedAt: r.updated_at };
-      });
-      const count = Object.keys(bundle.domains).length;
-      if (!count) throw new Error('no data found');
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-      const objUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objUrl;
-      a.download = 'fern-dashboard-backup-' + new Date().toISOString().slice(0, 10) + '.json';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
-      status.textContent = count + ' section' + (count === 1 ? '' : 's') + ' exported ✓';
-    } catch (e) {
-      status.textContent = "Couldn't export — check your connection.";
-    } finally {
-      btn.disabled = false; btn.textContent = '⬇️ Export everything (JSON)';
-      setTimeout(() => { status.textContent = ''; }, 5000);
-    }
-  }
-  $('exportBtn').addEventListener('click', exportAllData);
-})();
-
-/* ============ Today Score ============
- * Reads every domain's own localStorage keys directly (same origin, no
- * fetch) to compute the composite score card above. Read-only — never
- * writes back to another page's keys, so it can't corrupt anything another
- * page owns. (The old per-tile live captions this file used to render live
- * on hub-today.html/hub-body.html/hub-money.html now that the home screen's
- * tiles are category links rather than direct feature links.)
- */
-(function () {
-  'use strict';
-  function storeGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
-  function pad2(n) { return String(n).padStart(2, '0'); }
-  function dateToKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
-  // Same forgiving 6 AM day boundary used by main.html/health.html/business.html,
-  // so a tile doesn't roll over to "tomorrow" in the middle of a late night.
-  function activeDate6am() { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return d; }
-  function activeDateKey6am() { return dateToKey(activeDate6am()); }
-  function plainTodayKey() { return dateToKey(new Date()); }
-
-  /* ---------- Today Score ----------
-   * One composite number from whichever domains you've actually got data
-   * for today — a domain with nothing set up (no habits defined, no
-   * business commitments, etc.) is left out of the average entirely
-   * rather than counted as a zero, so the score stays fair as your setup
-   * grows. Finance and caffeine/nicotine are deliberately excluded: they
-   * aren't "did today go well" behaviors in the same sense the others are.
-   */
-  function tierForScore(s) {
-    if (s >= 90) return 'Elite day';
-    if (s >= 75) return 'Strong day';
-    if (s >= 55) return 'Decent day';
-    if (s >= 35) return 'Slipping';
-    return 'Rough day';
-  }
-
-  function computeTodayScore() {
-    const todayK6 = activeDateKey6am();
-    const todayPlain = plainTodayKey();
-    const parts = []; // { weight, done, total, label(done,total) }
-
-    const goals = storeGet('goals:' + todayK6) || [];
-    if (goals.length) parts.push({ weight: 25, done: goals.filter(g => g.done).length, total: goals.length, label: (n, t) => n + '/' + t + ' to-dos' });
-
-    const habitDefs = storeGet('habits:defs') || [];
-    if (habitDefs.length) {
-      const log = storeGet('habits:log') || {};
-      const done = habitDefs.filter(h => log[h.id] && log[h.id][todayK6]).length;
-      parts.push({ weight: 15, done, total: habitDefs.length, label: (n, t) => n + '/' + t + ' habits' });
-    }
-
-    const coach = storeGet('po_coach_v1');
-    if (coach && Array.isArray(coach.splitRotation) && coach.splitRotation.length) {
-      const doneDays = storeGet('po_coach_workout_done') || {};
-      const logged = !!doneDays[todayPlain];
-      parts.push({ weight: 15, done: logged ? 1 : 0, total: 1, label: () => (logged ? 'workout logged' : 'no workout yet') });
-    }
-
-    const water = storeGet('po_water_v1');
-    if (water && water.profile && water.profile.weightKg) {
-      const p = water.profile;
-      const wKg = water.weightUnit === 'lb' ? (p.weightKg || 0) / 2.20462 : (p.weightKg || 0);
-      const base = wKg * 35;
-      const exercise = (p.activityHrsPerWeek || 0) / 7 * 500;
-      const caffeine = Math.max(0, (water.caffeineMgPerDay || 0) - 200) * 1.5;
-      let adjust = 0; if (p.sex === 'm') adjust += 200; if ((p.age || 0) >= 50) adjust += 100;
-      const total = base + exercise + caffeine + adjust;
-      let unitMl = 1; if (water.unit === 'bottle') unitMl = water.bottleMl || 500; else if (water.unit === 'glass') unitMl = water.glassMl || 250; else if (water.unit === 'oz') unitMl = 30;
-      const targetUnits = Math.ceil(total / unitMl);
-      const count = (water.logs && water.logs[todayPlain]) || 0;
-      if (targetUnits > 0) parts.push({ weight: 15, done: Math.min(count, targetUnits), total: targetUnits, label: (n, t) => n + '/' + t + ' water' });
-    }
-
-    const stackItems = storeGet('stack:items');
-    if (Array.isArray(stackItems) && stackItems.length) {
-      const taken = storeGet('stack:taken:' + todayK6) || {};
-      const done = stackItems.filter(it => taken[it.id]).length;
-      parts.push({ weight: 10, done, total: stackItems.length, label: (n, t) => n + '/' + t + ' supplements' });
-    }
-
-    const commitments = storeGet('biz:affiliate:commitments') || [];
-    const commitLog = storeGet('biz:affiliate:commitLog') || {};
-    const clients = storeGet('biz:editing:clients') || [];
-    const delivery = storeGet('biz:editing:deliveryLog') || {};
-    let bizTotal = 0, bizDone = 0;
-    commitments.forEach(c => { bizTotal++; if (commitLog[c.id] && commitLog[c.id][todayK6]) bizDone++; });
-    clients.forEach(c => {
-      if (c.billingType === 'retainer' && c.dailyDeliverables > 0) {
-        bizTotal++;
-        const doneToday = (delivery[c.id] && delivery[c.id][todayK6]) || 0;
-        if (doneToday >= c.dailyDeliverables) bizDone++;
-      }
+  function renderChecks() {
+    const d = day(today);
+    document.getElementById('checks').innerHTML = CHECKS.map(([k, t, sub]) => {
+      const v = d[k];
+      const cls = v === true ? 'y' : v === false ? 'n' : '';
+      const mark = v === true ? '✓' : v === false ? '✕' : '';
+      return `<button class="check ${cls}" data-k="${k}" type="button"><span class="box">${mark}</span><span>${t}<small>${sub}</small></span></button>`;
+    }).join('');
+    document.querySelectorAll('.check').forEach(b => b.onclick = () => {
+      const k = b.dataset.k;
+      const cur = (local[today] || {})[k];
+      const next = cur === undefined ? true : cur === true ? false : undefined; // tap: yes -> no -> blank
+      local[today] = Object.assign({}, local[today]);
+      if (next === undefined) delete local[today][k]; else local[today][k] = next;
+      write(LS, local);
+      if (server[today]) delete server[today]; // a tap today overrides until tonight's check-in
+      render();
     });
-    if (bizTotal > 0) parts.push({ weight: 10, done: bizDone, total: bizTotal, label: (n, t) => n + '/' + t + ' commitments' });
+  }
 
-    const readingItems = storeGet('reading:items') || [];
-    if (readingItems.length) {
-      let any = false;
-      readingItems.forEach(it => {
-        const sessions = it.sessions || [];
-        if (sessions.some(s => s.date === todayPlain)) any = true;
-      });
-      parts.push({ weight: 10, done: any ? 1 : 0, total: 1, label: () => (any ? 'reading done' : 'no reading yet') });
+  function renderWeek() {
+    // Monday-start week
+    const base = new Date(now.getTime() - 4 * 3600e3);
+    const dow = (base.getDay() + 6) % 7;
+    const mon = new Date(base); mon.setDate(base.getDate() - dow);
+    let total = 0, html = '', missesInRow = 0, prevMiss = false, twice = false;
+    for (let i = 0; i < 7; i++) {
+      const dt = new Date(mon); dt.setDate(mon.getDate() + i);
+      const k = dayKey(new Date(dt.getTime() + 4 * 3600e3 + 1));
+      const d = day(k);
+      const known = ['gym', 'money', 'clean'].filter(x => d[x] !== undefined).length;
+      const s = ['gym', 'money', 'clean'].filter(x => d[x] === true).length;
+      total += s;
+      const future = k > today;
+      html += `<div>${'MTWTFSS'[i]}<b class="${!future && known ? 's' + s : ''}">${future || !known ? '' : s}</b></div>`;
     }
-
-    if (!parts.length) return null;
-
-    let weightedSum = 0, weightTotal = 0;
-    const breakdownBits = [];
-    parts.forEach(p => {
-      const ratio = p.total > 0 ? Math.min(1, p.done / p.total) : 0;
-      weightedSum += ratio * p.weight;
-      weightTotal += p.weight;
-      breakdownBits.push(p.label(p.done, p.total));
-    });
-    return { score: Math.round((weightedSum / weightTotal) * 100), breakdown: breakdownBits.join(' · '), parts: breakdownBits };
+    document.getElementById('week').innerHTML = html;
+    document.getElementById('weekScore').textContent = total + '/21';
+    document.getElementById('weekBar').style.width = Math.round(total / 21 * 100) + '%';
+    const daysIn = dow + 1, pace = daysIn * 3;
+    const pill = document.getElementById('weekPill');
+    pill.textContent = total >= pace * 0.8 ? 'on pace' : 'behind pace';
+    pill.className = 'pill ' + (total >= pace * 0.8 ? 'ok' : 'warn');
   }
 
-  /* ---------- 7-day score trend ----------
-   * Persists each day's already-computed score under its own date key so
-   * the AI Core card can show a real trend line. Never backfills or
-   * estimates missing days — a day with no score just isn't in the record,
-   * and the trace honestly says "building" until there are at least two
-   * real points to compare, rather than inventing a shape for it.
-   */
-  const SCORE_HISTORY_KEY = 'cc_score_history_v1';
-  function recordScoreHistory(dateKeyStr, score) {
-    if (score == null) return;
-    let hist;
-    try { hist = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY)) || {}; } catch (e) { hist = {}; }
-    hist[dateKeyStr] = score;
-    const keys = Object.keys(hist).sort();
-    while (keys.length > 30) { delete hist[keys.shift()]; }
-    try { localStorage.setItem(SCORE_HISTORY_KEY, JSON.stringify(hist)); } catch (e) {}
+  function renderTodos() {
+    const list = read(TODO, []);
+    const ul = document.getElementById('todos');
+    ul.innerHTML = list.map((t, i) => `<li class="${t.done ? 'done' : ''}"><input type="checkbox" data-i="${i}" ${t.done ? 'checked' : ''}><span></span><button data-x="${i}" aria-label="Delete">×</button></li>`).join('');
+    ul.querySelectorAll('li span').forEach((s, i) => s.textContent = list[i].text);
+    ul.querySelectorAll('input').forEach(c => c.onchange = () => { list[c.dataset.i].done = c.checked; write(TODO, list); renderTodos(); });
+    ul.querySelectorAll('button').forEach(b => b.onclick = () => { list.splice(b.dataset.x, 1); write(TODO, list); renderTodos(); });
+    document.getElementById('todoIn').disabled = list.filter(t => !t.done).length >= 3;
+    document.getElementById('todoIn').placeholder = list.filter(t => !t.done).length >= 3 ? 'Finish one first' : 'One thing that moves money or body';
   }
-  function renderScoreTrace() {
-    const wrap = document.getElementById('scoreTrace');
-    if (!wrap) return;
-    let hist;
-    try { hist = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY)) || {}; } catch (e) { hist = {}; }
-    const days = Object.keys(hist).sort().slice(-7);
-    if (days.length < 2) {
-      wrap.innerHTML = '<div class="cc-trace-empty">Building your trend — check back after a few days</div>';
-      return;
-    }
-    const values = days.map(d => hist[d]);
-    const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-    const today = values[values.length - 1];
-    const prev = values.length > 1 ? values[values.length - 2] : null;
-    const delta = prev != null ? today - prev : null;
-    const bars = values.map((v, i) => '<span class="cc-trace-bar' + (i === values.length - 1 ? ' is-today' : '') + '" style="--v:' + Math.max(4, v) + '"></span>').join('');
-    wrap.innerHTML = '<div class="cc-trace-bars">' + bars + '</div><div class="cc-trace-caption">Last ' + days.length + ' days · avg ' + avg + (delta != null ? ' · today ' + (delta >= 0 ? '+' : '') + delta : '') + '</div>';
-  }
+  document.getElementById('todoForm').onsubmit = e => {
+    e.preventDefault();
+    const v = document.getElementById('todoIn').value.trim();
+    if (!v) return;
+    const list = read(TODO, []);
+    if (list.filter(t => !t.done).length >= 3) return;
+    list.push({ text: v, done: false }); write(TODO, list);
+    document.getElementById('todoIn').value = ''; renderTodos();
+  };
 
-  // Counts the score number up/down to its new value instead of an instant
-  // text swap — skipped entirely under prefers-reduced-motion, which jumps
-  // straight to the final value.
-  const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let scoreCounterRaf = null;
-  function animateScoreNum(el, from, to) {
-    if (prefersReducedMotion || from === to) { el.textContent = to; return; }
-    if (scoreCounterRaf) cancelAnimationFrame(scoreCounterRaf);
-    const duration = 500, start = performance.now();
-    function tick(now) {
-      const p = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = Math.round(from + (to - from) * eased);
-      if (p < 1) scoreCounterRaf = requestAnimationFrame(tick);
-      else scoreCounterRaf = null;
-    }
-    scoreCounterRaf = requestAnimationFrame(tick);
-  }
+  function render() { renderChecks(); renderWeek(); }
 
-  // Renders the real per-category breakdown (e.g. "2/3 to-dos", "1/2
-  // habits") as separate chip spans rather than one plain-text line — the
-  // visual language the design reference uses for the AI Core's sub-stats
-  // row. No invented metrics: each chip is a category that's actually
-  // wired into today's score, nothing more.
-  function renderScoreChips(parts) {
-    const wrap = document.getElementById('scoreStats');
-    if (!wrap) return;
-    wrap.innerHTML = parts.map(p => '<span class="cc-stat-chip">' + escapeHtml(p) + '</span>').join('<span class="cc-stat-sep">·</span>');
-  }
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  const h = now.getHours();
+  document.getElementById('hello').textContent = h < 12 ? 'Morning, Fernando' : h < 18 ? 'Afternoon, Fernando' : 'Tonight, Fernando';
+  document.getElementById('date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  render(); renderTodos();
 
-  let lastRenderedScore = null;
-  function renderTodayScore() {
-    const card = document.getElementById('scoreCard');
-    const result = computeTodayScore();
-    if (!result) {
-      document.getElementById('scoreNum').textContent = '—';
-      document.getElementById('scoreTier').textContent = 'Systems ready';
-      renderScoreChips(['Add a goal, habit, or health log to begin']);
-      document.getElementById('scoreRing').style.setProperty('--ring-pct', 0);
-      card.classList.add('show');
-      renderScoreTrace();
-      return;
-    }
-    animateScoreNum(document.getElementById('scoreNum'), lastRenderedScore || 0, result.score);
-    document.getElementById('scoreTier').textContent = tierForScore(result.score);
-    renderScoreChips(result.parts);
-    document.getElementById('scoreRing').style.setProperty('--ring-pct', result.score);
-    card.classList.add('show');
-    recordScoreHistory(activeDateKey6am(), result.score);
-    renderScoreTrace();
-    // A short pulse on the globe when the score actually changes, rather
-    // than an instant silent swap — no-op if jarvis-globe.js never mounted
-    // (no WebGL, reduced motion, or the CDN import failed).
-    if (lastRenderedScore !== null && lastRenderedScore !== result.score && typeof window.__jarvisGlobePulse === 'function') {
-      window.__jarvisGlobePulse();
-    }
-    lastRenderedScore = result.score;
-  }
-
-  // Every domain's own page (main.html, health.html, gym.html, ...) only
-  // ever pulls its own fresh data from Supabase when THAT page loads — this
-  // page has no cloud sync of its own for any of them, so the score above
-  // was reading whatever happened to already be sitting in this browser's
-  // localStorage. On a device/session where you haven't opened Fitness or
-  // Health yet today, that's stale or missing entirely, which is why the
-  // score would show 0 (or nothing) until visiting those pages first. Pull
-  // each domain's current row directly from Supabase — same plain REST call
-  // api/send-reminders.js already makes server-side — and cache it into
-  // localStorage before computing the score, so it's correct on the very
-  // first load without needing to visit anything else first.
-  const SCORE_SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
-  const SCORE_SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
-  const SCORE_SOURCE_APP_KEYS = ['goals', 'health', 'po-coach', 'business', 'reading', 'player', 'finance', 'peak', 'sleep', 'notes'];
-  const LAST_SYNC_KEY = 'cc_last_sync_v1';
-  async function pullFreshScoreSources() {
-    if (SCORE_SUPABASE_URL.indexOf('PASTE-') === 0 || SCORE_SUPABASE_KEY.indexOf('PASTE-') === 0) return;
-    try {
-      const rows = await Promise.all(SCORE_SOURCE_APP_KEYS.map(k =>
-        fetch(SCORE_SUPABASE_URL + '/rest/v1/app_state?key=eq.' + encodeURIComponent(k) + '&select=data', {
-          headers: { apikey: SCORE_SUPABASE_KEY, Authorization: 'Bearer ' + SCORE_SUPABASE_KEY },
-        }).then(r => r.ok ? r.json() : null).catch(() => null)
-      ));
-      rows.forEach(r => {
-        const data = r && r[0] && r[0].data;
-        if (!data) return;
-        Object.keys(data).forEach(k => {
-          try { localStorage.setItem(k, JSON.stringify(data[k])); } catch (e) {}
-        });
-      });
-      localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
-    } catch (e) {}
-  }
-  function renderLastSync() {
-    const el = document.getElementById('ccLastSync');
-    if (!el) return;
-    const ts = Number(localStorage.getItem(LAST_SYNC_KEY)) || 0;
-    if (!ts) { el.textContent = 'Not yet'; return; }
-    const s = Math.floor((Date.now() - ts) / 1000);
-    el.textContent = s < 60 ? 'Just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
-  }
-
-  /* ---------- Player Card strip ----------
-   * Purely a display of the summary player.html caches — the rating engine
-   * itself lives over there and isn't duplicated here, so the two can't
-   * drift apart.
-   */
-  function renderPlayerStrip() {
-    const c = storeGet('player:card');
-    if (!c || typeof c.level !== 'number') return;
-    document.getElementById('psOvr').textContent = c.ovr == null ? '—' : c.ovr;
-    document.getElementById('psLvl').textContent = c.level;
-    document.getElementById('psSub').textContent = c.tier
-      ? c.tier + ' · overall rating'
-      : 'Log a few days to get rated';
-  }
-
-  function renderAll() {
-    renderTodayScore();
-    renderPlayerStrip();
-    renderLastSync();
-    document.dispatchEvent(new CustomEvent('command-center:refresh'));
-  }
-
-  renderAll();
-  pullFreshScoreSources().then(renderAll);
-  window.addEventListener('pageshow', function () { pullFreshScoreSources().then(renderAll); });
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') pullFreshScoreSources().then(renderAll);
-  });
-  window.addEventListener('storage', renderAll);
+  fetch('data.json', { cache: 'no-store' }).then(r => r.json()).then(d => {
+    server = d.log || {};
+    // Taps from today stay until Hermes logs today.
+    render();
+    document.getElementById('foot').textContent = d.updated ? 'Hermes check-ins synced ' + d.updated : '';
+  }).catch(() => {});
 })();
 </script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (typeof initCloudSync === 'function') {
-    initCloudSync({
-      appKey: 'goals',
-      syncedPrefixes: ['goals:'],
-      syncedKeys: ['habits:defs', 'habits:log', 'recur:defs', 'leverage_stats_v1'],
-      onApplied: function () {
-        window.dispatchEvent(new CustomEvent('goals-changed'));
-        window.dispatchEvent(new CustomEvent('habits-changed'));
-        window.dispatchEvent(new Event('storage'));
-      }
-    });
-    initCloudSync({
-      appKey: 'alerts',
-      syncedKeys: ['command_center_alerts_v1'],
-      onApplied: function () {
-        window.dispatchEvent(new CustomEvent('alert-state-changed'));
-      }
-    });
-  }
-  if (window.location.hash === '#settings') document.getElementById('settingsOpen').click();
-});
-</script>
+<script src="nav.js"></script>
 </body>
 </html>
