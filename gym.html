@@ -20,48 +20,52 @@ const CONFIG = {
   appTitle: "Progressive Overload Coach",
 
   // Weight unit shown everywhere. "kg" or "lb".
-  units: "kg",
+  units: "lb",
 
-  // Gyms you train at. Add as many as you want.
-  // `id` must be a short unique slug (no spaces). `name` is what people see.
+  // Gyms you train at. `id` is a short slug, `name` is what you see.
+  // 2026-11-09: one gym, the building gym (dumbbells, free-weight bench,
+  // cables, one leg machine, treadmill, squat rack).
   gyms: [
-    { id: "home",  name: "Home Gym" },
-    { id: "comm",  name: "Commercial Gym" }
+    { id: "bldg", name: "Building Gym" }
   ],
 
-  // Training split. Most people use Push/Pull/Legs but you can rename
-  // these to "Upper", "Lower", "Full Body", "Day A", anything.
+  // Training days, in week order (Mon-Fri).
   days: [
+    { id: "upper", name: "Upper" },
+    { id: "lower", name: "Lower" },
     { id: "push",  name: "Push" },
     { id: "pull",  name: "Pull" },
-    { id: "legs",  name: "Legs" },
-    { id: "upper", name: "Upper" },
-    { id: "lower", name: "Lower" }
+    { id: "legs",  name: "Legs" }
   ],
 
-  // Split rotation — the order your training days cycle through. Use day
-  // ids from `days` above, plus "rest" for off-days. The pill at the top
-  // of the app reads this + splitAnchor to compute "what day is today".
-  splitRotation: ["push", "pull", "legs", "upper", "lower"],
+  // Split rotation: day ids from `days`, plus "rest". 7 entries anchored
+  // to a Monday = a fixed calendar week: Mon Upper, Tue Lower, Wed Push,
+  // Thu Pull, Fri Legs, Sat + Sun rest.
+  splitRotation: ["upper", "lower", "push", "pull", "legs", "rest", "rest"],
 
-  // Anchor: pair a real calendar date with which split day fell on it.
-  // The rotation advances from this point. Set `date` to a recent day
-  // when you knew what split you were on, and `splitId` to that day.
-  // Edit this if your split drifts.
+  // Anchor: a real calendar date (local time) + which split fell on it.
   splitAnchor: {
-    date: "2026-07-07",
-    splitId: "push"
+    date: "2026-11-09",   // a Monday
+    splitId: "upper"
   },
 
-  // Progression rule: hit this many reps on the top set → coach tells you
-  // to add weight next session. Lower this to be more aggressive (e.g. 6),
-  // raise it for more volume bias (e.g. 10).
-  upgradeAtReps: 8,
+  // Progression rule (double progression): per exercise. When EVERY
+  // planned set of an exercise hits the TOP of that exercise's rep range
+  // (repMax), the coach says add `step` next session. Below that, stay
+  // at the weight and add reps. See getRx().
+
+  // Rest timer is clamped to this window (seconds): rest 1.5-2 min.
+  restSeconds: { min: 90, max: 120 },
+
+  // Rules shown under "Next session".
+  rules: [
+    "Rest 1.5-2 min between sets.",
+    "Stop every set with 1-2 reps left. Never go to failure on squats or RDLs.",
+    "Log every set. When every set hits the top of the rep range, add weight next session.",
+    "Dumbbell weight = one dumbbell."
+  ],
 
   // Composition estimate (optional, for the weight chart).
-  // Estimates how much of recent weight change is muscle vs fat by
-  // cross-referencing the strength trend. Set yearsTraining to scale
-  // expected muscle gain rate.
   composition: {
     enabled: true,
     yearsTraining: 1,        // 1 = beginner, 2 = intermediate, 3+ = advanced
@@ -69,82 +73,61 @@ const CONFIG = {
   },
 
   // Starter exercise list. Each one needs:
-  //   name        — what shows in the dropdown
+  //   name        — what shows in the dropdown (logs are keyed by name, so
+  //                 the same name on two days shares one history)
   //   gym         — one of the gym ids above, or "both"
   //   day         — one of the day ids above
-  //   repMin      — bottom of your target rep range
-  //   repMax      — top of your target rep range
-  //   step        — how much weight you add when progressing (kg/lb)
-  //   startWeight — starting weight (ignored when bw: true)
+  //   sets        — planned working sets
+  //   repMin      — bottom of the target rep range
+  //   repMax      — top of the range (hit it on every set = add weight)
+  //   step        — how much weight to add when progressing (lb)
+  //   startWeight — first-session guess (ignored when bw: true)
   //   bw          — true for bodyweight movements (logs reps only)
+  //   note        — optional cue shown under the prescription
   //
-  // First-run defaults. Once a user logs anything, they edit through
-  // the in-app + / gear buttons; this block stays as the seed.
-  //
-  // Functional-training redesign (v4, 2026-08): the prior version (v3) was
-  // a bodybuilding-style hypertrophy split — mostly seated machines and
-  // single-joint isolation, organized by which muscle it targets. This
-  // rewrite is built around real functional-training principles instead:
-  // resistance training organized around the multi-joint MOVEMENT PATTERNS
-  // needed for daily life and sport (squat / hinge / lunge / push / pull /
-  // carry / rotate), favoring free weights and bodyweight over fixed-path
-  // machines, with balance and core stability trained directly rather than
-  // as a side effect of sitting in a machine. All 7 patterns are covered
-  // across the week:
-  //   squat  — Back squat
-  //   hinge  — Romanian deadlift, Deadlift
-  //   lunge  — Walking lunge, Bulgarian split squat (both unilateral)
-  //   push   — Bench press, standing OHP, push-up, DB bench, single-arm OHP
-  //   pull   — Barbell row, pull-up, single-arm DB row, lat pulldown
-  //   carry  — Farmer's carry, suitcase carry, overhead carry (loaded
-  //            walking — tracked as steps in the reps field, not true reps)
-  //   rotate — Cable woodchopper, Russian twist
-  // A handful of single-joint accessory movements are deliberately kept
-  // (face pull, one hamstring curl, calf raise, arm work) — functional
-  // training is built AROUND compound patterns, not defined by excluding
-  // every machine outright; these cover real injury-prevention/joint-health
-  // gaps a pure movement-pattern list would otherwise leave open.
+  // v5 (2026-11-09): Mon-Fri building-gym program. startWeights are
+  // guesses; pick a weight that leaves 1-2 reps in the tank.
   defaultExercises: [
-    // Day 1: Push (bench + standing overhead press + push-up + carry)
-    { name: "Barbell bench press",         gym: "comm", day: "push", repMin: 5,  repMax: 8,  step: 2.5,  startWeight: 60 },
-    { name: "Standing barbell overhead press", gym: "comm", day: "push", repMin: 6, repMax: 10, step: 2.5, startWeight: 30 },
-    { name: "Push-up (weighted)",          gym: "comm", day: "push", repMin: 8,  repMax: 15, step: 2.5,  startWeight: 0, bw: true },
-    { name: "Farmer's carry",              gym: "comm", day: "push", repMin: 20, repMax: 40, step: 2.5,  startWeight: 20 },
-    { name: "Cable tricep pushdown",       gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 20 },
-    { name: "Cable woodchopper",           gym: "comm", day: "push", repMin: 10, repMax: 15, step: 2.5,  startWeight: 15 },
+    // Mon: Upper
+    { name: "DB bench press",            gym: "bldg", day: "upper", sets: 3, repMin: 6,  repMax: 10, step: 5,  startWeight: 40 },
+    { name: "Chest-supported DB row",    gym: "bldg", day: "upper", sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 35, note: "Chest on an incline bench." },
+    { name: "Seated DB shoulder press",  gym: "bldg", day: "upper", sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 30 },
+    { name: "Lat pulldown (or pull-up)", gym: "bldg", day: "upper", sets: 3, repMin: 6,  repMax: 12, step: 5,  startWeight: 100, note: "Doing pull-ups? Enter your body weight as the weight." },
+    { name: "Cable face pull",           gym: "bldg", day: "upper", sets: 3, repMin: 15, repMax: 20, step: 5,  startWeight: 30, note: "Pull to your face, elbows high." },
+    { name: "DB curl",                   gym: "bldg", day: "upper", sets: 2, repMin: 10, repMax: 15, step: 5,  startWeight: 20 },
+    { name: "Cable triceps pushdown",    gym: "bldg", day: "upper", sets: 2, repMin: 10, repMax: 15, step: 5,  startWeight: 40 },
 
-    // Day 2: Pull (barbell row + pull-up + single-arm row + carry)
-    { name: "Barbell row",                 gym: "comm", day: "pull", repMin: 5,  repMax: 8,  step: 2.5,  startWeight: 40 },
-    { name: "Pull-up (assisted)",          gym: "comm", day: "pull", repMin: 5,  repMax: 10, step: 1,    startWeight: 0, bw: true },
-    { name: "Single-arm dumbbell row",     gym: "comm", day: "pull", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
-    { name: "Suitcase carry",              gym: "comm", day: "pull", repMin: 20, repMax: 40, step: 2.5,  startWeight: 16 },
-    { name: "Face pull (cable)",           gym: "comm", day: "pull", repMin: 12, repMax: 15, step: 2.5,  startWeight: 15 },
-    { name: "Hanging leg raise",           gym: "comm", day: "pull", repMin: 8,  repMax: 15, step: 1,    startWeight: 0, bw: true },
+    // Tue: Lower
+    { name: "Barbell back squat",        gym: "bldg", day: "lower", sets: 3, repMin: 6,  repMax: 10, step: 10, startWeight: 95, note: "No barbell? Goblet squat instead. Never to failure." },
+    { name: "DB Romanian deadlift",      gym: "bldg", day: "lower", sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 40, note: "Never to failure." },
+    { name: "Bulgarian split squat",     gym: "bldg", day: "lower", sets: 2, repMin: 8,  repMax: 12, step: 5,  startWeight: 20, note: "Reps per leg." },
+    { name: "Leg machine",               gym: "bldg", day: "lower", sets: 3, repMin: 10, repMax: 15, step: 10, startWeight: 70, note: "Type unknown. Rename it with the pencil once you know." },
+    { name: "Calf raise",                gym: "bldg", day: "lower", sets: 3, repMin: 12, repMax: 20, step: 5,  startWeight: 40, note: "Full stretch at the bottom." },
+    { name: "Cable crunch",              gym: "bldg", day: "lower", sets: 2, repMin: 10, repMax: 15, step: 5,  startWeight: 50 },
 
-    // Day 3: Legs (squat + hinge + lunge, heavy emphasis)
-    { name: "Back squat",                  gym: "comm", day: "legs", repMin: 5,  repMax: 8,  step: 5,    startWeight: 80 },
-    { name: "Romanian deadlift",           gym: "comm", day: "legs", repMin: 8,  repMax: 10, step: 5,    startWeight: 60 },
-    { name: "Walking lunge (dumbbell)",    gym: "comm", day: "legs", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 12 },
-    { name: "Leg curl machine",            gym: "comm", day: "legs", repMin: 10, repMax: 12, step: 2.5,  startWeight: 30 },
-    { name: "Calf raise",                  gym: "comm", day: "legs", repMin: 12, repMax: 15, step: 2.5,  startWeight: 40 },
-    { name: "Weighted decline sit-up",     gym: "comm", day: "legs", repMin: 10, repMax: 15, step: 2.5,  startWeight: 5  },
+    // Wed: Push
+    { name: "Incline DB press",          gym: "bldg", day: "push",  sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 35 },
+    { name: "Flat DB press",             gym: "bldg", day: "push",  sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 40 },
+    { name: "Cable fly",                 gym: "bldg", day: "push",  sets: 3, repMin: 12, repMax: 15, step: 5,  startWeight: 15 },
+    { name: "DB lateral raise",          gym: "bldg", day: "push",  sets: 4, repMin: 12, repMax: 20, step: 5,  startWeight: 15 },
+    { name: "Overhead cable triceps extension", gym: "bldg", day: "push", sets: 3, repMin: 10, repMax: 15, step: 5, startWeight: 30 },
+    { name: "Cable face pull",           gym: "bldg", day: "push",  sets: 3, repMin: 15, repMax: 20, step: 5,  startWeight: 30, note: "Pull to your face, elbows high." },
 
-    // Day 4: Upper (2nd weekly hit — free-weight press/pull + overhead carry)
-    { name: "Dumbbell bench press",        gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 20 },
-    { name: "Single-arm dumbbell overhead press", gym: "comm", day: "upper", repMin: 8, repMax: 12, step: 1.25, startWeight: 10 },
-    { name: "Lat pulldown (wide grip)",    gym: "comm", day: "upper", repMin: 8,  repMax: 12, step: 2.5,  startWeight: 45 },
-    { name: "Overhead carry",              gym: "comm", day: "upper", repMin: 20, repMax: 40, step: 2.5,  startWeight: 10 },
-    { name: "Bicep curl (superset)",       gym: "comm", day: "upper", repMin: 10, repMax: 12, step: 1.25, startWeight: 12 },
-    { name: "Tricep pushdown (superset)",  gym: "comm", day: "upper", repMin: 10, repMax: 12, step: 2.5,  startWeight: 20 },
-    { name: "Russian twist (dumbbell)",    gym: "comm", day: "upper", repMin: 12, repMax: 20, step: 1.25, startWeight: 8  },
+    // Thu: Pull
+    { name: "Lat pulldown (or pull-up)", gym: "bldg", day: "pull",  sets: 3, repMin: 6,  repMax: 12, step: 5,  startWeight: 100, note: "Doing pull-ups? Enter your body weight as the weight." },
+    { name: "1-arm DB row",              gym: "bldg", day: "pull",  sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 45, note: "Reps per arm." },
+    { name: "DB rear delt fly",          gym: "bldg", day: "pull",  sets: 3, repMin: 15, repMax: 20, step: 5,  startWeight: 10 },
+    { name: "Incline DB curl",           gym: "bldg", day: "pull",  sets: 3, repMin: 10, repMax: 15, step: 5,  startWeight: 15 },
+    { name: "Hammer curl",               gym: "bldg", day: "pull",  sets: 2, repMin: 10, repMax: 15, step: 5,  startWeight: 20 },
+    { name: "Cable face pull",           gym: "bldg", day: "pull",  sets: 2, repMin: 15, repMax: 20, step: 5,  startWeight: 30, note: "Pull to your face, elbows high." },
 
-    // Day 5: Lower (2nd weekly leg hit — hinge + unilateral lunge)
-    { name: "Deadlift",                    gym: "comm", day: "lower", repMin: 4,  repMax: 6,  step: 5,   startWeight: 100 },
-    { name: "Hip thrust",                  gym: "comm", day: "lower", repMin: 8,  repMax: 12, step: 5,   startWeight: 60 },
-    { name: "Bulgarian split squat (dumbbell)", gym: "comm", day: "lower", repMin: 8, repMax: 12, step: 2.5, startWeight: 12 },
-    { name: "Leg curl",                    gym: "comm", day: "lower", repMin: 10, repMax: 12, step: 2.5, startWeight: 30 },
-    { name: "Standing calf raise",         gym: "comm", day: "lower", repMin: 12, repMax: 15, step: 2.5, startWeight: 40 },
-    { name: "Cable crunch",                gym: "comm", day: "lower", repMin: 10, repMax: 15, step: 2.5, startWeight: 20 }
+    // Fri: Legs
+    { name: "Barbell Romanian deadlift", gym: "bldg", day: "legs",  sets: 3, repMin: 6,  repMax: 10, step: 10, startWeight: 95, note: "Never to failure." },
+    { name: "Goblet squat",              gym: "bldg", day: "legs",  sets: 3, repMin: 8,  repMax: 12, step: 5,  startWeight: 40 },
+    { name: "Leg machine",               gym: "bldg", day: "legs",  sets: 3, repMin: 10, repMax: 15, step: 10, startWeight: 70, note: "Type unknown. Rename it with the pencil once you know." },
+    { name: "Walking lunge",             gym: "bldg", day: "legs",  sets: 2, repMin: 10, repMax: 10, step: 5,  startWeight: 20, note: "10 steps per leg, a DB in each hand." },
+    { name: "Calf raise",                gym: "bldg", day: "legs",  sets: 3, repMin: 12, repMax: 20, step: 5,  startWeight: 40, note: "Full stretch at the bottom." },
+    { name: "Hanging knee raise",        gym: "bldg", day: "legs",  sets: 2, repMin: 10, repMax: 15, step: 1,  startWeight: 0, bw: true }
   ]
 };
 </script>
@@ -1412,6 +1395,7 @@ img, video, canvas, svg { max-width: 100%; }
 
 .hidden { display: none !important; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -1644,7 +1628,7 @@ img, video, canvas, svg { max-width: 100%; }
 
     <!-- Log a set -->
     <div class="po-sub-section">
-      <div class="po-sub-title">Log today's top set</div>
+      <div class="po-sub-title">Log each set</div>
       <div class="po-bw-banner" id="bwBanner">Bodyweight — log reps only</div>
       <div class="po-last-set" id="lastSet">
         <span class="po-last-label">Last time</span>
@@ -1696,6 +1680,7 @@ img, video, canvas, svg { max-width: 100%; }
     <div class="po-sub-section">
       <div class="po-sub-title">Next session</div>
       <div id="rxWrap"></div>
+      <ul id="poRules" style="margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.6;color:var(--text-tertiary)"></ul>
     </div>
 
     <!-- Stats -->
@@ -1903,7 +1888,10 @@ img, video, canvas, svg { max-width: 100%; }
   // bump — only additive patches (below) preserve those; this is the
   // tradeoff for a genuine full-program reset instead of an incremental
   // patch.
-  const CONFIG_VERSION = 4;
+  // v5 (2026-11-09): Mon-Fri building-gym program in lb (see CONFIG). On
+  // the v5 bump, old logs (kg, different exercises) are moved to
+  // state.archivedLogs instead of deleted, and units/gyms/filters reset.
+  const CONFIG_VERSION = 5;
 
   function buildDefaultExercises() {
     return CONFIG.defaultExercises.map((e, i) => Object.assign({
@@ -1935,6 +1923,35 @@ img, video, canvas, svg { max-width: 100%; }
     s.patchesApplied = Array.isArray(s.patchesApplied) ? s.patchesApplied : [];
 
     if (s.configVersion !== CONFIG_VERSION) {
+      // Archive (don't delete) logs from the old program so the new one
+      // starts clean and old kg numbers never feed lb prescriptions.
+      if (s.logs && typeof s.logs === 'object' && Object.keys(s.logs).length) {
+        s.archivedLogs = (s.archivedLogs && typeof s.archivedLogs === 'object') ? s.archivedLogs : {};
+        s.archivedLogs['v' + (s.configVersion || 'old')] = { units: s.units || 'kg', archivedAt: new Date().toISOString(), logs: s.logs };
+      }
+      s.logs = {};
+      const oldUnits = s.units;
+      s.units = CONFIG.units || 'kg';
+      if (oldUnits === 'kg' && s.units === 'lb' && localStorage.getItem('po_coach_weights_unit') !== 'lb') {
+        // Body-weight log + goal were entered in kg: convert once so the chart stays right.
+        try {
+          localStorage.setItem('po_coach_weights_unit', 'lb');
+          const KG_TO_LB = 2.20462;
+          const w = JSON.parse(localStorage.getItem('po_coach_weights') || 'null');
+          // Skip if the numbers already look like lb (he is ~197 lb / ~89 kg).
+          if (Array.isArray(w) && w.length && w.every(e => !e || typeof e.weight !== 'number' || e.weight < 150)) {
+            localStorage.setItem('po_coach_weights', JSON.stringify(w.map(e =>
+              (e && typeof e.weight === 'number') ? Object.assign({}, e, { weight: Math.round(e.weight * KG_TO_LB * 10) / 10 }) : e)));
+          }
+          const g = JSON.parse(localStorage.getItem('po_coach_weight_goal') || 'null');
+          if (typeof g === 'number' && g < 150) localStorage.setItem('po_coach_weight_goal', JSON.stringify(Math.round(g * KG_TO_LB * 10) / 10));
+        } catch (e) {}
+      }
+      s.gyms = CONFIG.gyms.slice();
+      s.filterGym = null;
+      s.filterDay = null;
+      s.currentEx = null;
+      s._userPickedDay = false;
       s.days = CONFIG.days.slice();
       s.exercises = buildDefaultExercises();
       s.splitRotation = null;
@@ -2031,8 +2048,9 @@ img, video, canvas, svg { max-width: 100%; }
       });
       s.patchesApplied.push('pull_barbell_row_2026_08');
     }
-    s.filterGym = s.filterGym || s.gyms[0].id;
-    s.filterDay = s.filterDay || s.days[0].id;
+    // Old saved filters can point at a gym/day that no longer exists.
+    if (!s.gyms.find(g => g.id === s.filterGym)) s.filterGym = s.gyms[0].id;
+    if (!s.days.find(d => d.id === s.filterDay)) s.filterDay = s.days[0].id;
     // Split rotation lives in state so the user can edit it via the pill modal.
     // Stored as a plain array of names (e.g. ["Push", "Pull", "Legs", "Rest"]).
     if (!Array.isArray(s.splitRotation) || !s.splitRotation.length) {
@@ -2053,7 +2071,7 @@ img, video, canvas, svg { max-width: 100%; }
         if (found >= 0) idx = found;
       }
       s.splitAnchor = {
-        date: (CONFIG.splitAnchor && CONFIG.splitAnchor.date) || new Date().toISOString().slice(0, 10),
+        date: (CONFIG.splitAnchor && CONFIG.splitAnchor.date) || wtDateKey(new Date()),
         index: idx
       };
     }
@@ -2063,6 +2081,7 @@ img, video, canvas, svg { max-width: 100%; }
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {}
   }
   let state = loadState();
+  saveState(); // persist any migration now, so cloud sync pushes the new shape
   document.getElementById('appTitle').textContent = CONFIG.appTitle || 'Progressive Overload Coach';
 
   // ============================================================
@@ -2138,7 +2157,8 @@ img, video, canvas, svg { max-width: 100%; }
       else if (intensity < 0.6) { base -= 20; intensityLabel = ' · light set'; }
     }
 
-    const seconds = Math.max(30, Math.min(300, Math.round(base / 5) * 5));
+    let seconds = Math.max(30, Math.min(300, Math.round(base / 5) * 5));
+    if (CONFIG.restSeconds) seconds = Math.max(CONFIG.restSeconds.min, Math.min(CONFIG.restSeconds.max, seconds));
     const clsLabel = cls === 'compound' ? ' · compound lift' : (cls === 'isolation' ? ' · isolation move' : '');
     return { seconds: seconds, reason: tierLabel + clsLabel + intensityLabel };
   }
@@ -2309,32 +2329,65 @@ img, video, canvas, svg { max-width: 100%; }
   function getLogs() { return (state.logs[exerciseLogKey(getCurrentEx())] || []).slice(); }
 
   // Prescription engine — "what should I do next session?"
-  // Upgrade trigger: hits CONFIG.upgradeAtReps (default 8) OR the
-  // exercise's repMax, whichever fires first. So a 5-8 lifter hits
-  // upgrade at 8; a 6-12 lifter ALSO hits it at 8 instead of grinding
-  // out 12 reps before adding weight.
+  // Double progression, per exercise: add `step` only when EVERY planned
+  // set (ex.sets) of the last session, at that session's working weight,
+  // hit the TOP of this exercise's own rep range (ex.repMax). Otherwise
+  // stay at the weight and add reps.
+  function repRange(ex) { return ex.repMin === ex.repMax ? String(ex.repMax) : (ex.repMin + '-' + ex.repMax); }
+  // Planned sets for this exercise on the day a session happened (the same
+  // exercise can be 3 sets on one day and 2 on another, e.g. face pulls).
+  function plannedSets(ex, dk) {
+    let m = null;
+    try {
+      const split = splitOn(wtParseKey(dk)).name;
+      const day = state.days.find(d => d.name.toLowerCase() === String(split).toLowerCase());
+      const key = exerciseLogKey(ex);
+      m = day && state.exercises.find(e => e.day === day.id && exerciseLogKey(e) === key);
+    } catch (e) {}
+    return Math.max(1, parseInt((m || ex).sets, 10) || 1);
+  }
   function getRx(ex, logs) {
     if (!logs.length) return null;
-    const last = logs[logs.length - 1];
-    const { weight, reps } = last;
     const { repMin, repMax, step, bw } = ex;
-    const upgradeAt = Math.min(CONFIG.upgradeAtReps || 8, repMax);
-    let stuck = 0;
-    for (let i = logs.length - 1; i >= 0; i--) {
-      if (logs[i].weight === weight) stuck++; else break;
-    }
+    // Group logs into sessions (local calendar days), oldest first.
+    const sessKeys = [], byKey = {};
+    logs.forEach(l => {
+      const k = wtDateKey(new Date(l.date));
+      if (!byKey[k]) { byKey[k] = []; sessKeys.push(k); }
+      byKey[k].push(l);
+    });
+    const target = plannedSets(ex, sessKeys[sessKeys.length - 1]);
+    const session = byKey[sessKeys[sessKeys.length - 1]];
+    const weight = bw ? 0 : Math.max.apply(null, session.map(l => l.weight || 0));
+    const work = bw ? session : session.filter(l => (l.weight || 0) === weight);
+    const repsList = work.map(l => l.reps).join(', ');
+    const lowest = Math.min.apply(null, work.map(l => l.reps));
+    const allTop = work.length >= target && lowest >= repMax;
+    const setsNote = work.length < target ? ' (' + work.length + '/' + target + ' sets logged)' : '';
     if (bw) {
-      if (reps >= upgradeAt) return { type: 'up', weight: 0, reps: reps + 1, tag: 'Push for more', reason: reps + ' reps — strong. Push for ' + (reps + 1) + ' next time.', bw: true };
-      if (reps >= repMin) return { type: 'hold', weight: 0, reps: reps + 1, tag: 'Add a rep', reason: reps + ' reps. Push for ' + (reps + 1) + ' next session.', bw: true };
-      return { type: 'hold', weight: 0, reps: repMin, tag: 'Repeat', reason: reps + ' reps fell short. Repeat until you hit ' + repMin + '+.', bw: true };
+      if (allTop) return { type: 'up', weight: 0, reps: repMax + 1, tag: 'Push for more', reason: 'Every set hit ' + repMax + '+ (' + repsList + '). Go for ' + (repMax + 1) + '+ next time.', bw: true };
+      if (lowest >= repMin) return { type: 'hold', weight: 0, reps: Math.min(repMax, lowest + 1), tag: 'Add reps', reason: 'Last: ' + repsList + ' reps' + setsNote + '. Get every set to ' + repMax + '.', bw: true };
+      return { type: 'hold', weight: 0, reps: repMin, tag: 'Repeat', reason: 'Last: ' + repsList + ' reps' + setsNote + '. Repeat until every set is ' + repRange(ex) + '.', bw: true };
     }
-    if (stuck >= 3 && reps < repMin) {
+    // Consecutive sessions whose working weight was this same weight.
+    let stuck = 0;
+    for (let i = sessKeys.length - 1; i >= 0; i--) {
+      const top = Math.max.apply(null, byKey[sessKeys[i]].map(l => l.weight || 0));
+      if (top === weight) stuck++; else break;
+    }
+    if (stuck >= 3 && lowest < repMin) {
       const dl = roundToStep(weight * 0.9, step);
-      return { type: 'down', weight: dl, reps: repMax, tag: 'Deload', reason: 'Stuck at ' + weight + unit() + ' for ' + stuck + ' sessions. Drop 10%, reset, build back cleaner.' };
+      return { type: 'down', weight: dl, reps: repMax, tag: 'Deload', reason: 'Stuck at ' + weight + unit() + ' for ' + stuck + ' sessions. Drop 10%, build back up.' };
     }
-    if (reps >= upgradeAt) return { type: 'up', weight: weight + step, reps: repMin, tag: 'Add weight', reason: 'You hit ' + reps + ' reps — time to add ' + step + unit() + '. Expect ' + repMin + '-' + (repMin + 1) + ' next session.' };
-    if (reps >= repMin && reps < upgradeAt) return { type: 'hold', weight: weight, reps: reps + 1, tag: 'Add a rep', reason: reps + ' reps in target. Stay at ' + weight + unit() + ', push for ' + (reps + 1) + '.' };
-    return { type: 'hold', weight: weight, reps: repMin, tag: 'Repeat', reason: reps + ' reps short of ' + repMin + '-' + upgradeAt + '. Repeat ' + weight + unit() + ' until you hit ' + repMin + '+ clean.' };
+    if (allTop) return { type: 'up', weight: weight + step, reps: repMin, tag: 'Add weight', reason: 'All ' + work.length + ' sets hit the top of ' + repRange(ex) + ' (' + repsList + '). Add ' + step + unit() + ' next session, expect ~' + repMin + '-' + Math.min(repMax, repMin + 2) + ' reps.' };
+    if (lowest >= repMin) return { type: 'hold', weight: weight, reps: Math.min(repMax, lowest + 1), tag: 'Add reps', reason: 'Last: ' + weight + unit() + ' × ' + repsList + setsNote + '. Stay at ' + weight + unit() + ' until every set hits ' + repMax + '.' };
+    return { type: 'hold', weight: weight, reps: repMin, tag: 'Repeat', reason: 'Last: ' + weight + unit() + ' × ' + repsList + setsNote + ', under ' + repMin + '. Repeat ' + weight + unit() + ' until every set is ' + repRange(ex) + '.' };
+  }
+  function planLine(ex) {
+    const sets = parseInt(ex.sets, 10);
+    const parts = [(sets ? sets + ' sets × ' : '') + repRange(ex) + ' reps'];
+    if (ex.note) parts.push(ex.note);
+    return '<p class="po-rx-reason" style="margin-top:8px;color:var(--text-tertiary)">Plan: ' + escape(parts.join(' · ')) + '</p>';
   }
 
   // ============================================================
@@ -2355,7 +2408,7 @@ img, video, canvas, svg { max-width: 100%; }
         state.filterDay = b.dataset.day;
         state.currentEx = null;
         // User has now manually picked a day — stop auto-overriding to today's split.
-        state._userPickedDay = true;
+        state._userPickedDay = wtDateKey(new Date()); // only sticks for today
         saveState(); renderAll();
       });
     });
@@ -2428,15 +2481,15 @@ img, video, canvas, svg { max-width: 100%; }
         ? '<span class="po-accent">' + sr + '</span> reps'
         : '<span class="po-accent">' + (sw || 0) + unit() + '</span> × ' + sr + ' reps';
       const reason = ex.bw
-        ? 'Aim for ' + ex.repMin + '-' + ex.repMax + ' clean reps. Once you hit ' + ex.repMax + '+, push for more.'
-        : 'Hit ' + ex.repMin + '-' + ex.repMax + ' reps. Once logged, the coach will start prescribing.';
-      wrap.innerHTML = '<div class="po-rx-card"><div class="po-rx-label">' + escape(ex.name) + ' · starting point</div><div class="po-rx-headline">' + head + '</div><span class="po-rx-tag hold">Start here</span><p class="po-rx-reason">' + reason + '</p></div>';
+        ? 'Aim for ' + repRange(ex) + ' clean reps with 1-2 left in the tank. Log every set.'
+        : 'Starting guess. Pick a weight you can do for ' + repRange(ex) + ' reps with 1-2 left in the tank, then log every set.';
+      wrap.innerHTML = '<div class="po-rx-card"><div class="po-rx-label">' + escape(ex.name) + ' · starting point</div><div class="po-rx-headline">' + head + '</div><span class="po-rx-tag hold">Start here</span><p class="po-rx-reason">' + reason + '</p>' + planLine(ex) + '</div>';
       return;
     }
     const head = rx.bw
       ? '<span class="po-accent">' + rx.reps + '</span> reps'
       : '<span class="po-accent">' + rx.weight + unit() + '</span> × ' + rx.reps + ' reps';
-    wrap.innerHTML = '<div class="po-rx-card po-rx-' + rx.type + '"><div class="po-rx-label">' + escape(ex.name) + '</div><div class="po-rx-headline">' + head + '</div><span class="po-rx-tag ' + rx.type + '">' + rx.tag + '</span><p class="po-rx-reason">' + rx.reason + '</p></div>';
+    wrap.innerHTML = '<div class="po-rx-card po-rx-' + rx.type + '"><div class="po-rx-label">' + escape(ex.name) + '</div><div class="po-rx-headline">' + head + '</div><span class="po-rx-tag ' + rx.type + '">' + rx.tag + '</span><p class="po-rx-reason">' + rx.reason + '</p>' + planLine(ex) + '</div>';
   }
   function renderStats() {
     const ex = getCurrentEx();
@@ -2529,12 +2582,15 @@ img, video, canvas, svg { max-width: 100%; }
   }
   // Compute today's split from state.splitRotation + state.splitAnchor.
   // Returns the rotation entry name (e.g. "Push" or "Rest") AND the index.
-  function todaySplit() {
+  function todaySplit() { return splitOn(new Date()); }
+  function splitOn(date) {
     try {
       const rot = state.splitRotation;
       if (!rot || !rot.length) return { name: '—', index: 0 };
-      const a = new Date(state.splitAnchor.date);
-      const t = new Date();
+      // 'YYYY-MM-DD' via new Date() is UTC midnight, i.e. the previous
+      // evening west of UTC; parse it as a local date instead.
+      const a = wtParseKey(state.splitAnchor.date);
+      const t = new Date(date);
       a.setHours(0,0,0,0); t.setHours(0,0,0,0);
       const diffDays = Math.round((t - a) / 86400000);
       const idx = ((state.splitAnchor.index + diffDays) % rot.length + rot.length) % rot.length;
@@ -2577,16 +2633,17 @@ img, video, canvas, svg { max-width: 100%; }
     } else {
       repMin = 4; repMax = 12;
     }
+    const start = Math.max(1, repMin - 2); // allow logging a short set honestly
     const upper = Math.max(repMax + 2, repMin + 5);
-    const end = Math.min(upper, repMin + 15);
+    const end = Math.min(upper, start + 15);
 
     // Preserve the previously-selected rep if it still fits in the new
     // range; otherwise default to the target (repMax).
     const prev = parseInt(row.dataset.value, 10);
-    const active = (prev >= repMin && prev <= end) ? prev : repMax;
+    const active = (prev >= start && prev <= end) ? prev : repMax;
 
     let html = '';
-    for (let i = repMin; i <= end; i++) {
+    for (let i = start; i <= end; i++) {
       html += '<button type="button" class="po-reps-pill' +
         (i === active ? ' active' : '') +
         '" data-v="' + i + '">' + i + '</button>';
@@ -2888,12 +2945,13 @@ img, video, canvas, svg { max-width: 100%; }
   // First-load nicety: if today's split matches one of the day filters
   // by name (case-insensitive) and the user hasn't manually picked one,
   // pre-select that day.
-  (function autoSelectTodaySplit() {
+  function autoSelectTodaySplit() {
     const s = todaySplit();
-    if (!s.name || isRestName(s.name) || state._userPickedDay) return;
+    if (!s.name || isRestName(s.name) || state._userPickedDay === wtDateKey(new Date())) return;
     const match = state.days.find(d => d.name.toLowerCase() === s.name.toLowerCase());
     if (match) state.filterDay = match.id;
-  })();
+  }
+  autoSelectTodaySplit();
 
   $('exSelect').addEventListener('change', e => {
     state.currentEx = e.target.value; saveState(); renderAll();
@@ -3164,7 +3222,7 @@ img, video, canvas, svg { max-width: 100%; }
     if (newTodayIdx >= cleaned.length) newTodayIdx = 0;
     state.splitRotation = cleaned;
     state.splitAnchor = {
-      date: new Date().toISOString().slice(0, 10),
+      date: wtDateKey(new Date()),
       index: newTodayIdx
     };
     saveState();
@@ -4123,6 +4181,7 @@ img, video, canvas, svg { max-width: 100%; }
   // ============================================================
   // BOOT
   // ============================================================
+  try { $('poRules').innerHTML = (CONFIG.rules || []).map(r => '<li>' + escape(r) + '</li>').join(''); } catch (e) {}
   renderAll();
   wtRender();
   photosRender();
@@ -4134,19 +4193,16 @@ img, video, canvas, svg { max-width: 100%; }
   // table, keyed by APP_KEY. Supabase's realtime channel pushes
   // changes to every device the instant they happen.
   //
-  // SETUP (5 minutes, all in a browser):
-  //   1. Make a free account at https://supabase.com
-  //   2. Create a new project
-  //   3. In your project: Settings → API → copy your Project URL +
-  //      "Publishable" key (the one starting with `sb_publishable_`)
-  //   4. Paste them below, replacing the two placeholder strings
-  //   5. Open the SQL Editor and run the SQL block from README.md
+  // 2026-11-09: points at the midterm-mastery Supabase project (the old
+  // project was deleted). Table SQL is in README.md. The publishable key
+  // is meant to be public; RLS limits it to select/insert/update on
+  // public.app_state. ~/life-os/gym_pull.py reads the same row.
   //
   // If you leave the placeholders unchanged the app still works,
   // just only on this device (data stays in your browser).
   // ============================================================
-  const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://srajryooffirbroltjmg.supabase.co';
-  const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_5142ZwTLF_DkSVRzciNuRA_bHwRAu4c';
+  const SUPABASE_URL = (window.DASH_SUPABASE_URL) || 'https://pzqsxvhuprvevhoemsbo.supabase.co';
+  const SUPABASE_KEY = (window.DASH_SUPABASE_KEY) || 'sb_publishable_eLofn--51-eOLxesjNso4A_XJydOZ21';
   const APP_KEY = 'po-coach';
   // Note: po_coach_photos IS synced, but only URL-pointer entries ride
   // the wire. The actual JPEG lives in Supabase Storage. pcCollectState
@@ -4162,6 +4218,21 @@ img, video, canvas, svg { max-width: 100%; }
   // JSON of the last state we sent or received — used to ignore
   // realtime echoes of our own pushes so we don't infinite-loop.
   let pcLastSyncedJson = null;
+  // No pushes until the first cloud pull has finished: page-load writes
+  // (stretch defaults etc.) would otherwise race it and let a blank device
+  // overwrite the cloud copy.
+  let pcInitDone = false;
+  // Postgres jsonb re-orders object keys, so compare snapshots with a
+  // key-sorted stringify; plain JSON.stringify never matched our own echo
+  // and every push bounced back as a 'remote change' + full re-render.
+  function pcCanon(v) {
+    if (Array.isArray(v)) return '[' + v.map(pcCanon).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + pcCanon(v[k])).join(',') + '}';
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function pcSameAsLocal(k, remoteVal) {
+    try { const l = localStorage.getItem(k); return l != null && pcCanon(JSON.parse(l)) === pcCanon(remoteVal); } catch (e) { return false; }
+  }
 
   const _pcOrigSet = localStorage.setItem.bind(localStorage);
   const _pcOrigRemove = localStorage.removeItem.bind(localStorage);
@@ -4212,7 +4283,7 @@ img, video, canvas, svg { max-width: 100%; }
     // Reload every closure variable that mirrors a synced localStorage
     // key — otherwise renderAll/wtRender/photosRender would read stale
     // in-memory copies from before the remote pull.
-    try { state = loadState(); } catch {}
+    try { state = loadState(); autoSelectTodaySplit(); } catch {}
     try { wtEntries = wtLoad(); } catch {}
     try { doneDays = loadDoneDays(); } catch {}
     try { exDone = loadExDone(); } catch {}
@@ -4242,16 +4313,13 @@ img, video, canvas, svg { max-width: 100%; }
           const remoteIds = new Set(remotePhotos.map((p) => p && p.id));
           const localOnly = localPhotos.filter((p) => p && !p.url && !remoteIds.has(p.id));
           const merged = [...remotePhotos, ...localOnly];
-          const incoming = JSON.stringify(merged);
-          if (localStorage.getItem(k) !== incoming) {
-            try { _pcOrigSet(k, incoming); changed = true; } catch {}
+          if (!pcSameAsLocal(k, merged)) {
+            try { _pcOrigSet(k, JSON.stringify(merged)); changed = true; } catch {}
           }
           continue;
         }
         if (k in remote) {
-          const incoming = JSON.stringify(remote[k]);
-          const local = localStorage.getItem(k);
-          if (local !== incoming) { try { _pcOrigSet(k, incoming); changed = true; } catch {} }
+          if (!pcSameAsLocal(k, remote[k])) { try { _pcOrigSet(k, JSON.stringify(remote[k])); changed = true; } catch {} }
         } else if (localStorage.getItem(k) != null) {
           try { _pcOrigRemove(k); changed = true; } catch {}
         }
@@ -4298,9 +4366,9 @@ img, video, canvas, svg { max-width: 100%; }
   }
 
   async function pcPushNow() {
-    if (!pcSupa) return;
+    if (!pcSupa || !pcInitDone) return;
     const state = pcCollectState();
-    const json = JSON.stringify(state);
+    const json = pcCanon(state);
     if (json === pcLastSyncedJson) return;
     pcPushInFlight = true;
     try {
@@ -4331,9 +4399,9 @@ img, video, canvas, svg { max-width: 100%; }
   // Backup push on unload via fetch keepalive so a fast refresh
   // doesn't lose the latest change before the debounced push fires.
   function pcFlushPushOnUnload() {
-    if (!pcSupa) return;
+    if (!pcSupa || !pcInitDone) return;
     const state = pcCollectState();
-    const json = JSON.stringify(state);
+    const json = pcCanon(state);
     if (json === pcLastSyncedJson) return;
     try {
       fetch(SUPABASE_URL + '/rest/v1/app_state?on_conflict=key', {
@@ -4351,6 +4419,22 @@ img, video, canvas, svg { max-width: 100%; }
     } catch (_) {}
   }
 
+  // True if a synced snapshot holds anything worth keeping (logged sets,
+  // archived logs, body weights). Used on first sync so a fresh device
+  // that created an empty row can't overwrite a phone that has real logs.
+  function pcHasUserData(d) {
+    try {
+      const st = d && d['po_coach_v1'];
+      let n = 0;
+      if (st && st.logs) Object.keys(st.logs).forEach(k => { n += Array.isArray(st.logs[k]) ? st.logs[k].length : 0; });
+      if (st && st.archivedLogs && Object.keys(st.archivedLogs).length) n++;
+      ['po_coach_weights', 'cardio:sessions'].forEach(k => { if (d && Array.isArray(d[k])) n += d[k].length; });
+      const sl = d && d['stretch:log'];
+      if (sl && typeof sl === 'object') n += Object.keys(sl).length;
+      return n > 0;
+    } catch (e) { return false; }
+  }
+
   // Initial sync: connect Supabase, pull current state, subscribe to
   // realtime updates so other devices' changes appear instantly.
   (async function pcInitCloudSync() {
@@ -4361,13 +4445,16 @@ img, video, canvas, svg { max-width: 100%; }
     try {
       const { data, error } = await pcSupa
         .from('app_state').select('data').eq('key', APP_KEY).maybeSingle();
-      if (!error && data && data.data && Object.keys(data.data).length > 0) {
-        pcLastSyncedJson = JSON.stringify(data.data);
+      clearTimeout(pcPushTimer); pcPushTimer = null;
+      pcInitDone = true;
+      const remoteOk = !error && data && data.data && Object.keys(data.data).length > 0;
+      if (remoteOk && (pcHasUserData(data.data) || !pcHasUserData(pcCollectState()))) {
+        pcLastSyncedJson = pcCanon(data.data);
         pcMaybeApplyRemote(data.data);
-      } else if (Object.keys(pcCollectState()).length > 0) {
+      } else if (!error && Object.keys(pcCollectState()).length > 0) {
         pcSchedulePush();
       }
-    } catch (_) {}
+    } catch (_) { pcInitDone = true; }
     pcSupa.channel('app_state_' + APP_KEY)
       .on('postgres_changes', {
         event: '*',
@@ -4376,8 +4463,11 @@ img, video, canvas, svg { max-width: 100%; }
         filter: 'key=eq.' + APP_KEY,
       }, (payload) => {
         if (!payload.new || !payload.new.data) return;
-        const incoming = JSON.stringify(payload.new.data);
+        const incoming = pcCanon(payload.new.data);
         if (incoming === pcLastSyncedJson) return; // echo of our own push
+        // A blank device must never wipe a device that has real logs:
+        // ignore the empty snapshot and push ours back instead.
+        if (!pcHasUserData(payload.new.data) && pcHasUserData(pcCollectState())) { pcSchedulePush(); return; }
         pcLastSyncedJson = incoming;
         pcMaybeApplyRemote(payload.new.data);
       })
