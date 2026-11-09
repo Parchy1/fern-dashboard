@@ -27,6 +27,7 @@ create table if not exists public.app_state (
 );
 alter table public.app_state enable row level security;
 grant select, insert, update on table public.app_state to anon, authenticated;
+revoke delete, truncate, references, trigger on table public.app_state from anon, authenticated;
 create policy "app_state anon select" on public.app_state for select to anon, authenticated using (true);
 create policy "app_state anon insert" on public.app_state for insert to anon, authenticated with check (true);
 create policy "app_state anon update" on public.app_state for update to anon, authenticated using (true) with check (true);
